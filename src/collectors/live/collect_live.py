@@ -49,7 +49,7 @@ DEFAULT_OUT = PROJECT_ROOT / "data" / "raw" / "live"   # luôn là <gốc dự �
 LOG = logging.getLogger("collect_live")
 UTC = timezone.utc
 
-COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "symbol",
+COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "market_type", "symbol",
            "bid", "ask", "bid_size", "ask_size", "latency_ms", "session_id", "data_kind"]
 
 
@@ -94,8 +94,26 @@ def build_schedule(cfg: dict) -> list[Session]:
 
 
 # ----------------------------------------------------------------------------- sàn
+def get_venues(cfg: dict) -> list[dict]:
+    """Danh sách (sàn, loại thị trường) cần thu. Ưu tiên cfg['venues'] (spot + perp);
+    không có thì dùng cfg['exchanges'] cũ (chỉ spot). Mỗi venue: exchange, market_type, ccxt_id, symbol."""
+    if cfg.get("venues"):
+        out = []
+        for v in cfg["venues"]:
+            out.append({"exchange": v["exchange"], "market_type": v.get("market_type", "spot"),
+                        "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"])})
+        return out
+    ov = cfg.get("symbol_overrides", {})
+    return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"])}
+            for n in cfg["exchanges"]]
+
+
+def venue_key(v: dict) -> str:
+    return f"{v['exchange']}:{v['market_type']}"
+
+
 def make_exchange(name: str):
-    """Tạo đối tượng CCXT. Tách riêng để test có thể thay bằng sàn giả."""
+    """Tạo đối tượng CCXT theo ccxt_id. Tách riêng để test có thể thay bằng sàn giả."""
     import ccxt  # import muộn: chỉ cần khi chạy thật
     return getattr(ccxt, name)({"enableRateLimit": True, "timeout": 4000})
 
@@ -142,13 +160,13 @@ class SessionWriter:
 
 
 # ----------------------------------------------------------------------------- một phiên
-def _worker(name, cfg, session, writer, stop_at, stats):
-    symbol = cfg.get("symbol_overrides", {}).get(name, cfg["symbol"])
+def _worker(venue, cfg, session, writer, stop_at, stats):
+    name, symbol, key = venue["exchange"], venue["symbol"], venue_key(venue)
     interval, limit = cfg["interval_s"], cfg["book_limit"]
     try:
-        ex = make_exchange(name)
+        ex = make_exchange(venue["ccxt_id"])
     except Exception as e:  # noqa: BLE001
-        LOG.error("[%s] không tạo được sàn: %s", name, e)
+        LOG.error("[%s] không tạo được sàn: %s", key, e)
         return
     backoff, skip_until = 0.0, 0.0
     # lưới thời gian căn theo bội số của interval (UTC epoch) để các sàn cùng nhịp
@@ -158,22 +176,22 @@ def _worker(name, cfg, session, writer, stop_at, stats):
         grid = datetime.fromtimestamp(nxt, UTC)
         nxt += interval
         if time.time() < skip_until:
-            stats[name]["skipped"] += 1
+            stats[key]["skipped"] += 1
             continue
         t0 = time.time()
         try:
             r = fetch_top_of_book(ex, symbol, limit)
             recv = datetime.now(UTC)
-            writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "symbol": symbol,
+            writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "market_type": venue["market_type"], "symbol": symbol,
                         "latency_ms": round((time.time() - t0) * 1000, 1),
                         "session_id": session.session_id, "data_kind": "live", **r})
-            stats[name]["ok"] += 1
+            stats[key]["ok"] += 1
             backoff = 0.0
         except Exception as e:  # noqa: BLE001 — mọi lỗi mạng/sàn: bỏ lượt, KHÔNG chèn dữ liệu giả
-            stats[name]["err"] += 1
+            stats[key]["err"] += 1
             backoff = min(30.0, max(1.0, backoff * 2))
             skip_until = time.time() + backoff
-            LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", name, type(e).__name__, backoff, str(e)[:160])
+            LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, backoff, str(e)[:160])
 
 
 def run_session(cfg, session: Session, out_dir: Path, fmt: str):
@@ -181,9 +199,10 @@ def run_session(cfg, session: Session, out_dir: Path, fmt: str):
     stop_at = session.end
     LOG.info("=== BẮT ĐẦU phiên %s, kết thúc %s ===", session.session_id, stop_at.astimezone(tz))
     writer = SessionWriter(out_dir, session, tz, fmt)
-    stats = {n: {"ok": 0, "err": 0, "skipped": 0} for n in cfg["exchanges"]}
-    threads = [threading.Thread(target=_worker, args=(n, cfg, session, writer, stop_at, stats), daemon=True)
-               for n in cfg["exchanges"]]
+    venues = get_venues(cfg)
+    stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0} for v in venues}
+    threads = [threading.Thread(target=_worker, args=(v, cfg, session, writer, stop_at, stats), daemon=True)
+               for v in venues]
     for t in threads:
         t.start()
     try:
@@ -238,13 +257,15 @@ def coverage(out_dir: Path, interval_s: int):
     for c in ("ts_grid_utc", "ts_recv_utc"):
         df[c] = pd.to_datetime(df[c], utc=True)
     rows = []
-    for (sid, ex), g in df.groupby(["session_id", "exchange"]):
+    if "market_type" not in df.columns:
+        df["market_type"] = "spot"
+    for (sid, ex, mt), g in df.groupby(["session_id", "exchange", "market_type"]):
         g = g.sort_values("ts_grid_utc")
         span = (g.ts_grid_utc.iloc[-1] - g.ts_grid_utc.iloc[0]).total_seconds()
         expected = int(span // interval_s) + 1
         gaps = g.ts_grid_utc.diff().dt.total_seconds().dropna()
         big = gaps[gaps > 3 * interval_s]
-        rows.append({"session_id": sid, "exchange": ex, "rows": len(g), "expected_rows": expected,
+        rows.append({"session_id": sid, "exchange": ex, "market_type": mt, "rows": len(g), "expected_rows": expected,
                      "coverage_pct": round(100 * len(g) / expected, 2), "n_gaps_gt_3_ticks": len(big),
                      "max_gap_s": float(gaps.max()) if len(gaps) else 0.0,
                      "first_utc": g.ts_grid_utc.iloc[0], "last_utc": g.ts_grid_utc.iloc[-1],

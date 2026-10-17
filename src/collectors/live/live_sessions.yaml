@@ -7,8 +7,19 @@ interval_s: 5                 # chu kỳ lấy mẫu (C3.02)
 flush_every_s: 60             # ghi part Parquet mỗi 60 giây (mất tối đa 60s nếu máy sập)
 symbol: BTC/USDT
 book_limit: 5                 # lấy 5 mức sổ lệnh, chỉ dùng mức 1 (bid/ask/size) cho bản tối thiểu
-exchanges: [binance, okx, bybit, kraken, coinbase]   # sửa theo danh sách sàn nhóm chốt trưa Ngày 2
-symbol_overrides: {}          # ví dụ: {coinbase: "BTC/USDT"} nếu sàn dùng ký hiệu khác
+# Mỗi dòng = một thị trường cần thu: spot VÀ perpetual (cột market_type = spot | perp).
+# ccxt_id: id CCXT dùng để kết nối; exchange: tên sàn ghi vào dữ liệu (chữ thường theo quy ước nhóm).
+# Perp dùng ký hiệu CCXT dạng BTC/USDT:USDT. Kraken/Coinbase chỉ có spot USDT trong cấu hình này
+# (Kraken perp là krakenfutures, quote USD; thêm sau nếu nhóm cần).
+venues:
+  - {exchange: binance,  market_type: spot, ccxt_id: binance,     symbol: "BTC/USDT"}
+  - {exchange: binance,  market_type: perp, ccxt_id: binanceusdm, symbol: "BTC/USDT:USDT"}
+  - {exchange: okx,      market_type: spot, ccxt_id: okx,         symbol: "BTC/USDT"}
+  - {exchange: okx,      market_type: perp, ccxt_id: okx,         symbol: "BTC/USDT:USDT"}
+  - {exchange: bybit,    market_type: spot, ccxt_id: bybit,       symbol: "BTC/USDT"}
+  - {exchange: bybit,    market_type: perp, ccxt_id: bybit,       symbol: "BTC/USDT:USDT"}
+  - {exchange: kraken,   market_type: spot, ccxt_id: kraken,      symbol: "BTC/USDT"}
+  - {exchange: coinbase, market_type: spot, ccxt_id: coinbase,    symbol: "BTC/USDT"}
 
 # Khung giờ phiên (giờ VN): S1 14:00–17:00 (châu Âu mở), S2 20:00–23:00 (Mỹ mở).
 sessions_weekend:             # Thứ Bảy, Chủ Nhật
