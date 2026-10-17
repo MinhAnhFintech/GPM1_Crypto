@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 import sys
 import threading
 import time
@@ -50,7 +51,13 @@ LOG = logging.getLogger("collect_live")
 UTC = timezone.utc
 
 COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "market_type", "symbol",
-           "bid", "ask", "bid_size", "ask_size", "latency_ms", "session_id", "data_kind"]
+           "bid", "ask", "bid_size", "ask_size",
+           "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "book_levels_bid", "book_levels_ask",
+           "latency_ms", "session_id", "data_kind"]
+DEPTH_BPS = 10          # tên cột depth_*_10bps_usdt cố định theo hợp đồng dữ liệu D2
+SHALLOW_LIMIT = 5       # sổ nông dùng làm phương án dự phòng khi lấy sổ sâu bị lỗi
+MAX_DEEP_FAILS = 3      # sổ sâu lỗi liên tiếp bấy nhiêu lần (mà sổ nông ổn) -> tắt sổ sâu cho phần còn lại của phiên
+ERROR_FIELDS = ["ts_utc", "venue", "error_type", "message", "action"]
 
 
 @dataclass(frozen=True)
@@ -101,10 +108,13 @@ def get_venues(cfg: dict) -> list[dict]:
         out = []
         for v in cfg["venues"]:
             out.append({"exchange": v["exchange"], "market_type": v.get("market_type", "spot"),
-                        "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"])})
+                        "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"]),
+                        "book_limit": int(v.get("book_limit", cfg.get("book_limit", SHALLOW_LIMIT))),
+                        "size_multiplier": float(v.get("size_multiplier", 1.0))})
         return out
     ov = cfg.get("symbol_overrides", {})
-    return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"])}
+    return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"]),
+             "book_limit": int(cfg.get("book_limit", SHALLOW_LIMIT)), "size_multiplier": 1.0}
             for n in cfg["exchanges"]]
 
 
@@ -118,14 +128,51 @@ def make_exchange(name: str):
     return getattr(ccxt, name)({"enableRateLimit": True, "timeout": 4000})
 
 
-def fetch_top_of_book(ex, symbol: str, limit: int) -> dict:
+def compute_depth(bids, asks, bps: float = DEPTH_BPS, size_mult: float = 1.0) -> dict:
+    """Độ sâu sổ lệnh trong vòng `bps` điểm cơ bản quanh giá giữa, đơn vị USDT.
+
+    bids giảm dần, asks tăng dần: danh sách [giá, khối_lượng, ...]. mid = (bid1 + ask1) / 2 tại đúng thời điểm lấy sổ.
+      depth_bid = tổng giá*khối_lượng của các mức có giá >= mid*(1 - bps/1e4)
+      depth_ask = tổng giá*khối_lượng của các mức có giá <= mid*(1 + bps/1e4)
+    depth_truncated = True nếu sổ lấy về hết ngay TRONG vùng bps (mức cuối vẫn nằm trong vùng) -> số đo bị đánh giá thấp.
+    """
+    mid = (float(bids[0][0]) + float(asks[0][0])) / 2.0
+    lo, hi = mid * (1 - bps / 1e4), mid * (1 + bps / 1e4)
+    d_bid = sum(float(p) * float(q) * size_mult for p, q, *_ in bids if float(p) >= lo)
+    d_ask = sum(float(p) * float(q) * size_mult for p, q, *_ in asks if float(p) <= hi)
+    trunc = float(bids[-1][0]) >= lo or float(asks[-1][0]) <= hi
+    return {"depth_bid_10bps_usdt": d_bid, "depth_ask_10bps_usdt": d_ask, "depth_truncated": bool(trunc),
+            "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
+
+
+def fetch_book(ex, symbol: str, limit: int, size_mult: float = 1.0, with_depth: bool = True) -> dict:
+    """Lấy sổ lệnh một lần: bid/ask/size mức 1 + (nếu with_depth) depth 10 bps. Không nội suy, không điền thiếu."""
     ob = ex.fetch_order_book(symbol, limit)
     if not ob.get("bids") or not ob.get("asks"):
         raise ValueError("order book rỗng")
     (bid, bid_sz), (ask, ask_sz) = ob["bids"][0][:2], ob["asks"][0][:2]
     ts_ev = ob.get("timestamp")
-    return {"bid": float(bid), "ask": float(ask), "bid_size": float(bid_sz), "ask_size": float(ask_sz),
-            "ts_event_utc": datetime.fromtimestamp(ts_ev / 1000, UTC) if ts_ev else None}
+    out = {"bid": float(bid), "ask": float(ask), "bid_size": float(bid_sz) * size_mult,
+           "ask_size": float(ask_sz) * size_mult,
+           "ts_event_utc": datetime.fromtimestamp(ts_ev / 1000, UTC) if ts_ev else None}
+    if with_depth:
+        out.update(compute_depth(ob["bids"], ob["asks"], DEPTH_BPS, size_mult))
+    else:  # sổ nông: KHÔNG tính depth (sẽ đánh giá thấp) -> để trống và đánh dấu truncated
+        out.update({"depth_bid_10bps_usdt": None, "depth_ask_10bps_usdt": None, "depth_truncated": True,
+                    "book_levels_bid": len(ob["bids"]), "book_levels_ask": len(ob["asks"])})
+    return out
+
+
+def is_transient(e: Exception) -> bool:
+    """Lỗi tạm thời (mạng, timeout, sàn bận, bị giới hạn tốc độ): KHÔNG phải lỗi do limit sổ sâu -> không dùng sổ nông, đi backoff."""
+    n = type(e).__name__.lower()
+    return (isinstance(e, (TimeoutError, ConnectionError)) or is_rate_limit(e)
+            or any(k in n for k in ("timeout", "network", "notavailable", "connection", "unavailable")))
+
+
+def is_rate_limit(e: Exception) -> bool:
+    n = type(e).__name__.lower()
+    return "ratelimit" in n or "ddos" in n or "too many" in str(e).lower() or "429" in str(e)
 
 
 # ----------------------------------------------------------------------------- ghi file
@@ -140,6 +187,21 @@ class SessionWriter:
     def add(self, row: dict):
         with self.lock:
             self.rows.append(row)
+
+    def log_error(self, venue: str, error_type: str, message: str, action: str):
+        """Ghi lỗi vào errors.csv của phiên (đầu vào cho bảng độ phủ T0b). Không bao giờ ném lỗi ra ngoài."""
+        try:
+            import csv
+            path = self.dir / "errors.csv"
+            with self.lock:
+                new = not path.exists()
+                with open(path, "a", newline="", encoding="utf-8") as f:
+                    w = csv.writer(f)
+                    if new:
+                        w.writerow(ERROR_FIELDS)
+                    w.writerow([datetime.now(UTC).isoformat(), venue, error_type, message[:300].replace("\n", " "), action])
+        except Exception:  # noqa: BLE001
+            pass
 
     def flush(self):
         with self.lock:
@@ -162,13 +224,15 @@ class SessionWriter:
 # ----------------------------------------------------------------------------- một phiên
 def _worker(venue, cfg, session, writer, stop_at, stats):
     name, symbol, key = venue["exchange"], venue["symbol"], venue_key(venue)
-    interval, limit = cfg["interval_s"], cfg["book_limit"]
+    interval, deep_limit, mult = cfg["interval_s"], venue["book_limit"], venue["size_multiplier"]
     try:
         ex = make_exchange(venue["ccxt_id"])
     except Exception as e:  # noqa: BLE001
         LOG.error("[%s] không tạo được sàn: %s", key, e)
+        writer.log_error(key, type(e).__name__, str(e), "worker_stopped")
         return
     backoff, skip_until = 0.0, 0.0
+    deep_fails, deep_on = 0, deep_limit > SHALLOW_LIMIT
     # lưới thời gian căn theo bội số của interval (UTC epoch) để các sàn cùng nhịp
     nxt = (int(time.time() // interval) + 1) * interval
     while nxt < stop_at.timestamp():
@@ -180,18 +244,39 @@ def _worker(venue, cfg, session, writer, stop_at, stats):
             continue
         t0 = time.time()
         try:
-            r = fetch_top_of_book(ex, symbol, limit)
+            try:
+                r = fetch_book(ex, symbol, deep_limit if deep_on else SHALLOW_LIMIT, mult, with_depth=deep_on)
+                deep_fails = 0
+            except Exception as e_deep:  # noqa: BLE001
+                if not deep_on or is_transient(e_deep):
+                    raise
+                # thử ngay sổ nông để không mất bid/ask; nếu sổ nông cũng lỗi thì lỗi này là lỗi thật (mạng/sàn)
+                r = fetch_book(ex, symbol, SHALLOW_LIMIT, mult, with_depth=False)
+                deep_fails += 1
+                stats[key]["shallow"] += 1
+                writer.log_error(key, type(e_deep).__name__, str(e_deep), f"deep_failed_used_shallow({deep_fails})")
+                LOG.warning("[%s] sổ sâu (limit=%d) lỗi %s -> dùng sổ nông, depth để trống: %s", key, deep_limit,
+                            type(e_deep).__name__, str(e_deep)[:120])
+                if deep_fails >= MAX_DEEP_FAILS:
+                    deep_on = False
+                    LOG.error("[%s] sổ sâu lỗi %d lần liên tiếp -> TẮT sổ sâu trong phần còn lại của phiên "
+                              "(chỉ còn bid/ask mức 1). Hãy sửa book_limit của venue này trong config.", key, deep_fails)
+                    writer.log_error(key, "DeepBookDisabled", f"limit={deep_limit}", "deep_disabled_for_session")
             recv = datetime.now(UTC)
-            writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "market_type": venue["market_type"], "symbol": symbol,
+            writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name,
+                        "market_type": venue["market_type"], "symbol": symbol,
                         "latency_ms": round((time.time() - t0) * 1000, 1),
                         "session_id": session.session_id, "data_kind": "live", **r})
             stats[key]["ok"] += 1
             backoff = 0.0
         except Exception as e:  # noqa: BLE001 — mọi lỗi mạng/sàn: bỏ lượt, KHÔNG chèn dữ liệu giả
             stats[key]["err"] += 1
-            backoff = min(30.0, max(1.0, backoff * 2))
-            skip_until = time.time() + backoff
-            LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, backoff, str(e)[:160])
+            base = max(10.0, backoff * 2) if is_rate_limit(e) else max(1.0, backoff * 2)  # bị giới hạn tốc độ -> nghỉ lâu hơn
+            backoff = min(60.0 if is_rate_limit(e) else 30.0, base)
+            wait = backoff * (0.8 + 0.4 * random.random())   # jitter, tránh các luồng cùng thử lại một lúc
+            skip_until = time.time() + wait
+            writer.log_error(key, type(e).__name__, str(e), f"skip_tick_backoff_{wait:.0f}s")
+            LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, wait, str(e)[:160])
 
 
 def run_session(cfg, session: Session, out_dir: Path, fmt: str):
@@ -200,7 +285,7 @@ def run_session(cfg, session: Session, out_dir: Path, fmt: str):
     LOG.info("=== BẮT ĐẦU phiên %s, kết thúc %s ===", session.session_id, stop_at.astimezone(tz))
     writer = SessionWriter(out_dir, session, tz, fmt)
     venues = get_venues(cfg)
-    stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0} for v in venues}
+    stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0, "shallow": 0} for v in venues}
     threads = [threading.Thread(target=_worker, args=(v, cfg, session, writer, stop_at, stats), daemon=True)
                for v in venues]
     for t in threads:
@@ -269,8 +354,21 @@ def coverage(out_dir: Path, interval_s: int):
                      "coverage_pct": round(100 * len(g) / expected, 2), "n_gaps_gt_3_ticks": len(big),
                      "max_gap_s": float(gaps.max()) if len(gaps) else 0.0,
                      "first_utc": g.ts_grid_utc.iloc[0], "last_utc": g.ts_grid_utc.iloc[-1],
-                     "median_latency_ms": float(g.latency_ms.median())})
+                     "median_latency_ms": float(g.latency_ms.median())}
+                    | ({"depth_truncated_pct": round(100 * g.depth_truncated.astype(bool).mean(), 1),
+                        "median_depth_bid_usdt": float(g.depth_bid_10bps_usdt.median()),
+                        "median_depth_ask_usdt": float(g.depth_ask_10bps_usdt.median())}
+                       if "depth_bid_10bps_usdt" in g.columns and g.depth_bid_10bps_usdt.notna().any() else {}))
     res = pd.DataFrame(rows)
+    # số lỗi từng phiên/luồng từ errors.csv (nếu có)
+    errs = [pd.read_csv(f).assign(session_id=f.parent.name.replace("session=", "")) for f in out_dir.rglob("errors.csv")]
+    if errs:
+        e = pd.concat(errs)
+        cnt = e.groupby(["session_id", "venue"]).size().rename("n_errors").reset_index()
+        cnt[["exchange", "market_type"]] = cnt["venue"].str.split(":", n=1, expand=True)
+        res = res.merge(cnt[["session_id", "exchange", "market_type", "n_errors"]], how="left",
+                        on=["session_id", "exchange", "market_type"])
+        res["n_errors"] = res["n_errors"].fillna(0).astype(int)
     print(res.to_string(index=False))
     return res
 

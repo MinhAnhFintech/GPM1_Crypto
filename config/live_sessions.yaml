@@ -1,0 +1,35 @@
+# Lịch thu thập live của TV3 (Ly) — mọi giờ theo múi giờ dưới đây (đổi được).
+# Mỗi phiên = một đoạn dữ liệu riêng (session_id), KHÔNG ghép hai phiên thành chuỗi liền.
+timezone: Asia/Ho_Chi_Minh
+start_date: 2026-10-17
+end_date: 2026-10-23          # dừng thu thập hết ngày này (để dành 24–26/10 cho backtest B, hồi quy, báo cáo)
+interval_s: 5                 # chu kỳ lấy mẫu (C3.02)
+flush_every_s: 60             # ghi part Parquet mỗi 60 giây (mất tối đa 60s nếu máy sập)
+symbol: BTC/USDT
+book_limit: 5                 # mặc định cho venue không khai báo book_limit riêng (5 = chỉ top-of-book, không tính depth)
+# Mỗi dòng = một thị trường cần thu: spot VÀ perpetual (cột market_type = spot | perp).
+# ccxt_id: id CCXT dùng để kết nối; exchange: tên sàn ghi vào dữ liệu (chữ thường theo quy ước nhóm).
+# Perp dùng ký hiệu CCXT dạng BTC/USDT:USDT. Kraken/Coinbase chỉ có spot USDT trong cấu hình này
+# (Kraken perp là krakenfutures, quote USD; thêm sau nếu nhóm cần).
+# book_limit = số mức sổ lệnh lấy mỗi lần để tính depth 10 bps (BTC: 10 bps ~ 67 USDT ~ hàng trăm mức giá).
+#   Giới hạn hợp lệ theo sàn: binance spot/perp 1000 (hợp lệ: 5,10,20,50,100,500,1000), okx 400, bybit spot 200 / perp 500,
+#   kraken 500, coinbase 500. Nếu sổ lấy về vẫn ngắn hơn 10 bps thì cột depth_truncated = True (depth bị đánh giá thấp).
+# size_multiplier = hệ số đổi khối lượng sổ lệnh sang BTC (mặc định 1). OKX perp báo khối lượng bằng "hợp đồng"
+#   (1 hợp đồng = 0.01 BTC) nên okx:perp dùng size_multiplier: 0.01. Các venue khác để mặc định 1.
+venues:
+  - {exchange: binance,  market_type: spot, ccxt_id: binance,     symbol: "BTC/USDT",       book_limit: 1000}
+  - {exchange: binance,  market_type: perp, ccxt_id: binanceusdm, symbol: "BTC/USDT:USDT",  book_limit: 1000}
+  - {exchange: okx,      market_type: spot, ccxt_id: okx,         symbol: "BTC/USDT",       book_limit: 400}
+  - {exchange: okx,      market_type: perp, ccxt_id: okx,         symbol: "BTC/USDT:USDT",  book_limit: 400, size_multiplier: 0.01}   # 1 hợp đồng = 0.01 BTC (suy ra từ lần thử 17/10: depth ~1.7e9 -> ~1.7e7 USDT, cùng cỡ binance perp ~2.3e7; cần kiểm tra lại)
+  - {exchange: bybit,    market_type: spot, ccxt_id: bybit,       symbol: "BTC/USDT",       book_limit: 200}
+  - {exchange: bybit,    market_type: perp, ccxt_id: bybit,       symbol: "BTC/USDT:USDT",  book_limit: 500}
+  - {exchange: kraken,   market_type: spot, ccxt_id: kraken,      symbol: "BTC/USDT",       book_limit: 500}
+  - {exchange: coinbase, market_type: spot, ccxt_id: coinbase,    symbol: "BTC/USDT",       book_limit: 500}
+
+# Khung giờ phiên (giờ VN): S1 14:00–17:00 (châu Âu mở), S2 20:00–23:00 (Mỹ mở).
+sessions_weekend:             # Thứ Bảy, Chủ Nhật
+  - {name: S1, start: "14:00", end: "17:00"}   # sàn châu Âu mở
+  - {name: S2, start: "20:00", end: "23:00"}   # sàn Mỹ mở
+sessions_weekday:             # Thứ Hai → Thứ Sáu
+  - {name: S1, start: "14:00", end: "17:00"}   # sàn châu Âu mở
+  - {name: S2, start: "20:00", end: "23:00"}   # sàn Mỹ mở
