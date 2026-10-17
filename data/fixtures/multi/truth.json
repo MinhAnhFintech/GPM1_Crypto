@@ -1,0 +1,21 @@
+{
+  "data_kind": "synthetic",
+  "case": "multi",
+  "seed": 20261017,
+  "known_leader": "binance_spot",
+  "lags_minutes": {
+    "binance_spot": 0,
+    "okx_spot": 1,
+    "bybit_spot": 2,
+    "binance_perp": 1
+  },
+  "expected_cs_is_ils_leader": "binance_spot",
+  "n_obs": 720,
+  "process": "delayed_common_random_walk_plus_stationary_venue_noise",
+  "warning": "Known lead-lag is DGP truth; IS/CS/ILS must be tested against TV5 code, not assumed.",
+  "files_sha256": {
+    "live_quotes_long.parquet": "af05f6b5e321e9bcef9588375134c52845ca211dc6fdbd3d71f2ea07ba1437f2",
+    "ohlcv_1m_long.parquet": "4386c6d7f0429b24a40a1545d10ac12823ba6b5466aa3cfa82eed19332a9a4e8",
+    "panel_1m_wide.parquet": "02f161e02c01961ee48b087e36f33a38cfcfd713926da1151633b5be3b07d5bb"
+  }
+}
