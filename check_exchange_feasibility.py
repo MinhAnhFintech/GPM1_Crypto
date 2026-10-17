@@ -1,8 +1,8 @@
 """
 C3.01 - KIEM TRA KHA THI DU LIEU CAC SAN (TV3)
 ================================================
-Chay:   python c3_01_exchange_feasibility.py
-        python c3_01_exchange_feasibility.py --only binance,okx --skip-perp
+Chay:   python check_exchange_feasibility.py
+        python check_exchange_feasibility.py --only binance,okx --skip-perp
 
 Moi san duoc kiem tra:
   1. Spot BTC/USDT (hoac BTC/USD): so nen toi da moi lan goi, `since` co duoc ton trong khong
@@ -204,7 +204,8 @@ def test_pagination(ex, symbol: str, page_size: int) -> dict:
     first_off_min = (ts[0] - first_since) / MS_MIN
     since_ok = abs(first_off_min) <= HISTORY_TOLERANCE_MIN
     return {
-        "ok": gaps == 0 and dups == 0 and since_ok, "error": None, "kind": None,
+        "ok": gaps == 0 and dups == 0 and since_ok and pages_ok == PAGINATION_PAGES, "error": None, "kind": None,
+        "pages_ok": pages_ok, "pages_required": PAGINATION_PAGES,
         "page_size": page_size, "n_candles": len(ts), "gaps": gaps, "dups": dups,
         "since_ok": since_ok, "sec_per_page": round(sec_page, 2),
         "eta_1y_min": round(525_600 / page_size * sec_page / 60, 1),
@@ -375,8 +376,12 @@ def spot_eligibility(r: dict) -> tuple[bool, list[str]]:
 
 def perp_eligibility(r: dict) -> tuple[bool, list[str]]:
     why = []
+    if r["geo_blocked"] or r["status"].startswith("LOI"):
+        return False, ["san loi hoac bi chan vung"]
     if not r["perp_symbol"]:
         return False, ["khong co perp tuyen tinh"]
+    if r["perp_quote"] != "USDT":
+        why.append("perp quote khac USDT")
     d = r["derivs"] or {}
     if r["hist_perp_max_ok_days"] < REQUIRED_HISTORY_DAYS:
         why.append(f"nen perp toi da {r['hist_perp_max_ok_days']}d")
