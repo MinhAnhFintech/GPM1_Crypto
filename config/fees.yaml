@@ -1,0 +1,49 @@
+# Trading fee configuration
+# Task: C1.01 - Bieu phi cac san
+#
+# Unit: basis points (bps), one-way
+# 1 bps = 0.01%
+#
+# Assumption:
+# - Use standard / Regular User / VIP 0 taker fees.
+# - No VIP discounts.
+# - No token-based fee discounts (BNB, etc.).
+# - Fees are one-way and will be applied separately to buy and sell legs.
+#
+# Checked on: 2026-10-17
+
+
+binance:
+  spot:
+    taker_bps: 10.0
+    source_url: "https://www.binance.com/en/fee/trading"
+    checked_on: "2026-10-17"
+
+  perp:
+    taker_bps: 5.0
+    source_url: "https://www.binance.com/en-BH/fee/futureFee"
+    checked_on: "2026-10-17"
+
+
+okx:
+  spot:
+    taker_bps: 10.0
+    source_url: "https://www.okx.com/fees"
+    checked_on: "2026-10-17"
+
+  perp:
+    taker_bps: 5.0
+    source_url: "https://www.okx.com/fees"
+    checked_on: "2026-10-17"
+
+
+bybit:
+  spot:
+    taker_bps: 10.0
+    source_url: "https://www.bybit.com/en/fee/spot"
+    checked_on: "2026-10-17"
+
+  perp:
+    taker_bps: 5.5
+    source_url: "https://www.bybit.com/en/fee/futures"
+    checked_on: "2026-10-17"
