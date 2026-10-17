@@ -1,21 +1,25 @@
 # Quy trình đóng góp
 
-Anh (TV4) phụ trách schema, thời gian, fixtures và tích hợp. Nhánh làm việc chung của nhóm là `dev`; thành viên cập nhật và push công việc vào nhánh này, không bắt buộc tạo nhánh riêng. Mỗi nhiệm vụ có commit riêng, ghi rõ thành viên và mã việc, ví dụ `feat(tv1): C1.01 add exchange taker fees`. Anh review các thay đổi trên dev trong 24 giờ. Chỉ Anh tích hợp dev vào main tại các mốc M2, M4, M6; thành viên không push trực tiếp lên main hoặc force-push dev.
+Anh (TV4) phụ trách schema, thời gian, fixtures và tích hợp. `dev` là nhánh tích hợp trong quá trình làm; `main` để trống làm nhánh phát hành cho đến khi dự án hoàn tất. Mỗi thành viên làm trên nhánh riêng tạo từ `dev`, rồi mở pull request (PR) vào `dev`. Anh review và merge PR sau khi kiểm tra. Chỉ Anh mở PR phát hành từ `dev` vào `main` khi dự án đã hoàn tất. Không push trực tiếp lên `dev` hoặc `main`, và không force-push các nhánh dùng chung.
 
-Trước khi bắt đầu công việc, đồng bộ dev:
+Trước khi bắt đầu một nhiệm vụ, đồng bộ `dev` rồi tạo nhánh riêng có tên gồm vai trò và mã việc, ví dụ `feat/tv2-c2-02-binance-vision`:
 
 ```powershell
 git switch dev
 git pull --ff-only origin dev
+git switch -c feat/tv2-c2-02-binance-vision
 ```
 
-Trước khi push dev:
+Trước khi mở PR vào `dev`, chạy các kiểm tra và push nhánh nhiệm vụ của mình:
 
 ```powershell
 python -m pip install -r requirements.txt
 python -m pytest -q
 python run_all.py --mode synthetic
+git push -u origin feat/tv2-c2-02-binance-vision
 ```
+
+Trên GitHub, đặt nhánh đích (base) của PR là `dev`. Nếu PR cần sửa schema, phải cập nhật DATA_CONTRACT, validator và fixtures trong cùng PR.
 
 Sau khi TV5 bàn giao ba module vecm/info_share/info_leadership, kiểm chứng bắt buộc:
 
@@ -23,7 +27,7 @@ Sau khi TV5 bàn giao ba module vecm/info_share/info_leadership, kiểm chứng 
 python -m pytest tests/test_info_share_synthetic.py --require-tv5 -q
 ```
 
-Thay đổi schema phải cập nhật DATA_CONTRACT, validator và fixtures trong cùng commit. Không nghiệm thu thay đổi dùng dữ liệu tương lai, nội suy giá thiếu, trộn synthetic/historical/live, mất hậu tố venue, ghép spot/perp để arbitrage hoặc dùng final test để chọn tham số.
+Không nghiệm thu thay đổi dùng dữ liệu tương lai, nội suy giá thiếu, trộn synthetic/historical/live, mất hậu tố venue, ghép spot/perp để arbitrage hoặc dùng final test để chọn tham số.
 
 TV1: config, regime flags và README. TV2: Binance Vision, features, dashboard và hình. TV3: CCXT/live/funding/OI, evaluation. TV4: synchronization/utils/leadlag, templates và orchestrator. TV5: cointegration và IS/CS/ILS. TV6: cost_model/backtest/sensitivity. Khi cần sửa liên quan, ghi rõ lý do tích hợp và thêm test tái hiện lỗi.
 

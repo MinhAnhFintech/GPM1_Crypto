@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -126,7 +127,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.verify:
-            subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=ROOT, check=True)
+            temp_root = ROOT/"tmp"
+            temp_root.mkdir(parents=True, exist_ok=True)
+            basetemp = temp_root/f"pytest-verify-{uuid.uuid4().hex}"
+            subprocess.run([sys.executable, "-m", "pytest", "-q", "--basetemp", str(basetemp)], cwd=ROOT, check=True)
         run_pipeline(args)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Pipeline stopped: {exc}", file=sys.stderr)
