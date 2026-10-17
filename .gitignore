@@ -1,2 +1,14 @@
 data/raw/
 .venv/
+data/interim/
+data/processed/
+tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+*.log
+outputs/synthetic/

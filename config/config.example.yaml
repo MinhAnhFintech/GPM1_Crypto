@@ -1,0 +1,30 @@
+# TV4 template for TV1. Synthetic defaults; production dates must be supplied.
+contract_version: '1.0'
+symbol: BTC/USDT
+timeframe: 1min
+max_age: 5min
+seed: 20261017
+rolling:
+  window_obs: 1440
+  step_obs: 60
+split_ratios: [0.6, 0.2, 0.2]
+max_lag: 5
+sample:
+  start: null
+  end: null
+fixtures:
+  start: '2026-01-01T00:01:00Z'
+  n_obs: 720
+  initial_price_usdt: 60000.0
+  innovation_sigma: 0.0005
+  leader_noise_sigma: 0.000002
+  follower_noise_sigma: 0.00002
+  multi:
+    leader: binance_spot
+    lags: {binance_spot: 0, okx_spot: 1, bybit_spot: 2, binance_perp: 1}
+  spot_perp:
+    leader: binance_perp
+    lags: {binance_spot: 1, binance_perp: 0}
+# Team modules registered here run after the TV4 foundation. Paths are relative
+# to repo; each command is an argv list (no shell), with {data_dir}/{output_dir}.
+pipeline_stages: []
