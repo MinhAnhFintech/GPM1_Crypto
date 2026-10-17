@@ -6,11 +6,7 @@ end_date: 2026-10-23          # dừng thu thập hết ngày này (để dành 
 interval_s: 5                 # chu kỳ lấy mẫu (C3.02)
 flush_every_s: 60             # ghi part Parquet mỗi 60 giây (mất tối đa 60s nếu máy sập)
 symbol: BTC/USDT
-<<<<<<< HEAD:config/live_sessions.yaml
 book_limit: 5                 # mặc định cho venue không khai báo book_limit riêng (5 = chỉ top-of-book, không tính depth)
-=======
-book_limit: 200               # C3.03: tính depth +/-10bps; luôn ghi depth_censored nếu chưa phủ đủ
->>>>>>> origin/dev:src/collectors/live/live_sessions.yaml
 # Mỗi dòng = một thị trường cần thu: spot VÀ perpetual (cột market_type = spot | perp).
 # ccxt_id: id CCXT dùng để kết nối; exchange: tên sàn ghi vào dữ liệu (chữ thường theo quy ước nhóm).
 # Perp dùng ký hiệu CCXT dạng BTC/USDT:USDT. Kraken/Coinbase chỉ có spot USDT trong cấu hình này
@@ -21,7 +17,6 @@ book_limit: 200               # C3.03: tính depth +/-10bps; luôn ghi depth_cen
 # size_multiplier = hệ số đổi khối lượng sổ lệnh sang BTC (mặc định 1). OKX perp báo khối lượng bằng "hợp đồng"
 #   (1 hợp đồng = 0.01 BTC) nên okx:perp dùng size_multiplier: 0.01. Các venue khác để mặc định 1.
 venues:
-<<<<<<< HEAD:config/live_sessions.yaml
   - {exchange: binance,  market_type: spot, ccxt_id: binance,     symbol: "BTC/USDT",       book_limit: 1000}
   - {exchange: binance,  market_type: perp, ccxt_id: binanceusdm, symbol: "BTC/USDT:USDT",  book_limit: 1000}
   - {exchange: okx,      market_type: spot, ccxt_id: okx,         symbol: "BTC/USDT",       book_limit: 400}
@@ -30,16 +25,6 @@ venues:
   - {exchange: bybit,    market_type: perp, ccxt_id: bybit,       symbol: "BTC/USDT:USDT",  book_limit: 500}
   - {exchange: kraken,   market_type: spot, ccxt_id: kraken,      symbol: "BTC/USDT",       book_limit: 500}
   - {exchange: coinbase, market_type: spot, ccxt_id: coinbase,    symbol: "BTC/USDT",       book_limit: 500}
-=======
-  - {exchange: binance,  market_type: spot, ccxt_id: binance,     symbol: "BTC/USDT", book_limit: 1000}
-  - {exchange: binance,  market_type: perp, ccxt_id: binanceusdm, symbol: "BTC/USDT:USDT", book_limit: 1000}
-  - {exchange: okx,      market_type: spot, ccxt_id: okx,         symbol: "BTC/USDT", book_limit: 400}
-  - {exchange: okx,      market_type: perp, ccxt_id: okx,         symbol: "BTC/USDT:USDT", book_limit: 400}
-  - {exchange: bybit,    market_type: spot, ccxt_id: bybit,       symbol: "BTC/USDT"}
-  - {exchange: bybit,    market_type: perp, ccxt_id: bybit,       symbol: "BTC/USDT:USDT"}
-  - {exchange: kraken,   market_type: spot, ccxt_id: kraken,      symbol: "BTC/USDT"}
-  - {exchange: coinbase, market_type: spot, ccxt_id: coinbaseexchange, symbol: "BTC/USDT"}
->>>>>>> origin/dev:src/collectors/live/live_sessions.yaml
 
 # Khung giờ phiên (giờ VN): S1 14:00–17:00 (châu Âu mở), S2 20:00–23:00 (Mỹ mở).
 sessions_weekend:             # Thứ Bảy, Chủ Nhật
