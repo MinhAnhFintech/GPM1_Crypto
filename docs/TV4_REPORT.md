@@ -23,5 +23,3 @@ Mã thu thập nằm ở src/collectors; tiện ích UTC, schema và I/O ở src
 Tái lập demo bằng `python run_all.py --mode synthetic --verify`. Lệnh tạo dữ liệu giả lập từ seed cấu hình, kiểm schema, dựng panel, tạo manifest chia mẫu, xuất bảng lead–lag, hình F1/F6 và minh họa OLS-HAC. Dữ liệu giả lập được giữ trong data/fixtures, đầu ra trong outputs/synthetic, có nhãn synthetic trên hình và metadata.
 
 Bộ fixtures gồm nhiều venue với binance_spot dẫn và một cặp spot/perp có binance_perp dẫn. Chúng dùng cùng một quá trình giá ngẫu nhiên tích lũy, độ trễ riêng từng venue và nhiễu dừng độc lập. Truth.json lưu venue dẫn và độ trễ đã cài. Kiểm chứng lead–lag phải thu lại độ trễ này; việc thu lại IS/CS/ILS phải chạy hàm thật của TV5 qua tests/test_info_share_synthetic.py. Hai nhóm bằng chứng không thay thế nhau.
-
-Tại lần triển khai này, module IS/CS/ILS của TV5 chưa có trong repo, vì vậy kiểm chứng đó đang chờ bàn giao. Không có giá trị IS, CS hoặc ILS giả được xuất để làm bằng chứng. Phụ lục này cần bổ sung kết quả strict test của TV5 và lần chạy đủ dữ liệu thật trước khi dùng cho bản nộp cuối.
