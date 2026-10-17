@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import sys
 import threading
 import time
@@ -50,7 +51,9 @@ LOG = logging.getLogger("collect_live")
 UTC = timezone.utc
 
 COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "market_type", "symbol",
-           "bid", "ask", "bid_size", "ask_size", "latency_ms", "session_id", "data_kind"]
+           "bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
+           "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_censored",
+           "latency_ms", "session_id", "session_start_utc", "session_end_utc", "data_kind"]
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,8 @@ def get_venues(cfg: dict) -> list[dict]:
         out = []
         for v in cfg["venues"]:
             out.append({"exchange": v["exchange"], "market_type": v.get("market_type", "spot"),
-                        "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"])})
+                        "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"]),
+                        "book_limit": v.get("book_limit", cfg["book_limit"])})
         return out
     ov = cfg.get("symbol_overrides", {})
     return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"])}
@@ -119,12 +123,33 @@ def make_exchange(name: str):
 
 
 def fetch_top_of_book(ex, symbol: str, limit: int) -> dict:
+    """D2 values: prices USDT, sizes BTC, depth USDT within +/-10bps of mid.
+
+    Linear perpetual order sizes can be contracts: multiply by contractSize.
+    Truncated depth remains an observed lower bound, with depth_censored=True.
+    Event time is metadata; downstream availability must use ts_recv_utc.
+    """
     ob = ex.fetch_order_book(symbol, limit)
     if not ob.get("bids") or not ob.get("asks"):
         raise ValueError("order book rỗng")
-    (bid, bid_sz), (ask, ask_sz) = ob["bids"][0][:2], ob["asks"][0][:2]
+    market = ex.market(symbol)
+    if market.get("inverse"):
+        raise ValueError("inverse contracts unsupported by BTC/USDT D2 schema")
+    multiplier = float(market.get("contractSize") or 1) if market.get("contract") else 1.0
+    bids = [(float(row[0]), float(row[1])*multiplier) for row in ob["bids"]]
+    asks = [(float(row[0]), float(row[1])*multiplier) for row in ob["asks"]]
+    (bid, bid_sz), (ask, ask_sz) = bids[0], asks[0]
+    if not all(math.isfinite(p) and math.isfinite(q) and p > 0 and q >= 0 for p, q in bids+asks) or ask < bid:
+        raise ValueError("invalid or crossed order book")
+    mid = (bid+ask)/2
+    lower, upper = mid*(1-10/10000), mid*(1+10/10000)
+    depth_bid = sum(price*size for price, size in bids if price >= lower)
+    depth_ask = sum(price*size for price, size in asks if price <= upper)
     ts_ev = ob.get("timestamp")
     return {"bid": float(bid), "ask": float(ask), "bid_size": float(bid_sz), "ask_size": float(ask_sz),
+            "mid": mid, "spread_abs": ask-bid, "spread_bps": (ask-bid)/mid*10000,
+            "depth_bid_10bps_usdt": depth_bid, "depth_ask_10bps_usdt": depth_ask,
+            "depth_censored": bids[-1][0] > lower or asks[-1][0] < upper,
             "ts_event_utc": datetime.fromtimestamp(ts_ev / 1000, UTC) if ts_ev else None}
 
 
@@ -134,7 +159,8 @@ class SessionWriter:
         d = session.start.astimezone(tz).date()
         self.dir = out_dir / f"date={d:%Y-%m-%d}" / f"session={session.session_id}"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.fmt, self.n, self.rows, self.lock = fmt, len(list(self.dir.glob("part-*"))), [], threading.Lock()
+        existing = [int(p.stem.split("-")[1]) for p in self.dir.glob("part-*") if p.suffix in {".parquet", ".csv"} and p.stem.split("-")[1].isdigit()]
+        self.fmt, self.n, self.rows, self.lock = fmt, max(existing, default=0), [], threading.Lock()
         self.total = 0
 
     def add(self, row: dict):
@@ -148,21 +174,28 @@ class SessionWriter:
             return
         import pandas as pd
         df = pd.DataFrame(rows, columns=COLUMNS)
-        for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc"):
-            df[c] = pd.to_datetime(df[c], utc=True)
+        for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc", "session_start_utc", "session_end_utc"):
+            df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
         self.n += 1
         path = self.dir / f"part-{self.n:04d}.{'parquet' if self.fmt == 'parquet' else 'csv'}"
         tmp = path.with_suffix(path.suffix + ".tmp")
-        (df.to_parquet(tmp, index=False) if self.fmt == "parquet" else df.to_csv(tmp, index=False))
-        tmp.rename(path)  # ghi nguyên tử: file hỏng giữa chừng không bao giờ mang tên part-*
+        try:
+            (df.to_parquet(tmp, index=False) if self.fmt == "parquet" else df.to_csv(tmp, index=False))
+            tmp.rename(path)
+        except Exception:
+            with self.lock:
+                self.rows = rows+self.rows
+            tmp.unlink(missing_ok=True)
+            raise
         self.total += len(df)
         LOG.info("flush %s: +%d dòng (tổng phiên %d)", path.name, len(df), self.total)
 
 
 # ----------------------------------------------------------------------------- một phiên
-def _worker(venue, cfg, session, writer, stop_at, stats):
+def _worker(venue, cfg, session, writer, stop_at, stats, stop_event=None):
     name, symbol, key = venue["exchange"], venue["symbol"], venue_key(venue)
-    interval, limit = cfg["interval_s"], cfg["book_limit"]
+    interval, limit = cfg["interval_s"], venue.get("book_limit", cfg["book_limit"])
+    stop_event = stop_event or threading.Event()
     try:
         ex = make_exchange(venue["ccxt_id"])
     except Exception as e:  # noqa: BLE001
@@ -171,27 +204,41 @@ def _worker(venue, cfg, session, writer, stop_at, stats):
     backoff, skip_until = 0.0, 0.0
     # lưới thời gian căn theo bội số của interval (UTC epoch) để các sàn cùng nhịp
     nxt = (int(time.time() // interval) + 1) * interval
-    while nxt < stop_at.timestamp():
-        time.sleep(max(0.0, nxt - time.time()))
-        grid = datetime.fromtimestamp(nxt, UTC)
-        nxt += interval
-        if time.time() < skip_until:
-            stats[key]["skipped"] += 1
-            continue
-        t0 = time.time()
-        try:
-            r = fetch_top_of_book(ex, symbol, limit)
-            recv = datetime.now(UTC)
-            writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "market_type": venue["market_type"], "symbol": symbol,
-                        "latency_ms": round((time.time() - t0) * 1000, 1),
-                        "session_id": session.session_id, "data_kind": "live", **r})
-            stats[key]["ok"] += 1
-            backoff = 0.0
-        except Exception as e:  # noqa: BLE001 — mọi lỗi mạng/sàn: bỏ lượt, KHÔNG chèn dữ liệu giả
-            stats[key]["err"] += 1
-            backoff = min(30.0, max(1.0, backoff * 2))
-            skip_until = time.time() + backoff
-            LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, backoff, str(e)[:160])
+    try:
+        while nxt < stop_at.timestamp() and not stop_event.is_set():
+            if stop_event.wait(max(0.0, nxt - time.time())):
+                break
+            if time.time() >= stop_at.timestamp():
+                break
+            # Requests slower than a tick do not create backdated catch-up quotes.
+            if time.time()-nxt >= interval:
+                missed = int((time.time()-nxt)//interval)
+                stats[key]["skipped"] += missed
+                nxt += missed*interval
+            grid = datetime.fromtimestamp(nxt, UTC)
+            nxt += interval
+            if time.time() < skip_until:
+                stats[key]["skipped"] += 1
+                continue
+            t0 = time.monotonic()
+            try:
+                r = fetch_top_of_book(ex, symbol, limit)
+                recv = datetime.now(UTC)
+                writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "market_type": venue["market_type"], "symbol": symbol.split(":")[0],
+                            "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+                            "session_id": session.session_id, "session_start_utc": session.start,
+                            "session_end_utc": session.end, "data_kind": "live", **r})
+                stats[key]["ok"] += 1
+                backoff = 0.0
+            except Exception as e:  # noqa: BLE001
+                stats[key]["err"] += 1
+                backoff = min(30.0, max(1.0, backoff * 2))
+                skip_until = time.time() + backoff
+                LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, backoff, str(e)[:160])
+    finally:
+        close = getattr(ex, "close", None)
+        if close:
+            close()
 
 
 def run_session(cfg, session: Session, out_dir: Path, fmt: str):
@@ -201,7 +248,8 @@ def run_session(cfg, session: Session, out_dir: Path, fmt: str):
     writer = SessionWriter(out_dir, session, tz, fmt)
     venues = get_venues(cfg)
     stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0} for v in venues}
-    threads = [threading.Thread(target=_worker, args=(v, cfg, session, writer, stop_at, stats), daemon=True)
+    stop_event = threading.Event()
+    threads = [threading.Thread(target=_worker, args=(v, cfg, session, writer, stop_at, stats, stop_event), daemon=True)
                for v in venues]
     for t in threads:
         t.start()
@@ -213,6 +261,7 @@ def run_session(cfg, session: Session, out_dir: Path, fmt: str):
                 writer.flush()
                 last = time.time()
     finally:
+        stop_event.set()
         for t in threads:
             t.join(timeout=10)
         writer.flush()  # luôn ghi nốt phần còn lại, kể cả khi Ctrl+C
@@ -247,29 +296,76 @@ def run(cfg, out_dir: Path, fmt: str, test_minutes: float | None, min_remaining:
 
 
 # ----------------------------------------------------------------------------- coverage (C3.05 / T0b)
-def coverage(out_dir: Path, interval_s: int):
+def coverage(out_dir: Path, interval_s: int, cfg=None, as_of=None):
+    """Coverage against elapsed scheduled ticks, including zero-observation venues.
+
+    Session end is exclusive; future ticks do not count as missing. For legacy
+    files without schedule metadata or config, label the weaker observed span.
+    Duplicate/off-grid rows never inflate the number of successful ticks.
+    """
     import pandas as pd
+    out_dir = Path(out_dir)
+    as_of = pd.Timestamp(as_of or datetime.now(UTC))
+    if as_of.tzinfo is None:
+        raise ValueError("as_of must be timezone-aware")
+    as_of = as_of.tz_convert("UTC")
     files = sorted(list(out_dir.rglob("part-*.parquet")) + list(out_dir.rglob("part-*.csv")))
-    if not files:
+    if not files and cfg is None:
         print("Chưa có dữ liệu trong", out_dir)
         return None
-    df = pd.concat([pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f) for f in files])
+    if interval_s <= 0:
+        raise ValueError("interval_s must be positive")
+    df = pd.concat([pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f) for f in files], ignore_index=True) if files else pd.DataFrame(columns=COLUMNS)
     for c in ("ts_grid_utc", "ts_recv_utc"):
-        df[c] = pd.to_datetime(df[c], utc=True)
+        df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
     rows = []
     if "market_type" not in df.columns:
         df["market_type"] = "spot"
+    schedules = {s.session_id: s for s in build_schedule(cfg)} if cfg else {}
+    observed = set()
     for (sid, ex, mt), g in df.groupby(["session_id", "exchange", "market_type"]):
+        observed.add((sid, ex, mt))
         g = g.sort_values("ts_grid_utc")
-        span = (g.ts_grid_utc.iloc[-1] - g.ts_grid_utc.iloc[0]).total_seconds()
-        expected = int(span // interval_s) + 1
-        gaps = g.ts_grid_utc.diff().dt.total_seconds().dropna()
+        duplicate_rows = int(g.ts_grid_utc.duplicated().sum())
+        unique = g.drop_duplicates("ts_grid_utc")
+        if "session_start_utc" in g and g.session_start_utc.notna().any():
+            start = pd.to_datetime(g.session_start_utc, utc=True).min()
+            end = pd.to_datetime(g.session_end_utc, utc=True).max()
+            basis = "scheduled_session"
+        elif sid in schedules:
+            start, end = pd.Timestamp(schedules[sid].start), pd.Timestamp(schedules[sid].end)
+            basis = "scheduled_session"
+        else:
+            start, end = unique.ts_grid_utc.iloc[0], unique.ts_grid_utc.iloc[-1]+pd.Timedelta(seconds=interval_s)
+            basis = "observed_span_only"
+        end = min(end, as_of)
+        first_tick = math.ceil(start.timestamp()/interval_s)*interval_s
+        expected = max(0, math.ceil((end.timestamp()-first_tick)/interval_s))
+        on_grid = unique.ts_grid_utc.astype("int64") % (interval_s*1_000_000_000) == 0
+        in_session = unique[(unique.ts_grid_utc >= start) & (unique.ts_grid_utc < end) & on_grid]
+        gaps = in_session.ts_grid_utc.diff().dt.total_seconds().dropna()
         big = gaps[gaps > 3 * interval_s]
         rows.append({"session_id": sid, "exchange": ex, "market_type": mt, "rows": len(g), "expected_rows": expected,
-                     "coverage_pct": round(100 * len(g) / expected, 2), "n_gaps_gt_3_ticks": len(big),
+                     "unique_rows": len(in_session), "duplicate_rows": duplicate_rows, "coverage_basis": basis,
+                     "off_grid_rows": int((~on_grid).sum()),
+                     "coverage_pct": round(100 * len(in_session) / expected, 2) if expected else 0, "n_gaps_gt_3_ticks": len(big),
                      "max_gap_s": float(gaps.max()) if len(gaps) else 0.0,
                      "first_utc": g.ts_grid_utc.iloc[0], "last_utc": g.ts_grid_utc.iloc[-1],
                      "median_latency_ms": float(g.latency_ms.median())})
+    # Include configured sessions/venues with NO observations, too.
+    if cfg:
+        elapsed = {sid: s for sid, s in schedules.items() if s.start < as_of.to_pydatetime()}
+        for sid in set(df.session_id.unique()) | set(elapsed):
+            template = next((r for r in rows if r["session_id"] == sid), None)
+            if template is None:
+                session = elapsed[sid]
+                first_tick = math.ceil(session.start.timestamp()/interval_s)*interval_s
+                expected = max(0, math.ceil((min(pd.Timestamp(session.end), as_of).timestamp()-first_tick)/interval_s))
+                template = {"session_id": sid, "expected_rows": expected, "coverage_basis": "scheduled_session"}
+            for venue in get_venues(cfg):
+                key = (sid, venue["exchange"], venue["market_type"])
+                if key not in observed:
+                    rows.append({**template, "exchange": key[1], "market_type": key[2], "rows": 0, "unique_rows": 0, "duplicate_rows": 0, "off_grid_rows": 0, "coverage_pct": 0.0, "n_gaps_gt_3_ticks": int(template["expected_rows"] > 3), "max_gap_s": template["expected_rows"]*interval_s, "first_utc": None, "last_utc": None, "median_latency_ms": None})
     res = pd.DataFrame(rows)
     print(res.to_string(index=False))
     return res
@@ -301,7 +397,7 @@ def main(argv=None):
             print(s.session_id, s.start.astimezone(tz).strftime("%a %d/%m %H:%M"), "→",
                   s.end.astimezone(tz).strftime("%H:%M"), cfg["timezone"])
     elif a.cmd == "coverage":
-        res = coverage(a.out, cfg["interval_s"])
+        res = coverage(a.out, cfg["interval_s"], cfg)
         if res is not None and a.csv_report:
             res.to_csv(a.csv_report, index=False)
     else:

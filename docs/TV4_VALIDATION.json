@@ -1,0 +1,149 @@
+{
+  "checked_at_utc": "2026-10-17T15:56:29.326989+00:00",
+  "pytest": {
+    "tests": 32,
+    "passed": 30,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "skipped_reason": "C4.13 awaits real TV5 vecm/info_share/info_leadership modules"
+  },
+  "strict_tv5_check": {
+    "performed": true,
+    "exit_code": 1,
+    "status": "pending_dependency",
+    "reason": "Both mandatory cases fail explicitly when --require-tv5 is set and TV5 modules are absent"
+  },
+  "synthetic_multi": {
+    "mode": "synthetic",
+    "data_kind": "synthetic",
+    "source": "C:\\Users\\User\\Downloads\\BTN10\\data\\fixtures\\multi\\ohlcv_1m_long.parquet",
+    "source_sha256": "4386c6d7f0429b24a40a1545d10ac12823ba6b5466aa3cfa82eed19332a9a4e8",
+    "config_sha256": "f1995350d50805034619fbe8ad83a615956ec1d79f521ac9cd8494b463c24666",
+    "panel_fingerprint": "8f0fb81af85a2c633be35330593c54b5f1086aa13861d9bd3c7e2133627d86a6",
+    "rows": 720,
+    "venues": [
+      "binance_perp",
+      "binance_spot",
+      "bybit_spot",
+      "okx_spot"
+    ],
+    "analysis_split": "dev",
+    "test_consumed": false,
+    "foundation_status": "passed",
+    "team_stages": [],
+    "pending_team_stages": [
+      "cost_backtest",
+      "evaluation",
+      "features",
+      "price_discovery",
+      "regime_flags"
+    ],
+    "full_research_pipeline_complete": false
+  },
+  "synthetic_spot_perp": {
+    "mode": "synthetic",
+    "data_kind": "synthetic",
+    "source": "C:\\Users\\User\\Downloads\\BTN10\\data\\fixtures\\spot_perp\\ohlcv_1m_long.parquet",
+    "source_sha256": "6d0aee204c6e16fa913e237fa0d08c747ad07213b42fe5fef82cf18701eb97b8",
+    "config_sha256": "f1995350d50805034619fbe8ad83a615956ec1d79f521ac9cd8494b463c24666",
+    "panel_fingerprint": "baad1599b35dd0e568e40170e7fd9b5b6cde6ae88835bd85aa2ee4c7cccdf627",
+    "rows": 720,
+    "venues": [
+      "binance_perp",
+      "binance_spot"
+    ],
+    "analysis_split": "dev",
+    "test_consumed": false,
+    "foundation_status": "passed",
+    "team_stages": [],
+    "pending_team_stages": [
+      "cost_backtest",
+      "evaluation",
+      "features",
+      "price_discovery",
+      "regime_flags"
+    ],
+    "full_research_pipeline_complete": false
+  },
+  "real_api_smoke": {
+    "purpose": "engineering_smoke_only",
+    "sample_start": "2026-10-17T13:51:00+00:00",
+    "sample_end_exclusive": "2026-10-17T15:51:00+00:00",
+    "ccxt_version": "4.5.88",
+    "venues": [
+      {
+        "venue": "binance_spot",
+        "ohlcv_status": "passed",
+        "n_candles": 120,
+        "orderbook_status": "passed",
+        "depth_censored": false
+      },
+      {
+        "venue": "okx_spot",
+        "ohlcv_status": "passed",
+        "n_candles": 120,
+        "orderbook_status": "passed",
+        "depth_censored": true
+      },
+      {
+        "venue": "binance_perp",
+        "ohlcv_status": "passed",
+        "n_candles": 120,
+        "orderbook_status": "passed",
+        "depth_censored": false
+      }
+    ],
+    "panel_rows": 120,
+    "panel_status": "passed",
+    "test_consumed": false,
+    "all_requested_venues_passed": true
+  },
+  "real_foundation": {
+    "mode": "historical",
+    "data_kind": "historical",
+    "source": "tmp\\real_review\\ohlcv_1m_long.parquet",
+    "source_sha256": "01d5b9a3982edab4441ca34ce603f61ffeba03a9f4b5e66fd90e4b840effb5c4",
+    "config_sha256": "31e16b7b6eacff4b22eb3d1f1e9805265ff6864f8967f908962dfbd24f8c23c3",
+    "panel_fingerprint": "946880e0b3e8ce192357ade7547076b9bc153ddb3bd11ba97da2ae32a2b74c86",
+    "rows": 120,
+    "venues": [
+      "binance_perp",
+      "binance_spot",
+      "okx_spot"
+    ],
+    "analysis_split": "dev",
+    "test_consumed": false,
+    "foundation_status": "passed",
+    "team_stages": [],
+    "pending_team_stages": [
+      "cost_backtest",
+      "evaluation",
+      "features",
+      "price_discovery",
+      "regime_flags"
+    ],
+    "full_research_pipeline_complete": false
+  },
+  "full_production_guard": {
+    "checked": true,
+    "exit_code": 1,
+    "reason": "Refuses full completion while five team stages are absent"
+  },
+  "checks": {
+    "compileall": "passed",
+    "git_diff_check": "passed",
+    "streamlit_seven_sections": "passed",
+    "figures_visually_reviewed": [
+      "multi/F1",
+      "spot_perp/F6"
+    ]
+  },
+  "requirements_sha256": "189cc5bf1ca7475ec6b22a3990d875a73bdc3dc86d85a227e18bf6bb43f3060d",
+  "reviewed_commits": {
+    "tv2": "c615f80",
+    "tv3": "f0e5c8b",
+    "local_tv2_merge": "40fbbf9"
+  },
+  "remote_pushed": false
+}

@@ -10,11 +10,18 @@ Chi lay SPOT. Perpetual do TV3 lay qua CCXT (C3.04).
 import argparse
 import hashlib
 import io
+import re
+import sys
+import time
 import zipfile
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 BASE = "https://data.binance.vision/data/spot/monthly/klines/{sym}/1m/{sym}-1m-{ym}.zip"
 COLS = [
@@ -24,29 +31,53 @@ COLS = [
 
 
 def months(start: str, end: str):
+    """Inclusive monthly interval; reject malformed or reversed ranges."""
+    if not all(re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value) for value in (start, end)) or start > end:
+        raise ValueError("Expected ordered YYYY-MM --start/--end")
     return [p.strftime("%Y-%m") for p in pd.period_range(start, end, freq="M")]
 
 
 def fetch(url: str) -> bytes:
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    return r.content
+    """Retry transient public-data failures; never retry missing monthly files."""
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()
+            return r.content
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise
+        time.sleep(2**attempt)
+    raise RuntimeError("unreachable")
 
 
 def download_month(sym: str, ym: str, cache: Path) -> pd.DataFrame:
+    """Verify SHA-256 for NEW and CACHED ZIPs before parsing any candle."""
+    cache.mkdir(parents=True, exist_ok=True)
     url = BASE.format(sym=sym, ym=ym)
     zip_path = cache / f"{sym}-1m-{ym}.zip"
-
+    checksum_path = zip_path.with_suffix(".zip.CHECKSUM")
+    data = zip_path.read_bytes() if zip_path.exists() else fetch(url)
+    checksum = checksum_path.read_bytes() if checksum_path.exists() else fetch(url+".CHECKSUM")
+    expected = checksum.decode().split()[0].lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", expected):
+        raise ValueError(f"Invalid SHA-256 checksum for {ym}")
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected:
+        raise ValueError(f"Checksum LECH cho {ym}: {actual} != {expected}")
     if not zip_path.exists():
-        data = fetch(url)
-        expected = fetch(url + ".CHECKSUM").decode().split()[0].lower()
-        actual = hashlib.sha256(data).hexdigest()
-        if actual != expected:  # lech checksum = loi, khong giu file
-            raise ValueError(f"Checksum LECH cho {ym}: {actual} != {expected}")
         zip_path.write_bytes(data)
+    if not checksum_path.exists():
+        checksum_path.write_bytes(checksum)
 
     with zipfile.ZipFile(zip_path) as z:
-        name = z.namelist()[0]
+        candidates = [name for name in z.namelist() if name.lower().endswith(".csv") and not name.endswith("/")]
+        if len(candidates) != 1:
+            raise ValueError("Expected exactly one candle CSV per monthly archive")
+        name = candidates[0]
         with z.open(name) as f:
             raw = f.read().decode()
 
@@ -58,6 +89,8 @@ def download_month(sym: str, ym: str, cache: Path) -> pd.DataFrame:
         names=None if has_header else COLS,
     )
     df.columns = COLS
+    if df.empty:
+        raise ValueError(f"Empty monthly candles: {ym}")
     return df
 
 
@@ -73,20 +106,37 @@ def to_utc(ts: pd.Series) -> pd.Series:
     return out
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="BTCUSDT")
-    ap.add_argument("--start", required=True, help="YYYY-MM")
-    ap.add_argument("--end", required=True, help="YYYY-MM (chi thang da dong)")
-    ap.add_argument("--out", default="data/raw/ohlcv")
-    args = ap.parse_args()
+    ap.add_argument("--start", help="YYYY-MM; overrides config")
+    ap.add_argument("--end", help="YYYY-MM (chi thang da dong); overrides config")
+    ap.add_argument("--config", type=Path, default=ROOT/"config/config.yaml")
+    ap.add_argument("--out", type=Path, default=ROOT/"data/raw/ohlcv")
+    args = ap.parse_args(argv)
+    if not args.start or not args.end:
+        from src.utils.config import load_config
+        cfg = load_config(args.config)
+        sample = cfg.get("sample", {})
+        if not sample.get("start") or not sample.get("end"):
+            ap.error("Set --start/--end or sample.start/end (UTC, end exclusive) in config")
+        start, end = pd.Timestamp(sample["start"]), pd.Timestamp(sample["end"])
+        if start.tzinfo is None or end.tzinfo is None or end <= start:
+            ap.error("Config sample dates must be aware, with end > start")
+        start, end = start.tz_convert("UTC"), end.tz_convert("UTC")
+        args.start = args.start or start.strftime("%Y-%m")
+        args.end = args.end or (end-pd.Timedelta(nanoseconds=1)).strftime("%Y-%m")
 
     out_dir = Path(args.out)
     cache = out_dir / "_zip_cache"
     cache.mkdir(parents=True, exist_ok=True)
 
     frames = []
-    for ym in months(args.start, args.end):
+    requested_months = months(args.start, args.end)
+    current_month = pd.Timestamp.now(tz="UTC").strftime("%Y-%m")
+    if any(ym >= current_month for ym in requested_months):
+        ap.error("Monthly archive must be closed; choose months before the current UTC month")
+    for ym in requested_months:
         print("Tai", ym, flush=True)
         frames.append(download_month(args.symbol, ym, cache))
 
@@ -101,7 +151,9 @@ def main():
     # KHONG dien nen thieu o day. C2.02 se dem va bao cao.
 
     out_file = out_dir / f"binance_spot_{args.symbol}_1m.parquet"
-    df.to_parquet(out_file, index=False)
+    tmp = out_file.with_suffix(".parquet.tmp")
+    df.to_parquet(tmp, index=False)
+    tmp.replace(out_file)
     print("Da ghi", out_file)
 
 
