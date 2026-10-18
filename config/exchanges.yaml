@@ -1,0 +1,33 @@
+# Exchange configuration
+# Based on TV4 template.
+
+venues:
+  - exchange: binance
+    market_type: spot
+    ccxt_id: binance
+    symbol: 'BTC/USDT'
+
+  - exchange: binance
+    market_type: perp
+    ccxt_id: binanceusdm
+    symbol: 'BTC/USDT:USDT'
+
+  - exchange: okx
+    market_type: spot
+    ccxt_id: okx
+    symbol: 'BTC/USDT'
+
+  - exchange: okx
+    market_type: perp
+    ccxt_id: okx
+    symbol: 'BTC/USDT:USDT'
+
+  - exchange: bybit
+    market_type: spot
+    ccxt_id: bybit
+    symbol: 'BTC/USDT'
+
+  - exchange: bybit
+    market_type: perp
+    ccxt_id: bybit
+    symbol: 'BTC/USDT:USDT'
