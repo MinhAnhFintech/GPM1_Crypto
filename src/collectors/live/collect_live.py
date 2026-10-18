@@ -10,6 +10,9 @@ Quy tắc phiên:
   * Không nội suy / chèn dữ liệu giả vào chỗ thiếu: lỗi mạng -> bỏ lượt đó, ghi log.
   * Thời gian luôn UTC (có timezone). ts_recv_utc = giờ máy nhận; ts_event_utc = giờ sàn (có thể trống).
 
+Mỗi venue trong YAML có thể khai báo thêm `params` (dict) để truyền cho fetch_order_book của CCXT,
+ví dụ OKX perp dùng endpoint sâu hơn: params: {method: publicGetMarketBooksFull}.
+
 Dùng:
     python collect_live.py                          # = run (nút Run của VS Code cũng được)
     python collect_live.py run                      # chạy theo lịch trong config/live_sessions.yaml
@@ -103,18 +106,20 @@ def build_schedule(cfg: dict) -> list[Session]:
 # ----------------------------------------------------------------------------- sàn
 def get_venues(cfg: dict) -> list[dict]:
     """Danh sách (sàn, loại thị trường) cần thu. Ưu tiên cfg['venues'] (spot + perp);
-    không có thì dùng cfg['exchanges'] cũ (chỉ spot). Mỗi venue: exchange, market_type, ccxt_id, symbol."""
+    không có thì dùng cfg['exchanges'] cũ (chỉ spot). Mỗi venue: exchange, market_type, ccxt_id, symbol,
+    book_limit, size_multiplier, params (tham số thêm cho fetch_order_book, mặc định rỗng)."""
     if cfg.get("venues"):
         out = []
         for v in cfg["venues"]:
             out.append({"exchange": v["exchange"], "market_type": v.get("market_type", "spot"),
                         "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"]),
                         "book_limit": int(v.get("book_limit", cfg.get("book_limit", SHALLOW_LIMIT))),
-                        "size_multiplier": float(v.get("size_multiplier", 1.0))})
+                        "size_multiplier": float(v.get("size_multiplier", 1.0)),
+                        "params": dict(v.get("params") or {})})
         return out
     ov = cfg.get("symbol_overrides", {})
     return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"]),
-             "book_limit": int(cfg.get("book_limit", SHALLOW_LIMIT)), "size_multiplier": 1.0}
+             "book_limit": int(cfg.get("book_limit", SHALLOW_LIMIT)), "size_multiplier": 1.0, "params": {}}
             for n in cfg["exchanges"]]
 
 
@@ -145,9 +150,11 @@ def compute_depth(bids, asks, bps: float = DEPTH_BPS, size_mult: float = 1.0) ->
             "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
 
 
-def fetch_book(ex, symbol: str, limit: int, size_mult: float = 1.0, with_depth: bool = True) -> dict:
-    """Lấy sổ lệnh một lần: bid/ask/size mức 1 + (nếu with_depth) depth 10 bps. Không nội suy, không điền thiếu."""
-    ob = ex.fetch_order_book(symbol, limit)
+def fetch_book(ex, symbol: str, limit: int, size_mult: float = 1.0, with_depth: bool = True,
+               params: dict | None = None) -> dict:
+    """Lấy sổ lệnh một lần: bid/ask/size mức 1 + (nếu with_depth) depth 10 bps. Không nội suy, không điền thiếu.
+    `params` được truyền thẳng cho ex.fetch_order_book (ví dụ OKX perp: {"method": "publicGetMarketBooksFull"})."""
+    ob = ex.fetch_order_book(symbol, limit, params or {})
     if not ob.get("bids") or not ob.get("asks"):
         raise ValueError("order book rỗng")
     (bid, bid_sz), (ask, ask_sz) = ob["bids"][0][:2], ob["asks"][0][:2]
@@ -225,6 +232,7 @@ class SessionWriter:
 def _worker(venue, cfg, session, writer, stop_at, stats):
     name, symbol, key = venue["exchange"], venue["symbol"], venue_key(venue)
     interval, deep_limit, mult = cfg["interval_s"], venue["book_limit"], venue["size_multiplier"]
+    params = venue.get("params") or {}   # chỉ áp dụng cho lần lấy sổ sâu (vd OKX books-full)
     try:
         ex = make_exchange(venue["ccxt_id"])
     except Exception as e:  # noqa: BLE001
@@ -245,12 +253,13 @@ def _worker(venue, cfg, session, writer, stop_at, stats):
         t0 = time.time()
         try:
             try:
-                r = fetch_book(ex, symbol, deep_limit if deep_on else SHALLOW_LIMIT, mult, with_depth=deep_on)
+                r = fetch_book(ex, symbol, deep_limit if deep_on else SHALLOW_LIMIT, mult, with_depth=deep_on,
+                               params=params if deep_on else None)
                 deep_fails = 0
             except Exception as e_deep:  # noqa: BLE001
                 if not deep_on or is_transient(e_deep):
                     raise
-                # thử ngay sổ nông để không mất bid/ask; nếu sổ nông cũng lỗi thì lỗi này là lỗi thật (mạng/sàn)
+                # thử ngay sổ nông (không dùng params) để không mất bid/ask; nếu sổ nông cũng lỗi thì lỗi này là lỗi thật
                 r = fetch_book(ex, symbol, SHALLOW_LIMIT, mult, with_depth=False)
                 deep_fails += 1
                 stats[key]["shallow"] += 1
@@ -260,7 +269,8 @@ def _worker(venue, cfg, session, writer, stop_at, stats):
                 if deep_fails >= MAX_DEEP_FAILS:
                     deep_on = False
                     LOG.error("[%s] sổ sâu lỗi %d lần liên tiếp -> TẮT sổ sâu trong phần còn lại của phiên "
-                              "(chỉ còn bid/ask mức 1). Hãy sửa book_limit của venue này trong config.", key, deep_fails)
+                              "(chỉ còn bid/ask mức 1). Hãy sửa book_limit/params của venue này trong config.",
+                              key, deep_fails)
                     writer.log_error(key, "DeepBookDisabled", f"limit={deep_limit}", "deep_disabled_for_session")
             recv = datetime.now(UTC)
             writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name,
