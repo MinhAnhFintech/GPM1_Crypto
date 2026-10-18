@@ -10,12 +10,15 @@ from src.utils.synthetic import make_fixture
 def tv5_functions(request):
     modules = {"vecm": "src.price_discovery.vecm", "is": "src.price_discovery.info_share", "ils": "src.price_discovery.info_leadership"}
     missing = [name for name in modules.values() if importlib.util.find_spec(name) is None]
+    loaded = {name: importlib.import_module(module) for name, module in modules.items() if module not in missing}
+    required = {"vecm": ("fit_vecm",), "is": ("hasbrouck_is", "component_share"), "ils": ("information_leadership",)}
+    missing += [f"{modules[name]}.{function}" for name, functions in required.items()
+                if name in loaded for function in functions if not callable(getattr(loaded[name], function, None))]
     if missing:
         message = "C4.13 awaits TV5: "+", ".join(missing)
         if request.config.getoption("--require-tv5"):
             pytest.fail(message)
         pytest.skip(message)
-    loaded = {name: importlib.import_module(module) for name, module in modules.items()}
     return loaded["vecm"].fit_vecm, loaded["is"].hasbrouck_is, loaded["is"].component_share, loaded["ils"].information_leadership
 
 

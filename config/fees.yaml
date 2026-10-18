@@ -11,16 +11,22 @@
 # - Fees are one-way and will be applied separately to buy and sell legs.
 #
 # Checked on: 2026-10-17
+#
+# Read by src/cost_model/costs.py::load_fees (TV6). Layout: {exchange}: {market_type}: {...}
+# -> venue {exchange}_{market_type}. taker_bps is required (default scenario);
+# maker_bps is only for the side scenario. A venue missing here is an error, never fee 0.
 
 
 binance:
   spot:
     taker_bps: 10.0
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.binance.com/en/fee/trading"
     checked_on: "2026-10-17"
 
   perp:
     taker_bps: 5.0
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.binance.com/en-BH/fee/futureFee"
     checked_on: "2026-10-17"
 
@@ -28,11 +34,13 @@ binance:
 okx:
   spot:
     taker_bps: 10.0
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.okx.com/fees"
     checked_on: "2026-10-17"
 
   perp:
     taker_bps: 5.0
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.okx.com/fees"
     checked_on: "2026-10-17"
 
@@ -40,10 +48,21 @@ okx:
 bybit:
   spot:
     taker_bps: 10.0
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.bybit.com/en/fee/spot"
     checked_on: "2026-10-17"
 
   perp:
     taker_bps: 5.5
+    maker_bps: null  # Chua xac minh; chan kich ban maker cho den khi TV1 bo sung nguon.
     source_url: "https://www.bybit.com/en/fee/futures"
     checked_on: "2026-10-17"
+
+
+# Cost-model defaults (TV6). Not an exchange; all values in bps one-way per leg.
+defaults:
+  slippage_bps: 0.0     # base scenario; sensitivity runs override it
+  extra_cost_bps: 0.0   # capital pre-positioned on both venues (contract 2.5)
+  # TODO: lay tu mau live D2 cua TV3 (median spread_bps / 2). null = chua co;
+  # close-only mode will then raise instead of silently using 0.
+  assumed_half_spread_bps: null

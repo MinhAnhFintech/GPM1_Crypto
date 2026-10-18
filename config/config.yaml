@@ -1,0 +1,4 @@
+# TV6 (C6.03): gap event detection (src/cost_model/gap_events.py). Other keys belong to TV1.
+gap_events:
+  gap_threshold_bps: 5.0  # gross_gap_bps >= threshold counts as a gap. TODO: nhom chot gia tri
+  grid_step_s: 60         # spacing of consecutive observations (1min grid). TODO: nhom chot gia tri

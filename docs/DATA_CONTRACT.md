@@ -45,7 +45,7 @@ Các cột bổ sung được phép nếu không thay nghĩa cột bắt buộc.
 - D1 duy nhất theo (ts_available, exchange, market_type, symbol). Giá OHLC dương, high/low bao các giá còn lại, volume không âm. Không tự xóa dòng trùng.
 - D2: bid > 0, ask >= bid; mid=(bid+ask)/2; spread_abs=ask-bid; spread_bps=spread_abs/mid*10000. Size perpetual tuyến tính từ CCXT phải nhân contractSize để ra BTC; không hỗ trợ hợp đồng inverse trong schema BTC/USDT này.
 - D3: index duy nhất, tăng dần; `log_close=ln(close)`; missing phải khớp NaN của close, log_close và volume khi hết tuổi dữ liệu.
-- D6: share hữu hạn trong [0,1] với status=ok; is_lower <= is_mid <= is_upper. Không gán leader nếu bounds chồng nhau; để trống và reason=overlapping_bounds. IS và ILS khác nhau phải báo cáo cả hai.
+- D6: IS và ILS hữu hạn trong [0,1] với status=ok; is_lower <= is_mid <= is_upper. Component Share phải hữu hạn nhưng giữ nguyên dấu và giá trị, không ép vào [0,1] (C5.04, sheet «Việc Code», hàng 48). Không gán leader nếu bounds chồng nhau; để trống và reason=overlapping_bounds. IS và ILS khác nhau phải báo cáo cả hai.
 - Funding là tỷ lệ theo chu kỳ, không annualize; funding_interval_h là số giờ mỗi chu kỳ. OI base tính BTC, OI USDT phải có cách quy đổi rõ. Không lấy OI hiện tại làm lịch sử.
 
 ## Đồng bộ và chia mẫu
@@ -60,6 +60,21 @@ D4 chia theo thứ tự thời gian, không shuffle: floor(60%N) development, fl
 
 `select_split` chỉ cho dev/val. `claim_final_test` yêu cầu file cấu hình đã đóng băng, ghi SHA-256 và khóa độc quyền bằng file `.test.lock` rồi đánh dấu test_consumed; lần gọi sau bị từ chối. Chạy lại pipeline không xóa khóa. Đây là kiểm soát trong API dự án, không ngăn việc mở Parquet trực tiếp; nhóm vẫn phải giữ quy tắc chỉ dùng test cuối một lần.
 
+### Đồng bộ quotes D2 cho mô hình chi phí live
+
+```python
+from src.synchronization.live import align_live_quotes
+wide_quotes = align_live_quotes(d2, grid_freq="5s", max_age="6s")
+```
+
+Hai khoảng thời gian trên chỉ minh họa kiểm thử synthetic; tuổi quote dùng cho nghiên cứu phải được chọn theo nhịp nhận dữ liệu thực tế. `grid_freq` phải là khoảng cố định dương; `max_age` bắt buộc khai báo, không âm. Lưới đi từ floor(min ts_recv_utc) đến **floor(max ts_recv_utc)**, không tạo mốc tương lai sau lần nhận cuối. Tại g, chọn quote gần nhất của từng venue có ts_recv_utc <= g. Không dùng ts_event_utc, ts_grid_utc hoặc cột ts_available bổ sung để đưa thông tin về quá khứ. Trùng khóa (ts_recv_utc, exchange, market_type, symbol) bị từ chối.
+
+Đầu ra giữ chín trường quote/size/depth của D2 với suffix `__{venue}` và đơn vị gốc. Khi không có quote hoặc quá max_age, cả chín trường thành NaN, `missing__{venue}=True`; đúng biên vẫn hợp lệ. Nếu đầu vào có depth_censored, đầu ra giữ boolean nullable, để NA khi quote không dùng được. Cùng sàn spot/perp được xử lý riêng.
+
+Các cột `source_ts_recv_utc__{venue}`, `source_ts_event_utc__{venue}` và `quote_age_s__{venue}` lưu nguồn gần nhất trong quá khứ để kiểm tra, kể cả khi đã quá tuổi. Vì vậy phải đọc cùng missing; timestamp nguồn còn tồn tại không có nghĩa quote còn dùng được. Metadata giữ data_kind, symbol, venues, grid_freq, max_age và frame_type=aligned_quotes. Đây là bảng quotes trung gian, không thay hợp đồng OHLCV D3 hoặc schema D1–D9 v1.0.
+
+Runner `src.cost_model.run_gap_events` nhận tuổi quote theo giây từ `gap_events.live_max_age_s` trong YAML hoặc `--live-max-age-s` (CLI ưu tiên). Với timestamp lệch lưới, thiếu tuổi quote sẽ báo lỗi. Khi không khai báo tuổi và mọi timestamp đúng lưới, chỉ dùng quote khớp thời gian chính xác (tuổi 0), giữ hành vi fixtures hiện có. Tham số này chỉ áp dụng D2; không lấy max_age 5 phút của nến D1 làm mặc định cho quotes live.
+
 ## Công thức và quan hệ giữa các loại hợp đồng
 
 ```text
@@ -69,6 +84,16 @@ net_gap_bps = gross_gap_bps - fee_total_bps - slippage_bps - extra_cost_bps
 ```
 
 Chỉ ghép cùng market_type cho arbitrage. Spot/perp được phép ghép cho nghiên cứu lead–lag và RQ3. Khi đã dùng bid/ask thật, không trừ spread lần hai. Proxy close lịch sử cần assumed_half_spread mỗi chân, có nguồn từ mẫu live. Độ trễ mô phỏng bằng thời gian thực thi, không cộng thành phí. Funding không nằm trong net_gap_bps.
+
+### Giao diện mô hình chi phí (review C6.01/C6.02)
+
+`load_fees(path)` trả `FeeSchedule`; `generate_pairs(venues)` tạo cả hai hướng mua/bán trong cùng market_type, loại cặp tự giao dịch. `compute_gaps(panel, fees, venues=None, mode="auto", fee_type="taker", slippage_bps=None, extra_cost_bps=None, assumed_half_spread_bps=None)` nhận bảng rộng với index hoặc cột `ts_available` duy nhất, tăng dần, kiểu UTC ns và đúng một `data_kind`. Nếu có cả cột và metadata provenance, hai nhãn phải khớp.
+
+Chế độ `quotes` dùng `bid__{venue}`, `ask__{venue}`; mỗi venue phải đủ hai cột và bid không vượt ask. `auto` chọn quotes khi có bất kỳ cột bid/ask, báo lỗi nếu thiếu một phía, không tự chuyển sang close để che dữ liệu thiếu. Chế độ `close` nhận D3; giá thực thi proxy là close nhân (1 + h/10000) ở chân mua, close nhân (1 - h/10000) ở chân bán. h phải được hiệu chỉnh từ mẫu live; không có h thì báo lỗi. Các ví dụ synthetic chỉ dùng h giả định để kiểm thử.
+
+Giá hiện hữu phải dương, hữu hạn; giá thiếu giữ NaN, `missing__{venue}=True` vô hiệu hóa giá tương ứng. Không fill hoặc dịch thời gian trong mô hình chi phí. Chi phí phải hữu hạn, không âm; half-spread phải nhỏ hơn 10000 bps. Thiếu taker fee báo lỗi; maker chưa xác minh để null và không được dùng để tính kết quả. Phí taker đã bàn giao được giữ nguyên.
+
+Bảng gap trung gian có `ts_available`, `buy_exchange`, `sell_exchange`, `market_type`, `buy_venue`, `sell_venue`, `ask_buy`, `bid_sell`, `fee_total_bps`, `gross_gap_bps`, `net_gap_bps`; metadata giữ `data_kind`. Đây là đầu vào cho TV6, chưa phải D7. Khi xuất D7, TV6 đổi hai tên gap thành `gross_bps`, `net_bps` và bổ sung cột sự kiện theo hợp đồng. Những kiểm tra trên làm rõ bất biến v1.0, không thay schema D1-D9.
 
 Các hàm TV5 giữ chữ ký trong PDF: fit_vecm, hasbrouck_is, component_share, information_leadership. Chữ `exchange` trong đầu ra hasbrouck_is phải chứa **venue ID**; test tích hợp chấp nhận tên khóa exchange hoặc venue nhưng không chấp nhận mất hậu tố spot/perp. ILS được kiểm trên từng cặp rồi tổng hợp theo phương pháp TV5 xác nhận.
 

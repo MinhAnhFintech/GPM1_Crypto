@@ -127,9 +127,13 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
         if (df.window_start > df.window_end).any() or (df.available_at < df.window_end).any():
             raise ValueError("D6: rolling result available before its window ends")
         ok = df[df.status.eq("ok") | df.status.eq("OK")]
-        shares = ok[["is_lower", "is_upper", "is_mid", "component_share", "ils"]]
+        shares = ok[["is_lower", "is_upper", "is_mid", "ils"]]
         if shares.isna().any().any() or ((shares < -1e-8) | (shares > 1+1e-8)).any().any():
             raise ValueError("D6: invalid successful shares")
+        # C5.04 explicitly keeps signed Gonzalo-Granger CS estimates; only
+        # IS and ILS are bounded shares. Never clip or reject a finite CS.
+        if ok.component_share.isna().any():
+            raise ValueError("D6: missing successful component_share")
         if (ok.is_lower > ok.is_upper).any() or (ok.is_mid < ok.is_lower).any() or (ok.is_mid > ok.is_upper).any():
             raise ValueError("D6: inconsistent IS bounds")
         for _, group in ok.groupby(["window_start", "window_end"]):

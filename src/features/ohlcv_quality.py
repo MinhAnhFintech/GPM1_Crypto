@@ -9,6 +9,8 @@ Dau ra  : outputs/tables/T0_data_quality.csv          (1 dong / venue)
 
 Chi DEM va BAO CAO. Khong xoa dong trung, khong dien nen thieu, khong sua gia.
 Thoi gian: moi moc la gio MO nen, UTC. Gia: USDT. Volume: theo don vi cua san (xem C2.03).
+coverage_status: observed_range / empty / no_valid_minute. Khi khong co moc phut
+hop le, bien mau va cac thong ke coverage de trong (khong phai 0 nen thieu).
 """
 import argparse
 import re
@@ -65,10 +67,19 @@ def check_venue(df: pd.DataFrame, venue: str, jump_bps: float = DEFAULT_JUMP_BPS
 
     on_grid = ts == ts.dt.floor("1min")
     u = ts[on_grid].drop_duplicates().sort_values()
-    first, last = u.iloc[0], u.iloc[-1]
-    expected = int((last - first) / minute) + 1
-    gaps = (u.diff().dropna() / minute).astype(int) - 1  # so nen thieu giua 2 nen lien tiep
-    missing = expected - len(u)
+    if len(u):
+        coverage_status = "observed_range"
+        first, last = u.iloc[0].isoformat(), u.iloc[-1].isoformat()
+        expected = int((u.iloc[-1] - u.iloc[0]) / minute) + 1
+        gaps = (u.diff().dropna() / minute).astype(int) - 1
+        missing = expected - len(u)
+        missing_pct = round(100 * missing / expected, 4)
+        n_gaps = int((gaps > 0).sum())
+        longest_gap = int(gaps.max()) if len(gaps) else 0
+    else:
+        coverage_status = "empty" if df.empty else "no_valid_minute"
+        first = last = None
+        expected = missing = missing_pct = n_gaps = longest_gap = None
 
     prices = df[PRICE_COLS]
     hi, lo = df["high"], df["low"]
@@ -82,13 +93,14 @@ def check_venue(df: pd.DataFrame, venue: str, jump_bps: float = DEFAULT_JUMP_BPS
     return {
         "venue": venue,
         "n_rows": len(df),
-        "first_open_utc": first.isoformat(),
-        "last_open_utc": last.isoformat(),
+        "coverage_status": coverage_status,
+        "first_open_utc": first,
+        "last_open_utc": last,
         "expected_candles": expected,
-        "missing_candles": int(missing),
-        "missing_pct": round(100 * missing / expected, 4),
-        "n_gaps": int((gaps > 0).sum()),
-        "longest_gap_min": int(gaps.max()) if len(gaps) else 0,
+        "missing_candles": missing,
+        "missing_pct": missing_pct,
+        "n_gaps": n_gaps,
+        "longest_gap_min": longest_gap,
         "duplicate_candles": int(ts.duplicated().sum()),
         "misaligned_ts": int((~on_grid).sum()),
         "nan_price_rows": int(prices.isna().any(axis=1).sum()),
