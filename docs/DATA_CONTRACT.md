@@ -60,6 +60,21 @@ D4 chia theo thứ tự thời gian, không shuffle: floor(60%N) development, fl
 
 `select_split` chỉ cho dev/val. `claim_final_test` yêu cầu file cấu hình đã đóng băng, ghi SHA-256 và khóa độc quyền bằng file `.test.lock` rồi đánh dấu test_consumed; lần gọi sau bị từ chối. Chạy lại pipeline không xóa khóa. Đây là kiểm soát trong API dự án, không ngăn việc mở Parquet trực tiếp; nhóm vẫn phải giữ quy tắc chỉ dùng test cuối một lần.
 
+### Đồng bộ quotes D2 cho mô hình chi phí live
+
+```python
+from src.synchronization.live import align_live_quotes
+wide_quotes = align_live_quotes(d2, grid_freq="5s", max_age="6s")
+```
+
+Hai khoảng thời gian trên chỉ minh họa kiểm thử synthetic; tuổi quote dùng cho nghiên cứu phải được chọn theo nhịp nhận dữ liệu thực tế. `grid_freq` phải là khoảng cố định dương; `max_age` bắt buộc khai báo, không âm. Lưới đi từ floor(min ts_recv_utc) đến **floor(max ts_recv_utc)**, không tạo mốc tương lai sau lần nhận cuối. Tại g, chọn quote gần nhất của từng venue có ts_recv_utc <= g. Không dùng ts_event_utc, ts_grid_utc hoặc cột ts_available bổ sung để đưa thông tin về quá khứ. Trùng khóa (ts_recv_utc, exchange, market_type, symbol) bị từ chối.
+
+Đầu ra giữ chín trường quote/size/depth của D2 với suffix `__{venue}` và đơn vị gốc. Khi không có quote hoặc quá max_age, cả chín trường thành NaN, `missing__{venue}=True`; đúng biên vẫn hợp lệ. Nếu đầu vào có depth_censored, đầu ra giữ boolean nullable, để NA khi quote không dùng được. Cùng sàn spot/perp được xử lý riêng.
+
+Các cột `source_ts_recv_utc__{venue}`, `source_ts_event_utc__{venue}` và `quote_age_s__{venue}` lưu nguồn gần nhất trong quá khứ để kiểm tra, kể cả khi đã quá tuổi. Vì vậy phải đọc cùng missing; timestamp nguồn còn tồn tại không có nghĩa quote còn dùng được. Metadata giữ data_kind, symbol, venues, grid_freq, max_age và frame_type=aligned_quotes. Đây là bảng quotes trung gian, không thay hợp đồng OHLCV D3 hoặc schema D1–D9 v1.0.
+
+Runner `src.cost_model.run_gap_events` nhận tuổi quote theo giây từ `gap_events.live_max_age_s` trong YAML hoặc `--live-max-age-s` (CLI ưu tiên). Với timestamp lệch lưới, thiếu tuổi quote sẽ báo lỗi. Khi không khai báo tuổi và mọi timestamp đúng lưới, chỉ dùng quote khớp thời gian chính xác (tuổi 0), giữ hành vi fixtures hiện có. Tham số này chỉ áp dụng D2; không lấy max_age 5 phút của nến D1 làm mặc định cho quotes live.
+
 ## Công thức và quan hệ giữa các loại hợp đồng
 
 ```text

@@ -106,3 +106,19 @@ Sau khi đăng ký đủ CLI, chạy lại historical hoặc raw và bỏ `--fou
 Để kiểm chứng riêng khung điều phối mà chưa cần TV2/TV3/TV5/TV6, chạy `python -m pytest tests/test_pipeline_stages.py tests/test_pipeline.py -q`. Bộ này dùng subprocess cục bộ trong thư mục tạm để kiểm tra thứ tự chạy, đường dẫn có khoảng trắng, lỗi/timeout, file thiếu/cũ và cập nhật báo cáo; các file thử nghiệm không phải kết quả nghiên cứu. Để nghiệm thu C4.13 sau bàn giao TV5, chạy `python -m pytest tests/test_info_share_synthetic.py --require-tv5 -q`; hiện vẫn phải báo thiếu phụ thuộc.
 
 Kiểm tra sau khi hoàn thiện khung điều phối ngày 18/10/2026: toàn repo **124 passed, 2 skipped** (hai ca C4.13 chờ TV5); demo multi và spot_perp đều dựng 720 dòng, final test chưa dùng. Đây là bằng chứng phần nền/điều phối, không đóng M2 hoặc nghiệm thu mô hình IS/ILS khi chưa có bàn giao thật.
+
+## Bàn giao đồng bộ quotes live cho TV6 (C4.04/C4.06/C4.11)
+
+`src/synchronization/live.py:align_live_quotes` bổ sung previous-tick cho D2 theo ts_recv_utc, độc lập với đồng bộ nến D1. Mỗi venue chỉ dùng thông tin đã nhận tại mốc lưới; giá, size và depth quá tuổi thành missing. Cột nguồn và tuổi quote được giữ để kiểm tra. Lưới kết thúc tại floor(lần nhận cuối), không sinh mốc tương lai. Chi tiết giao diện và đơn vị nằm trong DATA_CONTRACT.md; schema D1–D9 giữ v1.0.
+
+Runner C6.03 dùng hàm này trước compute_gaps. Với D2 lệch lưới, phải khai báo `gap_events.live_max_age_s` trong bản config đã review hoặc truyền `--live-max-age-s` theo giây; CLI ưu tiên. Chọn tuổi quote dựa trên nhịp nhận dữ liệu thật. Không tự áp ngưỡng 5 phút của nến hoặc dùng thông số synthetic làm hiệu chỉnh live. Khi chạy fixtures đúng lưới và không khai báo tuổi, runner dùng khớp chính xác như trước.
+
+Sau khi cấu hình tuổi quote, chạy D2 đã bàn giao bằng:
+
+```powershell
+python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long.parquet --config config/config.yaml
+```
+
+`tests/test_live_alignment.py` kiểm tra nhận lệch nhịp, không nhìn trước, biên hết tuổi, giữ nguồn UTC/NaT qua Parquet, spot/perp độc lập, trùng khóa, provenance và luồng D2 -> D7. Trường hợp synthetic lưới 5 giây, tuổi tối đa 6 giây tạo hai sự kiện riêng khi một chân hết tuổi, không kéo dài cơ hội qua khoảng missing. Kết quả gap trên fixtures đúng lưới phải bằng cách pivot cũ. Đây là kiểm chứng thuật toán và tích hợp, chưa nghiệm thu dữ liệu live thật hoặc C4.13 của TV5.
+
+Kiểm chứng ngày 18/10/2026 trên Python 3.12 với dependencies ghim: `python run_all.py --mode synthetic --verify` đạt **170 passed, 2 skipped**; hai ca skip vẫn chờ hàm thật của TV5. Foundation multi và spot_perp đều dựng 720 dòng, final test chưa dùng. Runner gap-events multi tạo 500 sự kiện synthetic, spot_perp tạo 0 sự kiện theo quy tắc không arbitrage chéo loại hợp đồng. Chưa có kết quả thực nghiệm từ D2 live thật trong lần bàn giao này.
