@@ -1,3 +1,18 @@
+# Project configuration
+# Based on TV4 template.
+contract_version: '1.0'
+
+symbol: BTC/USDT
+timeframe: 1min
+seed: 20261017
+
+rolling:
+  window_obs: 1440
+  step_obs: 60
+
+split_ratios: [0.6, 0.2, 0.2]
+
+
 # TV6 (C6.03): gap event detection (src/cost_model/gap_events.py). Other keys belong to TV1.
 gap_events:
   gap_threshold_bps: 5.0  # gross_gap_bps >= threshold counts as a gap. TODO: nhom chot gia tri
