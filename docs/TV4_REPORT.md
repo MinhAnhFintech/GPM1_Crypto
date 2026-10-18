@@ -23,3 +23,19 @@ Mã thu thập nằm ở src/collectors; tiện ích UTC, schema và I/O ở src
 Tái lập demo bằng `python run_all.py --mode synthetic --verify`. Lệnh tạo dữ liệu giả lập từ seed cấu hình, kiểm schema, dựng panel, tạo manifest chia mẫu, xuất bảng lead–lag, hình F1/F6 và minh họa OLS-HAC. Dữ liệu giả lập được giữ trong data/fixtures, đầu ra trong outputs/synthetic, có nhãn synthetic trên hình và metadata.
 
 Bộ fixtures gồm nhiều venue với binance_spot dẫn và một cặp spot/perp có binance_perp dẫn. Chúng dùng cùng một quá trình giá ngẫu nhiên tích lũy, độ trễ riêng từng venue và nhiễu dừng độc lập. Truth.json lưu venue dẫn và độ trễ đã cài. Kiểm chứng lead–lag phải thu lại độ trễ này; việc thu lại IS/CS/ILS phải chạy hàm thật của TV5 qua tests/test_info_share_synthetic.py. Hai nhóm bằng chứng không thay thế nhau.
+
+## Kiểm tra bàn giao và ảnh hưởng tích hợp (18/10/2026)
+
+Theo C4.02/C4.04/C4.11, TV4 đối chiếu mô hình chi phí C6.01/C6.02 với hợp đồng dữ liệu và kiểm tra trước khi tích hợp vào dev. Công thức gross/net, phí taker, chữ ký hàm và tên cột bàn giao được giữ nguyên. Kiểm tra đầu vào bổ sung chặn thời gian sai UTC, trộn nguồn, giá không hợp lệ, book có bid vượt ask và chi phí âm hoặc không hữu hạn; quan sát missing không sinh cơ hội. Các trường hợp hợp lệ tiếp tục qua đủ 19 test gốc của TV6.
+
+Phí maker do PR thêm còn được ghi là placeholder, nên để null cho tới khi TV1 xác minh; gọi kịch bản maker khi chưa có phí sẽ báo thiếu. Half-spread cho proxy lịch sử vẫn phải lấy từ mẫu live. Đây là hai đầu vào còn chờ, không được thay bằng số giả để tạo kết quả nghiên cứu.
+
+Validator D6 được đối chiếu lại với C5.04, sheet «Việc Code», hàng 48: Component Share phải hữu hạn và giữ nguyên giá trị, kể cả ngoài [0,1]. Chỉ IS và ILS bị ràng buộc trong [0,1]. Không đổi cột, đơn vị, schema bàn giao hoặc fixtures D1-D3.
+
+Kiểm chứng trên Python 3.12 với dependencies ghim theo requirements.txt:
+
+- `python run_all.py --mode synthetic --verify`: **104 passed, 2 skipped**; foundation multi thành công, 720 dòng, final test chưa dùng.
+- `python run_all.py --mode synthetic --fixture-case spot_perp`: foundation thành công, 720 dòng, final test chưa dùng.
+- Kiểm tra tương thích trong bản sao nhánh TV6 gap-events sau khi thay đúng hai module costs/pairs đã review: **36 passed** cho test costs và gap-events; runner multi sinh 500 sự kiện synthetic, cặp spot/perp sinh 0 sự kiện đúng quy tắc không arbitrage chéo loại hợp đồng. Nhánh C6.03 chưa được tích hợp trong lần bàn giao này.
+
+C4.13 vẫn chờ TV5 bàn giao fit_vecm/hasbrouck_is/component_share/information_leadership. Test thường skip và ghi rõ hàm thiếu; `--require-tv5` phải fail cho tới khi có hàm thật, không tính skip là bằng chứng IS/ILS đúng. C4.08/C4.09 có code nền và kiểm thử fixtures nhưng chưa nghiệm thu M2 trên mẫu nghiên cứu thật: checkout hiện chưa có D1/D2 thật trong data/interim và data/processed. C4.12 chưa thể được coi là pipeline nghiên cứu đầy đủ khi còn thiếu các bước của nhóm.

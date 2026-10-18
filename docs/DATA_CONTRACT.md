@@ -45,7 +45,7 @@ Các cột bổ sung được phép nếu không thay nghĩa cột bắt buộc.
 - D1 duy nhất theo (ts_available, exchange, market_type, symbol). Giá OHLC dương, high/low bao các giá còn lại, volume không âm. Không tự xóa dòng trùng.
 - D2: bid > 0, ask >= bid; mid=(bid+ask)/2; spread_abs=ask-bid; spread_bps=spread_abs/mid*10000. Size perpetual tuyến tính từ CCXT phải nhân contractSize để ra BTC; không hỗ trợ hợp đồng inverse trong schema BTC/USDT này.
 - D3: index duy nhất, tăng dần; `log_close=ln(close)`; missing phải khớp NaN của close, log_close và volume khi hết tuổi dữ liệu.
-- D6: share hữu hạn trong [0,1] với status=ok; is_lower <= is_mid <= is_upper. Không gán leader nếu bounds chồng nhau; để trống và reason=overlapping_bounds. IS và ILS khác nhau phải báo cáo cả hai.
+- D6: IS và ILS hữu hạn trong [0,1] với status=ok; is_lower <= is_mid <= is_upper. Component Share phải hữu hạn nhưng giữ nguyên dấu và giá trị, không ép vào [0,1] (C5.04, sheet «Việc Code», hàng 48). Không gán leader nếu bounds chồng nhau; để trống và reason=overlapping_bounds. IS và ILS khác nhau phải báo cáo cả hai.
 - Funding là tỷ lệ theo chu kỳ, không annualize; funding_interval_h là số giờ mỗi chu kỳ. OI base tính BTC, OI USDT phải có cách quy đổi rõ. Không lấy OI hiện tại làm lịch sử.
 
 ## Đồng bộ và chia mẫu
@@ -69,6 +69,16 @@ net_gap_bps = gross_gap_bps - fee_total_bps - slippage_bps - extra_cost_bps
 ```
 
 Chỉ ghép cùng market_type cho arbitrage. Spot/perp được phép ghép cho nghiên cứu lead–lag và RQ3. Khi đã dùng bid/ask thật, không trừ spread lần hai. Proxy close lịch sử cần assumed_half_spread mỗi chân, có nguồn từ mẫu live. Độ trễ mô phỏng bằng thời gian thực thi, không cộng thành phí. Funding không nằm trong net_gap_bps.
+
+### Giao diện mô hình chi phí (review C6.01/C6.02)
+
+`load_fees(path)` trả `FeeSchedule`; `generate_pairs(venues)` tạo cả hai hướng mua/bán trong cùng market_type, loại cặp tự giao dịch. `compute_gaps(panel, fees, venues=None, mode="auto", fee_type="taker", slippage_bps=None, extra_cost_bps=None, assumed_half_spread_bps=None)` nhận bảng rộng với index hoặc cột `ts_available` duy nhất, tăng dần, kiểu UTC ns và đúng một `data_kind`. Nếu có cả cột và metadata provenance, hai nhãn phải khớp.
+
+Chế độ `quotes` dùng `bid__{venue}`, `ask__{venue}`; mỗi venue phải đủ hai cột và bid không vượt ask. `auto` chọn quotes khi có bất kỳ cột bid/ask, báo lỗi nếu thiếu một phía, không tự chuyển sang close để che dữ liệu thiếu. Chế độ `close` nhận D3; giá thực thi proxy là close nhân (1 + h/10000) ở chân mua, close nhân (1 - h/10000) ở chân bán. h phải được hiệu chỉnh từ mẫu live; không có h thì báo lỗi. Các ví dụ synthetic chỉ dùng h giả định để kiểm thử.
+
+Giá hiện hữu phải dương, hữu hạn; giá thiếu giữ NaN, `missing__{venue}=True` vô hiệu hóa giá tương ứng. Không fill hoặc dịch thời gian trong mô hình chi phí. Chi phí phải hữu hạn, không âm; half-spread phải nhỏ hơn 10000 bps. Thiếu taker fee báo lỗi; maker chưa xác minh để null và không được dùng để tính kết quả. Phí taker đã bàn giao được giữ nguyên.
+
+Bảng gap trung gian có `ts_available`, `buy_exchange`, `sell_exchange`, `market_type`, `buy_venue`, `sell_venue`, `ask_buy`, `bid_sell`, `fee_total_bps`, `gross_gap_bps`, `net_gap_bps`; metadata giữ `data_kind`. Đây là đầu vào cho TV6, chưa phải D7. Khi xuất D7, TV6 đổi hai tên gap thành `gross_bps`, `net_bps` và bổ sung cột sự kiện theo hợp đồng. Những kiểm tra trên làm rõ bất biến v1.0, không thay schema D1-D9.
 
 Các hàm TV5 giữ chữ ký trong PDF: fit_vecm, hasbrouck_is, component_share, information_leadership. Chữ `exchange` trong đầu ra hasbrouck_is phải chứa **venue ID**; test tích hợp chấp nhận tên khóa exchange hoặc venue nhưng không chấp nhận mất hậu tố spot/perp. ILS được kiểm trên từng cặp rồi tổng hợp theo phương pháp TV5 xác nhận.
 
