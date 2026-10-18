@@ -39,3 +39,70 @@ Kiểm chứng trên Python 3.12 với dependencies ghim theo requirements.txt:
 - Kiểm tra tương thích trong bản sao nhánh TV6 gap-events sau khi thay đúng hai module costs/pairs đã review: **36 passed** cho test costs và gap-events; runner multi sinh 500 sự kiện synthetic, cặp spot/perp sinh 0 sự kiện đúng quy tắc không arbitrage chéo loại hợp đồng. Nhánh C6.03 chưa được tích hợp trong lần bàn giao này.
 
 C4.13 vẫn chờ TV5 bàn giao fit_vecm/hasbrouck_is/component_share/information_leadership. Test thường skip và ghi rõ hàm thiếu; `--require-tv5` phải fail cho tới khi có hàm thật, không tính skip là bằng chứng IS/ILS đúng. C4.08/C4.09 có code nền và kiểm thử fixtures nhưng chưa nghiệm thu M2 trên mẫu nghiên cứu thật: checkout hiện chưa có D1/D2 thật trong data/interim và data/processed. C4.12 chưa thể được coi là pipeline nghiên cứu đầy đủ khi còn thiếu các bước của nhóm.
+
+## Phần có thể hoàn thiện độc lập của TV4
+
+Đối chiếu sheet «Việc Code», hàng 32-44, sheet «Việc Báo cáo», hàng 22-23 và PDF mục 3.1-3.4: các việc độc lập là nền repo, schema, fixtures, tiện ích, templates, thuật toán đồng bộ/chia mẫu/lead-lag, khung điều phối và phần phương pháp/phụ lục. Không lấy trạng thái trong Excel làm bằng chứng đã có dữ liệu thật hoặc hàm mô hình.
+
+| Công việc | Phần đã sẵn sàng trong repo | Điều kiện nghiệm thu còn chờ |
+| --- | --- | --- |
+| C4.01-C4.07 | Repo, hợp đồng, hai bộ fixtures, tiện ích, mẫu code và test thời gian | Không có phụ thuộc code mới cho phần nền |
+| C4.08-C4.09 | D1 -> D3 -> D4, fingerprint và cơ chế claim test cuối; kiểm chứng bằng fixtures | D1 mẫu nghiên cứu thật của TV2 để bàn giao M2 |
+| C4.10 | Lead-lag với quy ước lag dương: venue_a dẫn venue_b; thu lại độ trễ đã cài trên cả hai bộ fixtures | D3 thật để xuất số liệu nghiên cứu/F6 |
+| C4.11 | Có quy trình và test tích hợp PR; tiếp tục review khi thành viên nộp | PR mới của nhóm; công việc kéo dài tới 24/10 |
+| C4.12 | Điều phối argv, kiểm tra cấu hình, timeout, đầu ra từng bước và báo cáo trạng thái mỗi lần chạy | CLI/đầu ra thật của năm bước nghiên cứu do nhóm bàn giao |
+| C4.13 | Bộ test gọi đúng hàm thật, giữ phân biệt skip và nghiệm thu bắt buộc | TV5 bàn giao VECM/IS/CS/ILS |
+| R4.01 | Bản phương pháp 4.1 và 4.10 ở trên; không cần số liệu nghiên cứu để viết | Đối chiếu biên mẫu thực tế sau M2 |
+| R4.02 | Kiến trúc, lệnh chạy từng bước và cách đọc bằng chứng kiểm thử ở dưới | Điền kết quả IS/ILS thật sau C4.13 |
+
+### Chạy và tái lập từng bước (C4.12, R4.02)
+
+Các lệnh chạy từ gốc repo trong môi trường Python đã cài requirements.txt. Hai lệnh đầu tạo dữ liệu và kết quả **synthetic**, không cần mạng hoặc thành viên khác:
+
+```powershell
+python run_all.py --mode synthetic --foundation-only
+python run_all.py --mode synthetic --fixture-case spot_perp --foundation-only
+python -m pytest -q
+```
+
+Đầu ra tương ứng nằm trong `outputs/synthetic/multi` và `outputs/synthetic/spot_perp`: `data/panel_1m_wide.parquet`, `data/split_manifest.json`, `tables/T0_alignment_quality.csv`, `tables/T2_leadlag_xcorr.csv`, hình F1/F6 và `pipeline_report.json`. T2_leadlag_xcorr là bảng kỹ thuật cho F6; không phải bảng T2 kiểm định của TV5. Tất cả phân tích lead-lag và hình giá ở pipeline dùng development, không mở final test.
+
+Khi TV2 bàn giao D1 thật và TV1 chốt config/config.yaml với sample.start/end có timezone (end không bao gồm), chạy riêng nền để dựng D3/D4:
+
+```powershell
+python run_all.py --mode historical --config config/config.yaml --foundation-only
+```
+
+Nếu đầu vào là các file thô đúng mẫu `{venue}_BTCUSDT_1m.parquet`, có đủ venues đã chốt trong cấu hình, dùng:
+
+```powershell
+python run_all.py --mode raw --config config/config.yaml --foundation-only
+```
+
+Chế độ raw chuẩn hóa và lưu D1 vào data/interim trước khi dựng D3/D4. Có thể chọn thư mục raw bằng `--raw-dir`, D1 đọc sẵn bằng `--input` ở chế độ historical, thư mục D3/D4 bằng `--data-dir` và thư mục báo cáo bằng `--output-dir`. Các chế độ này không tự tải dữ liệu hoặc chạy collector live. Không gán nhãn historical cho fixtures để thay bàn giao thật.
+
+### Giao diện đăng ký bước nghiên cứu
+
+`pipeline_stages` là danh sách trong YAML, thực thi theo thứ tự khai báo. TV4 chỉ đăng ký command sau khi thành viên bàn giao CLI thực sự và test trên fixtures; không tự tạo kết quả mô hình thay thành viên. Năm tên dùng để kiểm tra độ đầy đủ là `features`, `regime_flags`, `price_discovery`, `cost_backtest`, `evaluation`.
+
+| Trường | Quy tắc |
+| --- | --- |
+| name | Chuỗi không rỗng, duy nhất trong lần chạy |
+| enabled | Boolean, mặc định true; false ghi disabled, không chạy |
+| command | Danh sách argv các chuỗi, không dùng shell; phần tử đầu là executable |
+| outputs | Danh sách file bắt buộc, không trùng giữa các bước; bước phải tạo hoặc ghi lại từng file trong lần chạy hiện tại |
+| timeout_s | Số giây dương hữu hạn, mặc định 3600; chọn theo thời gian thực tế của bước |
+
+Các token `{python}`, `{data_dir}`, `{output_dir}` được thay bằng Python hiện chạy và đường dẫn tuyệt đối. Cả command và outputs dùng cùng quy tắc đường dẫn: đường dẫn tương đối tính từ gốc repo, kể cả khi gọi run_all.py từ thư mục khác. Các dấu ngoặc khác trong argv giữ nguyên. Nếu bước chủ động dùng cache, CLI vẫn phải xuất lại file đã khai báo; chỉ tồn tại file từ lần trước không đủ để được đánh dấu passed.
+
+Sau khi đăng ký đủ CLI, chạy lại historical hoặc raw và bỏ `--foundation-only` để gọi các bước của nhóm. Cờ `--foundation-only` luôn bỏ qua việc khởi chạy chúng. Một bước thoát mã lỗi, quá timeout, thiếu đầu ra hoặc để nguyên file cũ sẽ dừng chuỗi; bước sau không chạy. File cũ không bị xóa bởi kiểm tra freshness.
+
+### Đọc báo cáo và điều kiện hoàn tất
+
+`pipeline_report.json` được khởi tạo lại với run_id mới ngay khi bắt đầu, rồi cập nhật nguyên tử khi bước chạy/hoàn tất/lỗi. Vì vậy lần chạy thất bại không để báo cáo passed của lần trước đứng thay cho kết quả hiện tại. foundation_status mô tả phần nền; pipeline_status phân biệt running, foundation_only, pending_team_stages, passed và failed. team_stages giữ trạng thái, thời lượng và SHA-256 đầu ra của các bước đã chạy; pending_team_stages giữ các bước bắt buộc chưa passed. Khi lỗi có error_type và thông tin lỗi/mã thoát hoặc timeout tương ứng.
+
+`full_research_pipeline_complete` chỉ có thể true khi chạy dữ liệu historical, đủ năm bước passed và không dùng foundation-only. Chạy synthetic thành công vẫn không được đánh dấu hoàn tất nghiên cứu thực nghiệm. Cấu hình đăng ký đủ bước và lệnh chạy thành công cũng không thay thế review phương pháp và dữ liệu của từng bước.
+
+Để kiểm chứng riêng khung điều phối mà chưa cần TV2/TV3/TV5/TV6, chạy `python -m pytest tests/test_pipeline_stages.py tests/test_pipeline.py -q`. Bộ này dùng subprocess cục bộ trong thư mục tạm để kiểm tra thứ tự chạy, đường dẫn có khoảng trắng, lỗi/timeout, file thiếu/cũ và cập nhật báo cáo; các file thử nghiệm không phải kết quả nghiên cứu. Để nghiệm thu C4.13 sau bàn giao TV5, chạy `python -m pytest tests/test_info_share_synthetic.py --require-tv5 -q`; hiện vẫn phải báo thiếu phụ thuộc.
+
+Kiểm tra sau khi hoàn thiện khung điều phối ngày 18/10/2026: toàn repo **124 passed, 2 skipped** (hai ca C4.13 chờ TV5); demo multi và spot_perp đều dựng 720 dòng, final test chưa dùng. Đây là bằng chứng phần nền/điều phối, không đóng M2 hoặc nghiệm thu mô hình IS/ILS khi chưa có bàn giao thật.
