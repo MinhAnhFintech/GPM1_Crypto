@@ -1,5 +1,8 @@
-"""C5.03 Hasbrouck IS bounds and C5.04 Gonzalo-Granger Component Share from a VECM fit."""
+"""C5.04: Hasbrouck IS bounds over variable orderings and Gonzalo-Granger Component Share."""
 from __future__ import annotations
+
+from itertools import permutations
+from math import factorial
 
 import numpy as np
 import pandas as pd
@@ -24,29 +27,37 @@ def component_share(result) -> pd.Series:
     return pd.Series(alpha_perp / alpha_perp.sum(), index=venues, name="component_share")
 
 
-def _share_when_ordered(psi: np.ndarray, omega: np.ndarray, i: int, first: bool) -> float:
-    others = [j for j in range(len(psi)) if j != i]
-    order = [i] + others if first else others + [i]
-    chol = np.linalg.cholesky(omega[np.ix_(order, order)])
-    w = psi[order] @ chol
-    return float(w[0 if first else -1] ** 2 / (w @ w))
+def _shares_for_ordering(psi: np.ndarray, omega: np.ndarray, order) -> np.ndarray:
+    """IS of every venue (original positions) under one Cholesky ordering."""
+    order = list(order)
+    w = psi[order] @ np.linalg.cholesky(omega[np.ix_(order, order)])
+    shares = np.empty(len(psi))
+    shares[order] = w ** 2 / (w @ w)
+    return shares
 
 
-def hasbrouck_is(result) -> pd.DataFrame:
-    """Hasbrouck (1995) IS per venue: bounds from ordering the venue first and
-    last in the Cholesky factor of the residual covariance, is_mid their average.
+def _orderings(n: int, max_orderings: int, seed):
+    if factorial(n) <= max_orderings:
+        return list(permutations(range(n))), "all"
+    rng = np.random.default_rng(seed)
+    return [tuple(rng.permutation(n)) for _ in range(max_orderings)], "random"
 
-    With one common trend the long-run impact rows are proportional to
-    alpha_perp', and IS is invariant to that scale, so psi = alpha_perp.
-    `exchange` repeats `venue` to keep the PDF column name with venue IDs.
+
+def hasbrouck_is(result, max_orderings: int = 5040, seed=None) -> pd.DataFrame:
+    """Hasbrouck (1995) IS per venue: min/max over Cholesky orderings, is_mid their average.
+
+    All n! orderings are tried when n! <= max_orderings (n <= 7 by default);
+    otherwise `max_orderings` random orderings drawn with `seed`. The count and
+    method are returned and must be reported. With one common trend the
+    long-run impact rows are proportional to alpha_perp', and IS is invariant to
+    that scale, so psi = alpha_perp. `exchange` repeats `venue` (PDF name).
     """
+    if max_orderings < 1:
+        raise ValueError("hasbrouck_is: max_orderings must be positive")
     venues, psi = _common_trend(result)
     omega = np.asarray(result.sigma_u, dtype=float)
-    rows = []
-    for i, venue in enumerate(venues):
-        # Ordering first is the upper bound only for positively correlated
-        # innovations; take min/max so the bounds hold for any sign.
-        shares = (_share_when_ordered(psi, omega, i, first=True), _share_when_ordered(psi, omega, i, first=False))
-        lower, upper = min(shares), max(shares)
-        rows.append({"venue": venue, "exchange": venue, "is_lower": lower, "is_upper": upper, "is_mid": (lower + upper) / 2})
-    return pd.DataFrame(rows)
+    orderings, method = _orderings(len(venues), max_orderings, seed)
+    shares = np.array([_shares_for_ordering(psi, omega, order) for order in orderings])
+    lower, upper = shares.min(axis=0), shares.max(axis=0)
+    return pd.DataFrame({"venue": venues, "exchange": venues, "is_lower": lower, "is_upper": upper,
+                         "is_mid": (lower + upper) / 2, "n_orderings": len(orderings), "orderings_method": method})

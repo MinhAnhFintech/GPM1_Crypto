@@ -1,4 +1,4 @@
-"""C5.01: ADF/KPSS stationarity checks feeding the integration order into VECM."""
+"""C5.01: ADF/KPSS on log prices and their differences; ADF lag chosen by BIC."""
 from __future__ import annotations
 
 import warnings
@@ -18,12 +18,13 @@ def _clean(series: pd.Series, name: str) -> np.ndarray:
     return values
 
 
-def adf_test(series: pd.Series, regression: str = "c", autolag: str = "AIC") -> dict:
+def adf_test(series: pd.Series, regression: str = "c", autolag: str = "BIC") -> dict:
     """Augmented Dickey-Fuller test. H0: series has a unit root (non-stationary)."""
     values = _clean(series, "adf_test")
     statistic, pvalue, used_lag, nobs, crit, _ = adfuller(values, regression=regression, autolag=autolag, result_object=False)
     return {
-        "test": "adf", "statistic": float(statistic), "pvalue": float(pvalue),
+        "test": "adf", "h0": "unit root (non-stationary)", "lag_selection": autolag,
+        "statistic": float(statistic), "pvalue": float(pvalue),
         "used_lag": int(used_lag), "nobs": int(nobs),
         "critical_values": {k: float(v) for k, v in crit.items()},
         "stationary_5pct": bool(pvalue < 0.05),
@@ -39,8 +40,9 @@ def kpss_test(series: pd.Series, regression: str = "c", nlags: str = "auto") -> 
         warnings.simplefilter("ignore", category=UserWarning)
         statistic, pvalue, used_lag, crit = kpss(values, regression=regression, nlags=nlags, result_object=False)
     return {
-        "test": "kpss", "statistic": float(statistic), "pvalue": float(pvalue),
-        "used_lag": int(used_lag),
+        "test": "kpss", "h0": "stationary", "statistic": float(statistic),
+        # KPSS p-values are interpolated from a table and clipped to [0.01, 0.1].
+        "pvalue": float(pvalue), "used_lag": int(used_lag), "nobs": int(len(values)),
         "critical_values": {k: float(v) for k, v in crit.items()},
         "stationary_5pct": bool(pvalue > 0.05),
     }
@@ -59,7 +61,7 @@ def integration_order(series: pd.Series, max_order: int = 2, alpha: float = 0.05
     for d in range(max_order + 1):
         if d > 0:
             diffed = diffed.diff().dropna()
-        adf = adf_test(diffed, regression="c" if d > 0 else "c")
+        adf = adf_test(diffed, regression="c")
         kpss_res = kpss_test(diffed, regression="c")
         agree = (adf["pvalue"] < alpha) and (kpss_res["pvalue"] > alpha)
         history.append({"d": d, "adf": adf, "kpss": kpss_res, "agree_stationary": agree})

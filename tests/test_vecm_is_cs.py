@@ -1,11 +1,11 @@
-"""C5.02-C5.04: VECM fit, Hasbrouck IS bounds and signed Component Share."""
+"""C5.03 VECM fit and diagnostics; C5.04 Hasbrouck IS bounds and signed Component Share."""
 import copy
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.price_discovery.info_share import component_share, hasbrouck_is
-from src.price_discovery.vecm import fit_vecm
+from src.price_discovery.vecm import fit_vecm, vecm_diagnostics
 from src.utils.synthetic import make_fixture
 
 
@@ -65,6 +65,31 @@ def test_hasbrouck_is_bounds_and_leader(identified):
     if len(shares) == 2:
         assert shares.is_mid.sum() == pytest.approx(1)
     assert shares.is_mid.idxmax() == truth["known_leader"]
+
+
+def test_vecm_diagnostics_report_whiteness_and_stability(identified):
+    _, _, result = identified
+    diag = vecm_diagnostics(result, nlags=10)
+    assert 0 <= diag["whiteness_pvalue"] <= 1 and diag["whiteness_lags"] >= 10
+    assert diag["n_unit_roots_expected"] == 1
+    assert diag["stable"] and diag["max_root_modulus_excl_unit"] < 1
+
+
+def test_hasbrouck_is_tries_every_ordering(identified):
+    logs, _, result = identified
+    shares = hasbrouck_is(result)
+    assert shares.n_orderings.iloc[0] == {2: 2, 4: 24}[logs.shape[1]]
+    assert shares.orderings_method.eq("all").all()
+
+
+def test_hasbrouck_is_samples_orderings_when_too_many(cfg):
+    logs, _ = _logs(cfg, "multi", follower_noise=3e-4)
+    result = fit_vecm(logs, k_ar_diff=2, coint_rank=3)
+    full = hasbrouck_is(result).set_index("venue")
+    sampled = hasbrouck_is(result, max_orderings=5, seed=7).set_index("venue")
+    assert sampled.n_orderings.iloc[0] == 5 and sampled.orderings_method.eq("random").all()
+    assert (sampled.is_lower >= full.is_lower - 1e-12).all() and (sampled.is_upper <= full.is_upper + 1e-12).all()
+    pd.testing.assert_frame_equal(sampled, hasbrouck_is(result, max_orderings=5, seed=7).set_index("venue"))
 
 
 def test_hasbrouck_is_finds_leader_on_default_fixture(cfg):

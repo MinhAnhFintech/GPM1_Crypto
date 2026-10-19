@@ -41,10 +41,49 @@ def test_log_prices_drops_few_missing_rows_but_never_fills(multi_panel):
         A.log_prices(holed.iloc[:10], max_missing_frac=0.05)
 
 
-def test_select_spec_reports_johansen_and_imposes_one_common_trend(spec):
+def test_select_spec_takes_rank_from_johansen(spec):
     assert 0 <= spec["k_ar_diff"] <= 4
-    assert spec["coint_rank"] == len(spec["venues"]) - 1
-    assert spec["johansen_rank"] == spec["coint_rank"] and spec["rank_matches_theory"]
+    assert spec["coint_rank"] == spec["johansen_rank_trace"] == len(spec["venues"]) - 1
+    assert spec["system_supported"]
+    assert set(spec["pair_ranks"].values()) == {1}
+
+
+def test_system_not_forced_to_n_minus_one_when_johansen_disagrees(multi_panel, spec):
+    panel, _ = multi_panel
+    logs = A.log_prices(panel.iloc[:432])
+    weak = {**spec, "coint_rank": 2, "system_supported": False}
+    static = A.static_shares(logs, weak)
+    assert static.status.eq("failed").all() and static.reason.str.contains("johansen_rank=2").all()
+    rolled = A.rolling_shares(panel.iloc[:300], weak, 240, 60)
+    assert rolled.status.eq("failed").all()
+    validate_frame(rolled, "D6")
+
+
+def test_pair_without_cointegration_is_skipped_with_reason(multi_panel, spec):
+    panel, _ = multi_panel
+    logs = A.log_prices(panel.iloc[:432])
+    ranks = {k: (0 if "okx_spot" in k else 1) for k in spec["pair_ranks"]}
+    pairs = A.pairwise_ils(logs, {**spec, "pair_ranks": ranks})
+    okx = pairs[pairs.pair.str.contains("okx_spot")]
+    assert okx.status.eq("failed").all() and okx.reason.str.contains("johansen_rank=0").all()
+    assert pairs[~pairs.pair.str.contains("okx_spot")].status.eq("ok").all()
+
+
+def test_rolling_marks_venue_without_estimable_pair(multi_panel, spec):
+    panel, _ = multi_panel
+    ranks = {k: (0 if "okx_spot" in k else 1) for k in spec["pair_ranks"]}
+    rolled = A.rolling_shares(panel.iloc[:300], {**spec, "pair_ranks": ranks}, 240, 60)
+    validate_frame(rolled, "D6")
+    assert rolled[rolled.venue.eq("okx_spot")].reason.eq("ils_failed: no estimable pair").all()
+    assert rolled[rolled.venue.ne("okx_spot")].status.eq("ok").all()
+
+
+def test_diagnostics_table_covers_system_and_pairs(multi_panel, spec):
+    panel, _ = multi_panel
+    table = A.diagnostics_table(A.log_prices(panel.iloc[:432]), spec)
+    n = len(spec["venues"])
+    assert len(table) == 1 + n * (n - 1) // 2 and table.status.eq("ok").all()
+    assert table.stable.all() and table.whiteness_pvalue.between(0, 1).all()
 
 
 def test_static_shares_find_leader(multi_panel, spec):
@@ -131,7 +170,7 @@ def test_runner_writes_tables_locks_spec_and_never_reads_test(cfg, multi_panel, 
     write_parquet(panel, data/"panel_1m_wide.parquet", "D3")
     run(data, out, cfg, window_obs=240, step_obs=60)
     tables = out/"tables"
-    for name in ["T2_stationarity_dev.csv", "T2_johansen_val.csv", "T3_static_is_cs.csv", "T3d_ils.csv",
+    for name in ["T2_stationarity_dev.csv", "T2_johansen_val.csv", "T3_static_is_cs.csv", "T3_vecm_diagnostics.csv", "T3d_ils.csv",
                  "T3d_ils_summary.csv", "T3b_sensitivity.csv", "T3c_spot_perp.csv"]:
         assert not pd.read_csv(tables/name).empty, name
     validate_frame(pd.read_parquet(tables/"rolling_is.parquet"), "D6")
@@ -151,4 +190,15 @@ def test_runner_rejects_spec_locked_on_other_panel(cfg, multi_panel, tmp_path):
     (tmp_path/"out/tables").mkdir(parents=True)
     (tmp_path/"out/tables/T2_vecm_spec.json").write_text(json.dumps({"panel_fingerprint": "0" * 64}), encoding="utf-8")
     with pytest.raises(ValueError, match="different panel"):
+        run(tmp_path, tmp_path/"out", cfg, window_obs=240, step_obs=60)
+
+
+def test_runner_rejects_old_spec_format(cfg, multi_panel, tmp_path):
+    panel, _ = multi_panel
+    manifest = create_split_manifest(panel, cfg["split_ratios"], path=tmp_path/"split_manifest.json")
+    write_parquet(panel, tmp_path/"panel_1m_wide.parquet", "D3")
+    (tmp_path/"out/tables").mkdir(parents=True)
+    old = {"panel_fingerprint": manifest["fingerprint"], "coint_rank": 3, "k_ar_diff": 1}
+    (tmp_path/"out/tables/T2_vecm_spec.json").write_text(json.dumps(old), encoding="utf-8")
+    with pytest.raises(ValueError, match="old spec format"):
         run(tmp_path, tmp_path/"out", cfg, window_obs=240, step_obs=60)

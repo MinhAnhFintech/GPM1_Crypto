@@ -1,9 +1,9 @@
-"""C5.01: ADF/KPSS integration order and Johansen rank on synthetic series."""
+"""C5.01 ADF/KPSS integration order and C5.02 Johansen rank on synthetic series."""
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.cointegration.johansen import johansen_test
+from src.cointegration.johansen import johansen_test, select_lag_order
 from src.cointegration.stationarity import adf_test, integration_order, kpss_test, summarize_stationarity
 
 
@@ -42,6 +42,22 @@ def test_kpss_fails_to_reject_stationarity_for_white_noise(white_noise):
 def test_kpss_rejects_stationarity_for_random_walk(random_walk):
     result = kpss_test(random_walk)
     assert result["stationary_5pct"] is False
+
+
+def test_results_report_h0_nobs_and_bic_lag(random_walk):
+    adf, kpss_res = adf_test(random_walk), kpss_test(random_walk)
+    assert adf["lag_selection"] == "BIC" and "unit root" in adf["h0"]
+    assert kpss_res["h0"] == "stationary"
+    assert adf["nobs"] > 0 and kpss_res["nobs"] == len(random_walk)
+
+
+def test_select_lag_order_by_bic(rng):
+    common = np.cumsum(rng.normal(0, 1, 400))
+    panel = pd.DataFrame({"a_spot": common + rng.normal(0, 0.3, 400), "b_spot": common + rng.normal(0, 0.3, 400)})
+    k = select_lag_order(panel, max_k_ar_diff=5)
+    assert isinstance(k, int) and 0 <= k <= 5
+    with pytest.raises(ValueError, match="criterion"):
+        select_lag_order(panel, criterion="r2")
 
 
 def test_adf_and_kpss_reject_short_series():
@@ -84,7 +100,9 @@ def test_johansen_finds_no_cointegration_between_independent_random_walks(rng):
         "okx_spot": np.cumsum(rng.normal(0, 1, 500)),
     })
     result = johansen_test(independent, det_order=0, k_ar_diff=1)
-    assert result["coint_rank"] == 0
+    assert result["coint_rank"] == result["rank_trace"] == 0
+    assert result["rank_max_eig"] == 0
+    assert len(result["trace_crit"]) == len(result["max_eig_crit"]) == 2
 
 
 def test_johansen_finds_cointegration_on_project_fixture(cfg, multi):

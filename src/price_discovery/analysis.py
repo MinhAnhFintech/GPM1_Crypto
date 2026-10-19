@@ -3,6 +3,8 @@
 All functions take an already-selected dev or val slice of D3; none reads the
 final test. Missing prices are never filled: incomplete rows are dropped only
 when their share is at most `max_missing_frac`, otherwise the sample fails.
+The cointegration rank comes from Johansen on dev; IS/CS/ILS are computed only
+where Johansen supports exactly one common trend, otherwise rows fail with a reason.
 """
 from __future__ import annotations
 
@@ -10,15 +12,15 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.vector_ar.vecm import select_order
 
-from src.cointegration.johansen import johansen_test
+from src.cointegration.johansen import DET_ORDER, johansen_test, select_lag_order
 from src.cointegration.stationarity import integration_order
 from src.utils.schema import venues_from_panel
 from .info_leadership import information_leadership
 from .info_share import component_share, hasbrouck_is
-from .vecm import fit_vecm
+from .vecm import fit_vecm, vecm_diagnostics
 
+SPEC_VERSION = 2
 SHARE_COLUMNS = ["is_lower", "is_upper", "is_mid", "component_share", "ils"]
 
 
@@ -34,50 +36,101 @@ def log_prices(panel: pd.DataFrame, venues=None, max_missing_frac: float = 0.05)
 
 
 def stationarity_table(logs: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
-    """T2: ADF/KPSS on levels and first differences, and the integration order."""
+    """T2: ADF (lag by BIC) and KPSS on log levels and first differences."""
     rows = []
     for venue in logs.columns:
         result = integration_order(logs[venue], max_order=1, alpha=alpha)
         row = {"venue": venue, "integration_order": result["order"], "alpha": alpha}
         for step in result["history"]:
             tag = "level" if step["d"] == 0 else "diff1"
-            row.update({f"adf_stat_{tag}": step["adf"]["statistic"], f"adf_p_{tag}": step["adf"]["pvalue"],
-                        f"kpss_stat_{tag}": step["kpss"]["statistic"], f"kpss_p_{tag}": step["kpss"]["pvalue"]})
+            adf, kpss = step["adf"], step["kpss"]
+            row.update({f"adf_stat_{tag}": adf["statistic"], f"adf_p_{tag}": adf["pvalue"],
+                        f"adf_lag_{tag}": adf["used_lag"], f"adf_nobs_{tag}": adf["nobs"],
+                        f"kpss_stat_{tag}": kpss["statistic"], f"kpss_p_{tag}": kpss["pvalue"],
+                        f"kpss_nobs_{tag}": kpss["nobs"]})
+        row.update(adf_h0="unit root (non-stationary)", kpss_h0="stationary")
         rows.append(row)
     return pd.DataFrame(rows)
 
 
-def select_spec(logs: pd.DataFrame, max_k_ar_diff: int = 10, deterministic: str = "co",
-                criterion: str = "bic", significance: int = 95) -> tuple[dict, pd.DataFrame]:
-    """Pick k_ar_diff by information criterion and test the Johansen rank on dev.
-
-    IS/CS assume one common efficient price (same BTC/USDT on every venue), so
-    the model rank is imposed at n-1; the Johansen rank is reported next to it.
-    """
-    order = select_order(logs.to_numpy(dtype=float), maxlags=max_k_ar_diff, deterministic=deterministic)
-    k_ar_diff = int(getattr(order, criterion))
-    det_order = 0 if deterministic in {"co", "ci"} else (1 if deterministic in {"lo", "li"} else -1)
+def johansen_table(logs: pd.DataFrame, det_order: int, k_ar_diff: int, significance: int) -> tuple[dict, pd.DataFrame]:
+    """T2: trace and max-eigen statistics next to their critical values."""
     joh = johansen_test(logs, det_order=det_order, k_ar_diff=k_ar_diff, significance=significance)
+    table = pd.DataFrame({"rank_h0": range(len(joh["venues"])), "trace_stat": joh["trace_stat"],
+                          "trace_crit": joh["trace_crit"], "max_eig_stat": joh["max_eig_stat"],
+                          "max_eig_crit": joh["max_eig_crit"], "eigenvalue": joh["eigenvalues"]})
+    table["trace_reject_h0"] = table.trace_stat > table.trace_crit
+    table["max_eig_reject_h0"] = table.max_eig_stat > table.max_eig_crit
+    table = table.assign(rank_trace=joh["rank_trace"], rank_max_eig=joh["rank_max_eig"], k_ar_diff=k_ar_diff,
+                         det_order=det_order, significance=significance, nobs=joh["nobs"])
+    return joh, table
+
+
+def _pair_key(a, b) -> str:
+    return "|".join(sorted((a, b)))
+
+
+def select_spec(logs: pd.DataFrame, max_k_ar_diff: int = 10, deterministic: str = "co",
+                criterion: str = "bic", significance: int = 95, seed=None) -> tuple[dict, pd.DataFrame]:
+    """Choose k_ar_diff (criterion) and the Johansen rank on dev, for the system and every pair."""
+    k_ar_diff = select_lag_order(logs, max_k_ar_diff, deterministic, criterion)
+    det_order = DET_ORDER[deterministic]
+    joh, table = johansen_table(logs, det_order, k_ar_diff, significance)
     n = logs.shape[1]
-    spec = {"venues": list(logs.columns), "k_ar_diff": k_ar_diff, "deterministic": deterministic,
-            "criterion": criterion, "max_k_ar_diff": max_k_ar_diff, "significance": significance,
-            "johansen_rank": joh["coint_rank"], "coint_rank": n - 1,
-            "rank_matches_theory": joh["coint_rank"] == n - 1}
-    table = pd.DataFrame({"rank_h0": range(n), "trace_stat": joh["trace_stat"], "trace_crit": joh["trace_crit"],
-                          "max_eig_stat": joh["max_eig_stat"], "max_eig_crit": joh["max_eig_crit"],
-                          "eigenvalue": joh["eigenvalues"]})
-    table["reject_h0"] = table.trace_stat > table.trace_crit
-    table["k_ar_diff"], table["significance"] = k_ar_diff, significance
+    pair_ranks = {_pair_key(a, b): johansen_test(logs[[a, b]], det_order, k_ar_diff, significance)["coint_rank"]
+                  for a, b in combinations(logs.columns, 2)}
+    spec = {"spec_version": SPEC_VERSION, "venues": list(logs.columns), "k_ar_diff": k_ar_diff,
+            "deterministic": deterministic, "det_order": det_order, "criterion": criterion,
+            "max_k_ar_diff": max_k_ar_diff, "significance": significance,
+            "johansen_rank_trace": joh["rank_trace"], "johansen_rank_max_eig": joh["rank_max_eig"],
+            "coint_rank": joh["rank_trace"], "system_supported": joh["rank_trace"] == n - 1,
+            "pair_ranks": pair_ranks, "seed": seed}
     return spec, table
+
+
+def _system_reason(spec):
+    n = len(spec["venues"])
+    if spec["coint_rank"] != n - 1:
+        return f"johansen_rank={spec['coint_rank']}: IS/CS need one common trend (rank {n - 1})"
+    return None
+
+
+def _pair_reason(spec, a, b):
+    rank = spec["pair_ranks"].get(_pair_key(a, b))
+    return None if rank == 1 else f"johansen_rank={rank} for pair: ILS needs rank 1"
+
+
+def _fit_system(logs, spec):
+    return fit_vecm(logs, spec["k_ar_diff"], spec["coint_rank"], spec["deterministic"])
 
 
 def static_shares(logs: pd.DataFrame, spec: dict) -> pd.DataFrame:
     """T3: multivariate IS bounds and CS for all venues in one system."""
-    result = fit_vecm(logs, spec["k_ar_diff"], logs.shape[1] - 1, spec["deterministic"])
-    shares = hasbrouck_is(result).drop(columns="exchange")
+    reason = _system_reason(spec)
+    if reason:
+        return pd.DataFrame({"venue": list(logs.columns), "status": "failed", "reason": reason, "n_obs": len(logs)})
+    result = _fit_system(logs, spec)
+    shares = hasbrouck_is(result, seed=spec.get("seed")).drop(columns="exchange")
     shares["component_share"] = shares.venue.map(component_share(result))
-    shares["n_obs"] = len(logs)
-    return shares
+    return shares.assign(n_obs=len(logs), status="ok", reason="")
+
+
+def diagnostics_table(logs: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    """T3: residual autocorrelation and stability for the system and each supported pair."""
+    models = [("system", list(logs.columns), spec["coint_rank"], _system_reason(spec))]
+    models += [(_pair_key(a, b), [a, b], 1, _pair_reason(spec, a, b)) for a, b in combinations(logs.columns, 2)]
+    rows = []
+    for name, cols, rank, reason in models:
+        row = {"model": name, "coint_rank": rank, "k_ar_diff": spec["k_ar_diff"], "n_obs": len(logs)}
+        if reason:
+            rows.append({**row, "status": "skipped", "reason": reason})
+            continue
+        try:
+            diag = vecm_diagnostics(fit_vecm(logs[cols], spec["k_ar_diff"], rank, spec["deterministic"]))
+            rows.append({**row, **diag, "status": "ok", "reason": ""})
+        except (ValueError, np.linalg.LinAlgError) as exc:
+            rows.append({**row, "status": "failed", "reason": str(exc)})
+    return pd.DataFrame(rows)
 
 
 def pairwise_ils(logs: pd.DataFrame, spec: dict, pairs=None) -> pd.DataFrame:
@@ -86,6 +139,9 @@ def pairwise_ils(logs: pd.DataFrame, spec: dict, pairs=None) -> pd.DataFrame:
     for a, b in pairs or combinations(logs.columns, 2):
         base = {"pair": f"{a}|{b}", "venue_a": a, "venue_b": b, "n_obs": len(logs)}
         try:
+            reason = _pair_reason(spec, a, b)
+            if reason:
+                raise ValueError(reason)
             result = fit_vecm(logs[[a, b]], spec["k_ar_diff"], 1, spec["deterministic"])
             shares = hasbrouck_is(result).drop(columns="exchange").set_index("venue")
             ils = information_leadership(shares.reset_index(), component_share(result)).set_index("venue")
@@ -124,14 +180,19 @@ def _window_rows(panel, spec, start, end, max_missing_frac):
     try:
         logs = log_prices(panel.iloc[start:end], venues, max_missing_frac)
         system = static_shares(logs, spec).set_index("venue")
+        if system.status.ne("ok").any():
+            raise ValueError(system.reason.iloc[0])
         pairs = pairwise_ils(logs, spec)
-        failed = pairs[pairs.status.ne("ok")]
-        if not failed.empty:
-            raise ValueError(f"ils_failed: {failed.reason.iloc[0]}")
-        ils = pairs.groupby("venue").ils.mean()
+        ils = pairs[pairs.status.eq("ok")].groupby("venue").ils.mean()
         leader = _leader(system)
-        return [{**base, "venue": v, **{c: system.loc[v, c] for c in SHARE_COLUMNS[:4]}, "ils": float(ils[v]),
-                 "leader": leader, "status": "ok", "reason": "" if leader else "overlapping_bounds"} for v in venues]
+        rows = []
+        for v in venues:
+            row = {**base, "venue": v, **{c: system.loc[v, c] for c in SHARE_COLUMNS[:4]}, "leader": leader}
+            if v in ils.index:
+                rows.append({**row, "ils": float(ils[v]), "status": "ok", "reason": "" if leader else "overlapping_bounds"})
+            else:
+                rows.append({**row, "ils": np.nan, "status": "failed", "reason": "ils_failed: no estimable pair"})
+        return rows
     except (ValueError, np.linalg.LinAlgError) as exc:
         return [{**base, "venue": v, **{c: np.nan for c in SHARE_COLUMNS}, "leader": None,
                  "status": "failed", "reason": str(exc)} for v in venues]
@@ -158,7 +219,7 @@ def rolling_shares(panel: pd.DataFrame, spec: dict, window_obs: int, step_obs: i
 
 def sensitivity(panel: pd.DataFrame, spec: dict, window_obs: int, step_obs: int,
                 windows=None, steps=None, lags=None, max_missing_frac: float = 0.05) -> pd.DataFrame:
-    """T3b: change one of window/step/lag at a time around the locked baseline."""
+    """T3b: change one of window/step/lag at a time around the locked baseline (rank stays locked)."""
     windows = windows or [window_obs // 2, window_obs, window_obs * 2]
     steps = steps or [step_obs, step_obs * 2]
     lags = lags or [max(spec["k_ar_diff"] - 1, 0), spec["k_ar_diff"], spec["k_ar_diff"] + 1]
