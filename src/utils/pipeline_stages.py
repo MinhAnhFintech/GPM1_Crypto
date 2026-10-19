@@ -12,6 +12,30 @@ REQUIRED_STAGES = frozenset({"features", "regime_flags", "price_discovery", "cos
 DEFAULT_TIMEOUT_S = 3600
 
 
+def validate_output_location(path, *, root, mode):
+    """Reject cross-provenance destinations, including aliases and ancestors.
+
+    Custom scratch directories outside protected repo paths remain supported.
+    This validates declared destinations; it does not sandbox arbitrary commands.
+    """
+    if mode is None:
+        return
+    root, path = Path(root).resolve(), Path(path).resolve()
+    synthetic = (root/"outputs/synthetic").resolve()
+    if mode == "synthetic":
+        protected = [(root/p).resolve() for p in ("data/raw", "data/interim", "data/processed")]
+        if any(path.is_relative_to(p) or p.is_relative_to(path) for p in protected):
+            raise ValueError(f"Synthetic output must not overlap research data: {path}")
+        outputs = (root/"outputs").resolve()
+        if (path.is_relative_to(outputs) or outputs.is_relative_to(path)) and not path.is_relative_to(synthetic):
+            raise ValueError(f"Synthetic outputs belong under outputs/synthetic/: {path}")
+    elif mode in {"raw", "historical"}:
+        if any(path.is_relative_to(p) for p in [synthetic, (root/"data/fixtures").resolve()]):
+            raise ValueError(f"Research output must not overlap synthetic fixtures/results: {path}")
+    else:
+        raise ValueError(f"Unknown pipeline mode: {mode}")
+
+
 def _format(value, substitutions):
     # Replace only our tokens; literal braces in Python/JSON argv stay intact.
     for key, replacement in substitutions.items():
@@ -19,7 +43,7 @@ def _format(value, substitutions):
     return value
 
 
-def _prepare(stages, root, substitutions):
+def _prepare(stages, root, substitutions, mode=None):
     if not isinstance(stages, list):
         raise ValueError("pipeline_stages must be a list")
     prepared, names, output_owners = [], set(), {}
@@ -50,6 +74,7 @@ def _prepare(stages, root, substitutions):
         for value in outputs:
             path = Path(_format(value, substitutions))
             path = (path if path.is_absolute() else root / path).resolve()
+            validate_output_location(path, root=root, mode=mode)
             if path in output_owners:
                 raise ValueError(f"Stage {name}: output already declared by {output_owners[path]}: {path}")
             output_owners[path] = name
@@ -68,7 +93,15 @@ def _snapshot(path):
     return (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino, file_sha256(path))
 
 
-def run_pipeline_stages(stages, *, root, data_dir, output_dir, python, on_update, foundation_only=False):
+def validate_pipeline_stages(stages, *, root, data_dir, output_dir, python, mode=None):
+    """Preflight argv/output declarations without writing or executing anything."""
+    root = Path(root).resolve()
+    substitutions = {"python": str(python), "data_dir": str(Path(data_dir).resolve()),
+                     "output_dir": str(Path(output_dir).resolve())}
+    return _prepare(stages, root, substitutions, mode)
+
+
+def run_pipeline_stages(stages, *, root, data_dir, output_dir, python, on_update, foundation_only=False, mode=None):
     """Run configured argv sequentially; publish running/failure/completion evidence.
 
     Relative paths resolve against root. Existing files remain intact, but a
@@ -77,9 +110,8 @@ def run_pipeline_stages(stages, *, root, data_dir, output_dir, python, on_update
     foundation_only never launches team commands. No final-test claim is made.
     """
     root = Path(root).resolve()
-    substitutions = {"python": str(python), "data_dir": str(Path(data_dir).resolve()),
-                     "output_dir": str(Path(output_dir).resolve())}
-    prepared = _prepare(stages, root, substitutions)
+    prepared = validate_pipeline_stages(stages, root=root, data_dir=data_dir, output_dir=output_dir,
+                                        python=python, mode=mode)
     results = []
     for stage in prepared:
         result = {"name": stage["name"], "status": "not_run"}

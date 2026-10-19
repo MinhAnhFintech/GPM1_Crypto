@@ -20,10 +20,10 @@ from src.price_discovery.leadlag import lead_lag_xcorr
 from src.synchronization.align import align_previous_tick
 from src.synchronization.normalize import load_raw_directory
 from src.synchronization.split import create_split_manifest, select_split
-from src.utils.config import load_config
+from src.utils.config import configured_venue_ids, load_config
 from src.utils.io_utils import file_sha256, read_parquet, write_json, write_parquet
 from src.utils.logging_utils import configure_logging
-from src.utils.pipeline_stages import REQUIRED_STAGES, run_pipeline_stages
+from src.utils.pipeline_stages import REQUIRED_STAGES, run_pipeline_stages, validate_output_location, validate_pipeline_stages
 from src.utils.schema import data_kind, venues_from_panel
 from src.utils.synthetic import write_fixtures
 from src.utils.time_utils import utc_timestamp
@@ -40,8 +40,8 @@ def run_pipeline(args) -> dict:
         work = args.data_dir or ROOT/"data/processed"
         outputs = args.output_dir or ROOT/"outputs"
     work, outputs = Path(work), Path(outputs)
-    if args.mode == "synthetic" and outputs.resolve() == (ROOT/"outputs").resolve():
-        raise ValueError("Keep synthetic outputs in a separate subdirectory")
+    for destination in (work, outputs):
+        validate_output_location(destination, root=ROOT, mode=args.mode)
     outputs.mkdir(parents=True, exist_ok=True)
     report = {"run_id": uuid.uuid4().hex, "mode": args.mode, "pipeline_status": "running",
               "foundation_status": "running", "team_stages": [], "pending_team_stages": sorted(REQUIRED_STAGES),
@@ -63,6 +63,8 @@ def run_pipeline(args) -> dict:
 def _run_pipeline(args, work, outputs, report):
     cfg_path = args.config or ROOT/"config"/("config.example.yaml" if args.mode == "synthetic" else "config.yaml")
     cfg = load_config(cfg_path)
+    validate_pipeline_stages(cfg.get("pipeline_stages", []), root=ROOT, data_dir=work,
+                             output_dir=outputs, python=sys.executable, mode=args.mode)
     configure_logging()
     if args.mode == "synthetic":
         fixture_dir = ROOT/"data/fixtures"
@@ -70,10 +72,8 @@ def _run_pipeline(args, work, outputs, report):
         source = fixture_dir/args.fixture_case/"ohlcv_1m_long.parquet"
         long = read_parquet(source, "D1")
     else:
+        venues = configured_venue_ids(cfg)
         if args.mode == "raw":
-            venues = cfg.get("venues")
-            if not venues:
-                raise ValueError("Raw mode requires a finalized venues list in config")
             long = load_raw_directory(args.raw_dir or ROOT/"data/raw/ohlcv", venues=venues)
             source = ROOT/"data/interim/ohlcv_1m_long.parquet"
         else:
@@ -90,6 +90,9 @@ def _run_pipeline(args, work, outputs, report):
         long = long[long.ts_available.ge(start) & long.ts_available.lt(end)].copy()
         if long.empty:
             raise ValueError("No candles in the configured availability interval")
+        present = set((long.exchange+"_"+long.market_type).unique())
+        if present != set(venues):
+            raise ValueError(f"Research venue mismatch inside sample: missing={sorted(set(venues)-present)}, unexpected={sorted(present-set(venues))}")
         if args.mode == "raw":
             write_parquet(long, source, "D1")
     panel = align_previous_tick(long, cfg["timeframe"], cfg["max_age"])
@@ -122,7 +125,7 @@ def _run_pipeline(args, work, outputs, report):
         write_json(report, outputs/"pipeline_report.json")
 
     run_pipeline_stages(cfg.get("pipeline_stages", []), root=ROOT, data_dir=work, output_dir=outputs,
-                        python=sys.executable, on_update=publish_stages, foundation_only=args.foundation_only)
+                        python=sys.executable, on_update=publish_stages, foundation_only=args.foundation_only, mode=args.mode)
     missing = report["pending_team_stages"]
     report["full_research_pipeline_complete"] = args.mode != "synthetic" and not missing and not args.foundation_only
     report["pipeline_status"] = "foundation_only" if args.foundation_only else ("pending_team_stages" if missing else "passed")

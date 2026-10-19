@@ -122,3 +122,25 @@ python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long
 `tests/test_live_alignment.py` kiểm tra nhận lệch nhịp, không nhìn trước, biên hết tuổi, giữ nguồn UTC/NaT qua Parquet, spot/perp độc lập, trùng khóa, provenance và luồng D2 -> D7. Trường hợp synthetic lưới 5 giây, tuổi tối đa 6 giây tạo hai sự kiện riêng khi một chân hết tuổi, không kéo dài cơ hội qua khoảng missing. Kết quả gap trên fixtures đúng lưới phải bằng cách pivot cũ. Đây là kiểm chứng thuật toán và tích hợp, chưa nghiệm thu dữ liệu live thật hoặc C4.13 của TV5.
 
 Kiểm chứng ngày 18/10/2026 trên Python 3.12 với dependencies ghim: `python run_all.py --mode synthetic --verify` đạt **170 passed, 2 skipped**; hai ca skip vẫn chờ hàm thật của TV5. Foundation multi và spot_perp đều dựng 720 dòng, final test chưa dùng. Runner gap-events multi tạo 500 sự kiện synthetic, spot_perp tạo 0 sự kiện theo quy tắc không arbitrage chéo loại hợp đồng. Chưa có kết quả thực nghiệm từ D2 live thật trong lần bàn giao này.
+
+## Công cụ kiểm tra bàn giao D1/D2/D3/D4 (19/10/2026)
+
+Theo C4.04/C4.11, `python -m src.utils.check_handoff` kiểm tra file nhận từ nhóm bằng schema hiện có, provenance khai báo rõ, checksum tùy chọn và đối chiếu venue/config. Với D3 có thể đối chiếu manifest D4, fingerprint và biên chia mẫu 60/20/20 mà không sửa manifest hoặc claim/reset final test. Hướng dẫn lệnh và phạm vi kết luận ở `docs/TV4_HANDOFF_CHECK.md`.
+
+CLI phân biệt passed/failed/missing và mã thoát 0/1/2. D1 được thống kê trong/ngoài mẫu theo ts_available, D3 phải đúng lưới trong mẫu, còn D2 không chịu khoảng sample lịch sử. Passed chỉ xác nhận hợp đồng và tính nhất quán đã kiểm; chưa phải nghiệm thu coverage hoặc M2 trên dữ liệu thật. Fixtures vẫn dùng nhãn synthetic và đường dẫn outputs/synthetic.
+
+Kiểm chứng ngày 19/10/2026: toàn repo **226 passed, 2 skipped** (hai ca C4.13 chờ TV5), gồm 31 ca mới cho công cụ bàn giao. Multi và spot_perp foundation đều dựng 720 dòng, final test chưa dùng. CLI kiểm D3/D4 synthetic trả passed, fingerprint và counts 432/144/144 khớp; kiểm D1 historical ở đường dẫn bàn giao hiện trả missing/mã 2. Test xác nhận không thay dữ liệu, manifest hoặc khóa final test và không cho JSON chẩn đoán ghi đè các file này. Chưa có nghiệm thu D1/D2/D3/D4 thật trong lần triển khai này.
+
+## Khắc phục sau rà soát tech lead (19/10/2026)
+
+Ba điểm F1–F3 được sửa trong phần TV4: kiểm đường dẫn synthetic và outputs khai báo của các stage; đối chiếu D4 với panel/tỷ lệ tại tất cả API dùng split; kiểm venue trong khoảng sample ở cả raw/historical. Tham số đường dẫn tùy chọn không được đưa synthetic vào vùng nghiên cứu. Manifest bị lệch biên dù fingerprint dữ liệu giữ nguyên bị từ chối trước khi trả dev/val hoặc tạo khóa test. Thiếu/thừa venue báo lỗi trước khi ghi D1/D3/D4.
+
+Kiểm thử: **261 passed, 3 skipped**. Hai ca skip vẫn chờ TV5; một ca kiểm alias directory bị skip do máy Windows không cho tạo symlink. Các ca đường dẫn thường/`..`, bảo toàn marker nghiên cứu, stage preflight, cả ba API split và hai chế độ raw/historical đã pass. Demo multi dựng 720 dòng, final test chưa dùng. Chi tiết đầu vào TV4 còn chờ và người bàn giao nằm ở `docs/TV4_PENDING_HANDOFFS.md`; chưa có nghiệm thu M2 hoặc kết quả mô hình thật trong lần sửa này.
+
+Kiểm tra CLI sau sửa: demo spot_perp cũng dựng 720 dòng; công cụ intake xác nhận D3/D4 multi khớp counts 432/144/144 và chưa có khóa/tiêu thụ test. Chạy synthetic với `--data-dir data/processed` bị từ chối trước thao tác ghi, mã thoát 1 đúng dự kiến.
+
+## Xác nhận phạm vi sàn và hoàn thiện bàn giao độc lập (19/10/2026)
+
+Nhóm xác nhận nghiên cứu Binance/OKX/Bybit, mỗi sàn gồm spot và perp. Collector live giữ phạm vi 5 sàn/8 venue với Kraken spot và Coinbase spot; việc thu dư là có chủ đích. TV4 không sửa collector hoặc config thu live. Tài liệu bàn giao phân biệt kiểm D2 thu rộng không kèm config nghiên cứu với kiểm bản nghiên cứu đã chọn riêng 6 venue. Danh sách sàn không còn là đầu vào TV4 đang chờ; khoảng mẫu lịch sử và các file thật vẫn cần được bàn giao/xác nhận.
+
+Kiểm chứng bổ sung chạy trên D2 synthetic 5 sàn/8 venue: intake nhận đủ tập thu rộng, align_live_quotes giữ đủ 8 venue; bản chọn riêng 6 venue qua kiểm config nghiên cứu, bản gốc giữ nguyên SHA-256. Không đổi provenance của fixtures thành live. Toàn repo đạt **262 passed, 3 skipped**; hai ca chờ TV5, một ca symlink bị giới hạn trên Windows. Demo multi và spot_perp đều dựng 720 dòng; D3/D4 multi qua intake với counts 432/144/144, final test chưa dùng và chưa có khóa. Đây là kiểm chứng phần nền TV4; không thay thế dữ liệu thật hoặc nghiệm thu C4.13.

@@ -17,6 +17,8 @@ Chủ sở hữu: Anh (TV4). Chốt triển khai ngày 17/10/2026 theo GPM1_CRYP
 | Thiếu | NaN và `missing__{venue}`; không nội suy, không backfill từ tương lai. |
 | Random | Seed đọc từ cấu hình, ghi vào truth.json của fixtures. |
 
+Phạm vi nghiên cứu đã chốt: Binance, OKX, Bybit, mỗi sàn gồm spot và perp (6 venue trong config/config.yaml và config/exchanges.yaml). Phạm vi thu live có thể rộng hơn: config/live_sessions.yaml còn Kraken spot và Coinbase spot (5 sàn/8 venue). Giữ nguyên bản thu đầy đủ; chọn bản nghiên cứu riêng khi cần đối chiếu danh sách 6 venue. Kiểm tra tập venue của pipeline nến lịch sử không thay đổi cấu hình hoặc dữ liệu của collector live.
+
 `ts_available` của nến 1 phút = thời gian **mở nến + đúng 1 phút**; không lấy trường Binance `close_time` (thường sớm hơn 1 ms). Với live, dữ liệu chỉ được biết từ `ts_recv_utc`, không phải `ts_event_utc` hoặc lưới dự kiến `ts_grid_utc`. `available_at` của kết quả rolling không được trước `window_end`.
 
 ## D1–D9 và đường dẫn bàn giao
@@ -59,6 +61,10 @@ align_previous_tick(df_long, grid_freq="1min", max_age="5min")
 D4 chia theo thứ tự thời gian, không shuffle: floor(60%N) development, floor(20%N) validation, phần còn lại final test. Giữ các dòng missing khi chia để không đổi ý nghĩa thời gian. Biên start/end bao gồm hai đầu, ba tập không giao nhau. Fingerprint SHA-256 gồm schema, UTC index, dữ liệu và attrs, với phiên bản pandas đã ghim. Có thêm counts, ratios, data_kind và test_consumed để kiểm tra.
 
 `select_split` chỉ cho dev/val. `claim_final_test` yêu cầu file cấu hình đã đóng băng, ghi SHA-256 và khóa độc quyền bằng file `.test.lock` rồi đánh dấu test_consumed; lần gọi sau bị từ chối. Chạy lại pipeline không xóa khóa. Đây là kiểm soát trong API dự án, không ngăn việc mở Parquet trực tiếp; nhóm vẫn phải giữ quy tắc chỉ dùng test cuối một lần.
+
+Các API D4 kiểm chung `validate_panel_split`: ngoài fingerprint, biên dev/val/test và counts/ratios/metadata nếu có phải khớp với panel và phép chia tương ứng. Không nhận lại manifest chỉ vì fingerprint còn đúng khi biên đã lệch. Kiểm tra này không đặt lại test_consumed hoặc thay khóa. Pipeline raw/historical yêu cầu danh sách venue ID duy nhất trong config và tập venue bên trong sample khớp chính xác; thiếu/thừa venue báo lỗi trước khi ghi file bàn giao.
+
+Pipeline cũng kiểm vị trí data_dir/output_dir trước thao tác ghi: synthetic không được ghi vào data/raw, data/interim, data/processed hoặc vùng outputs nghiên cứu ngoài outputs/synthetic; dữ liệu thật không ghi vào fixtures/kết quả synthetic. Thư mục scratch riêng vẫn được hỗ trợ. Outputs được stage khai báo được kiểm trước bước tạo dữ liệu và trước khi thực thi stage; việc review command vẫn bắt buộc vì kiểm khai báo không sandbox toàn bộ chương trình được gọi. Các kiểm soát này giữ schema v1.0.
 
 ### Đồng bộ quotes D2 cho mô hình chi phí live
 
