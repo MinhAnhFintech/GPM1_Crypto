@@ -1,19 +1,40 @@
-# Project configuration
-# Based on TV4 template.
+# Project configuration (C1.02, TV1). Based on the TV4 template config.example.yaml.
+# All timestamps are UTC with a trailing Z. Read by run_all.py and the collectors; never hard-code these values elsewhere.
 contract_version: '1.0'
-
 symbol: BTC/USDT
-timeframe: 1min
-seed: 20261017
-
+timeframe: 1min            # sync grid step (1 minute)
+max_age: 5min              # align_previous_tick: a quote older than this becomes missing (NaN), never interpolated
+seed: 20261017             # the only random seed used by the project
 rolling:
-  window_obs: 1440
-  step_obs: 60
+  window_obs: 1440         # rolling window length in observations (1440 x 1min = 1 day)
+  step_obs: 60             # window step in observations (60 x 1min = 1 hour)
+split_ratios: [0.6, 0.2, 0.2]   # chronological development / validation / final test; final test is used once
+max_lag: 5                 # maximum lag (minutes) of the lead-lag cross-correlation
 
-split_ratios: [0.6, 0.2, 0.2]
+# Historical sample, compared against ts_available. start inclusive, end EXCLUSIVE.
+# ts_available of a 1-minute candle = candle open time + 1 minute, so start = first candle open 2025-10-18 00:00 + 1 min.
+# end: the Binance Vision collector downloads closed MONTHS only (it stops with an error for the current month),
+# so the sample ends at the month boundary. Last candle kept opens 2026-09-30 23:58 (ts_available 2026-09-30 23:59).
+# TODO: team to confirm the sample window (see docs/SOURCE_LOG.md); live quotes (from 2026-10-17) are a separate data_kind.
+sample:
+  start: '2025-10-18T00:01:00Z'
+  end: '2026-10-01T00:00:00Z'
 
+# Venue = {exchange}_{market_type}. Ids only (run_all --mode raw matches them against {venue}_BTCUSDT_1m.parquet file names).
+# Connection details (ccxt_id, symbol) live in config/exchanges.yaml. Keep both lists identical and in sync with fees.yaml.
+venues:
+  - binance_spot
+  - binance_perp
+  - okx_spot
+  - okx_perp
+  - bybit_spot
+  - bybit_perp
 
 # TV6 (C6.03): gap event detection (src/cost_model/gap_events.py). Other keys belong to TV1.
 gap_events:
   gap_threshold_bps: 5.0  # gross_gap_bps >= threshold counts as a gap. TODO: nhom chot gia tri
   grid_step_s: 60         # spacing of consecutive observations (1min grid). TODO: nhom chot gia tri
+
+# Team modules registered here run after the TV4 foundation. Paths are relative
+# to repo; each command is an argv list (no shell), with {data_dir}/{output_dir}.
+pipeline_stages: []
