@@ -21,7 +21,7 @@ M2 và lead-lag từ D3 không phụ thuộc mô hình IS/ILS. D2 live và fundi
 | --- | --- | --- |
 | C4.10 số liệu lead-lag/F6 thật | D1 thật TV2 → D3 do TV4 dựng | Thuật toán và test lag trên hai fixtures đã có; chạy development của D3 thật sau M2, giữ lưới missing và quy ước dấu |
 | Tích hợp/kiểm đồng bộ D2 thật, hỗ trợ C4.11/C4.12 | TV3 C3.05/C3.06: `live_quotes_long.parquet`, báo cáo T0b coverage theo phiên và checksum | Có code nhận/đồng bộ D2. Chưa có file D2 chuẩn trong data/processed; cần kiểm UTC, size BTC, depth censored, provenance và tuổi quote trước tích hợp |
-| C4.13 kiểm chứng IS/CS/ILS trên fixtures | TV5 C5.03/C5.04/C5.05: `fit_vecm`, `hasbrouck_is`, `component_share`, `information_leadership` đúng chữ ký | Ba module vecm/info_share/info_leadership hiện rỗng. Hai ca test đang skip; strict gate phải fail tới khi có hàm thật. Khi nhận, TV4 chạy cả multi và spot/perp, đối chiếu leader với truth |
+| C4.13 kiểm chứng IS/CS/ILS trên fixtures | Đã nhận các hàm thật từ PR TV5 #7; còn bước tích hợp bản đã review | Bản kết hợp PR #7 với dev và sửa TV4 đạt strict 4/4 trên original/identified_cs × multi/spot_perp; không còn phụ thuộc hàm rỗng. Xem docs/TV5_PR7_REVIEW.md. Kết quả synthetic không thay nghiệm thu mẫu thật |
 | C4.12 pipeline nghiên cứu đầy đủ | CLI và đầu ra thật của các stage ở bảng dưới | Khung điều phối đã có; pipeline_stages hiện rỗng. Chỉ đăng ký command đã bàn giao/đã review, rồi chạy nối chuỗi và kiểm đầu ra, lỗi/timeout, provenance và tái lập |
 | C4.11 review hằng ngày | PR/commit tiếp theo của các thành viên | Việc liên tục tới 24/10; các nhánh được đọc lần này chưa có cập nhật mới sau các lần tích hợp vừa thực hiện |
 | R4.01 phương pháp 4.1/4.10 | Biên và chất lượng mẫu thật sau M2 | Bản phương pháp đã có; điền/đối chiếu số quan sát, missing và biên thực tế khi nhận D1 |
@@ -33,7 +33,7 @@ M2 và lead-lag từ D3 không phụ thuộc mô hình IS/ILS. D2 live và fundi
 | --- | --- | --- |
 | features | TV2 C2.04 | CLI tạo D3b features_1m từ D3; giữ từng venue và dispersion riêng spot/perp |
 | regime_flags | TV1 C1.04/C1.06 | CLI tạo D5 từ mẫu đúng split; ngưỡng high-vol fit trên development và events có nguồn |
-| price_discovery | TV5 | CLI kiểm định/VECM/IS/CS/ILS và rolling D6, bảng/hình liên quan; available_at không trước window_end |
+| price_discovery | TV5 | Đã có CLI run_price_discovery trong PR #7 và kiểm thử synthetic; cần tích hợp bản sửa, review đặc tả và chạy trên D3 thật trước đăng ký stage nghiên cứu. available_at chờ cả window_end và thời điểm chọn spec |
 | cost_backtest | TV6, đầu vào D2 từ TV3 | CLI backtest A/B, D7/D8 và bảng chi phí; half-spread proxy cần mẫu live được hiệu chỉnh, không tự đặt số thay dữ liệu |
 | evaluation | TV3 + TV6 | CLI hồi quy/stress/sensitivity và các bảng T4/T6/T5b/T6b phù hợp; không dùng final test để chọn lại cấu hình |
 
