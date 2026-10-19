@@ -8,11 +8,11 @@ No mode downloads data, starts a collector, or consumes the final test implicitl
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ from src.synchronization.split import create_split_manifest, select_split
 from src.utils.config import load_config
 from src.utils.io_utils import file_sha256, read_parquet, write_json, write_parquet
 from src.utils.logging_utils import configure_logging
+from src.utils.pipeline_stages import REQUIRED_STAGES, run_pipeline_stages
 from src.utils.schema import data_kind, venues_from_panel
 from src.utils.synthetic import write_fixtures
 from src.utils.time_utils import utc_timestamp
@@ -32,6 +33,34 @@ ROOT = Path(__file__).resolve().parent
 
 def run_pipeline(args) -> dict:
     """Build D1->D3->D4 and dev-only leadlag; run configured external stages."""
+    if args.mode == "synthetic":
+        work = args.data_dir or ROOT/"outputs/synthetic"/args.fixture_case/"data"
+        outputs = args.output_dir or ROOT/"outputs/synthetic"/args.fixture_case
+    else:
+        work = args.data_dir or ROOT/"data/processed"
+        outputs = args.output_dir or ROOT/"outputs"
+    work, outputs = Path(work), Path(outputs)
+    if args.mode == "synthetic" and outputs.resolve() == (ROOT/"outputs").resolve():
+        raise ValueError("Keep synthetic outputs in a separate subdirectory")
+    outputs.mkdir(parents=True, exist_ok=True)
+    report = {"run_id": uuid.uuid4().hex, "mode": args.mode, "pipeline_status": "running",
+              "foundation_status": "running", "team_stages": [], "pending_team_stages": sorted(REQUIRED_STAGES),
+              "full_research_pipeline_complete": False, "analysis_split": "dev", "test_consumed": None}
+    write_json(report, outputs/"pipeline_report.json")
+    try:
+        return _run_pipeline(args, work, outputs, report)
+    except Exception as exc:
+        report.update(pipeline_status="failed", full_research_pipeline_complete=False,
+                      error_type=type(exc).__name__)
+        if not isinstance(exc, subprocess.SubprocessError):
+            report["reason"] = str(exc)
+        if report["foundation_status"] == "running":
+            report["foundation_status"] = "failed"
+        write_json(report, outputs/"pipeline_report.json")
+        raise
+
+
+def _run_pipeline(args, work, outputs, report):
     cfg_path = args.config or ROOT/"config"/("config.example.yaml" if args.mode == "synthetic" else "config.yaml")
     cfg = load_config(cfg_path)
     configure_logging()
@@ -39,12 +68,8 @@ def run_pipeline(args) -> dict:
         fixture_dir = ROOT/"data/fixtures"
         write_fixtures(cfg, fixture_dir)
         source = fixture_dir/args.fixture_case/"ohlcv_1m_long.parquet"
-        work = args.data_dir or ROOT/"outputs/synthetic"/args.fixture_case/"data"
-        outputs = args.output_dir or ROOT/"outputs/synthetic"/args.fixture_case
         long = read_parquet(source, "D1")
     else:
-        work = args.data_dir or ROOT/"data/processed"
-        outputs = args.output_dir or ROOT/"outputs"
         if args.mode == "raw":
             venues = cfg.get("venues")
             if not venues:
@@ -67,9 +92,6 @@ def run_pipeline(args) -> dict:
             raise ValueError("No candles in the configured availability interval")
         if args.mode == "raw":
             write_parquet(long, source, "D1")
-    work, outputs = Path(work), Path(outputs)
-    if args.mode == "synthetic" and outputs.resolve() == (ROOT/"outputs").resolve():
-        raise ValueError("Keep synthetic outputs in a separate subdirectory")
     panel = align_previous_tick(long, cfg["timeframe"], cfg["max_age"])
     work.mkdir(parents=True, exist_ok=True)
     outputs.mkdir(parents=True, exist_ok=True)
@@ -90,21 +112,20 @@ def run_pipeline(args) -> dict:
     if args.mode == "synthetic":
         from notebooks.templates.regression_template import fixture_regression
         fixture_regression(dev, venues_from_panel(panel)[0]).to_csv(table_dir/"template_ols_hac_demo.csv", index=False)
-    stage_results = []
-    stages = cfg.get("pipeline_stages", [])
-    # All research stages must declare coverage; an empty list never counts as
-    # a finished empirical pipeline for other members' unfinished modules.
-    required = {"features", "regime_flags", "price_discovery", "cost_backtest", "evaluation"}
-    for stage in stages:
-        if stage.get("enabled", True):
-            command = [str(value).format(python=sys.executable, data_dir=str(work.resolve()), output_dir=str(outputs.resolve())) for value in stage["command"]]
-            subprocess.run(command, cwd=ROOT, check=True, shell=False)
-            expected = [Path(str(p).format(data_dir=str(work), output_dir=str(outputs))) for p in stage.get("outputs", [])]
-            if not expected or any(not p.is_file() for p in expected):
-                raise ValueError(f"Stage {stage['name']} did not produce its declared outputs")
-            stage_results.append({"name": stage["name"], "status": "passed", "outputs_sha256": {str(p): file_sha256(p) for p in expected}})
-    missing = sorted(required-{s["name"] for s in stage_results})
-    report = {"mode": args.mode, "data_kind": data_kind(panel), "source": str(source), "source_sha256": file_sha256(source), "config_sha256": file_sha256(cfg_path), "panel_fingerprint": manifest["fingerprint"], "rows": len(panel), "venues": venues_from_panel(panel), "analysis_split": "dev", "test_consumed": manifest["test_consumed"], "foundation_status": "passed", "team_stages": stage_results, "pending_team_stages": missing, "full_research_pipeline_complete": not missing}
+    report.update(data_kind=data_kind(panel), source=str(source), source_sha256=file_sha256(source),
+                  config_sha256=file_sha256(cfg_path), panel_fingerprint=manifest["fingerprint"], rows=len(panel),
+                  venues=venues_from_panel(panel), test_consumed=manifest["test_consumed"], foundation_status="passed")
+
+    def publish_stages(results):
+        report["team_stages"] = results
+        report["pending_team_stages"] = sorted(REQUIRED_STAGES - {s["name"] for s in results if s["status"] == "passed"})
+        write_json(report, outputs/"pipeline_report.json")
+
+    run_pipeline_stages(cfg.get("pipeline_stages", []), root=ROOT, data_dir=work, output_dir=outputs,
+                        python=sys.executable, on_update=publish_stages, foundation_only=args.foundation_only)
+    missing = report["pending_team_stages"]
+    report["full_research_pipeline_complete"] = args.mode != "synthetic" and not missing and not args.foundation_only
+    report["pipeline_status"] = "foundation_only" if args.foundation_only else ("pending_team_stages" if missing else "passed")
     write_json(report, outputs/"pipeline_report.json")
     logging.getLogger("gpm1").info("Foundation passed: %s; %s rows; final test untouched", outputs, len(panel))
     if args.mode != "synthetic" and missing and not args.foundation_only:
@@ -121,14 +142,17 @@ def main(argv=None):
     parser.add_argument("--raw-dir", type=Path)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--foundation-only", action="store_true")
+    parser.add_argument("--foundation-only", action="store_true", help="Build the TV4 foundation without launching team stages")
     parser.add_argument("--verify", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.verify:
-            subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=ROOT, check=True)
+            temp_root = ROOT/"tmp"
+            temp_root.mkdir(parents=True, exist_ok=True)
+            basetemp = temp_root/f"pytest-verify-{uuid.uuid4().hex}"
+            subprocess.run([sys.executable, "-m", "pytest", "-q", "--basetemp", str(basetemp)], cwd=ROOT, check=True)
         run_pipeline(args)
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(f"Pipeline stopped: {exc}", file=sys.stderr)
         return 1
     return 0

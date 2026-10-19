@@ -1,0 +1,12 @@
+# Exchange connection configuration (C1.02, TV1). Based on the TV4 template config.exchanges.example.yaml.
+# Venue = {exchange}_{market_type}. exchange = lowercase CCXT-style id written into the data;
+# ccxt_id = id used to connect (may differ, e.g. binanceusdm); symbol = CCXT symbol (perpetual: BTC/USDT:USDT).
+# Data files use the canonical symbol BTC/USDT; the CCXT symbol below belongs only to the connection.
+# Keep the venue list identical to config/config.yaml (venues) and config/fees.yaml.
+venues:
+  - {exchange: binance, market_type: spot, ccxt_id: binance,     symbol: 'BTC/USDT'}
+  - {exchange: binance, market_type: perp, ccxt_id: binanceusdm, symbol: 'BTC/USDT:USDT'}
+  - {exchange: okx,     market_type: spot, ccxt_id: okx,         symbol: 'BTC/USDT'}
+  - {exchange: okx,     market_type: perp, ccxt_id: okx,         symbol: 'BTC/USDT:USDT'}
+  - {exchange: bybit,   market_type: spot, ccxt_id: bybit,       symbol: 'BTC/USDT'}
+  - {exchange: bybit,   market_type: perp, ccxt_id: bybit,       symbol: 'BTC/USDT:USDT'}
