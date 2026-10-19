@@ -9,6 +9,10 @@ Quy tắc phiên:
   * Mỗi phiên là một đoạn dữ liệu riêng (cột session_id). Giữa hai phiên collector chờ, không ghi gì.
   * Không nội suy / chèn dữ liệu giả vào chỗ thiếu: lỗi mạng -> bỏ lượt đó, ghi log.
   * Thời gian luôn UTC (có timezone). ts_recv_utc = giờ máy nhận; ts_event_utc = giờ sàn (có thể trống).
+  * Config chính: config/live_sessions.yaml. Venue params chỉ áp dụng cho sổ sâu.
+  * Sổ sâu lỗi không tạm thời: thử sổ nông, để depth missing + depth_censored=True.
+    Network/rate-limit đi backoff, không gọi thêm sổ nông. Ba lỗi sâu liên tiếp tắt sổ sâu trong phiên.
+  * Size BTC lấy từ contractSize của CCXT; size_multiplier trong config chỉ kiểm tra khớp metadata.
 
 Dùng:
     python collect_live.py                          # = run (nút Run của VS Code cũng được)
@@ -22,6 +26,7 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import random
 import sys
 import threading
 import time
@@ -54,6 +59,11 @@ COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "market_typ
            "bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_censored",
            "latency_ms", "session_id", "session_start_utc", "session_end_utc", "data_kind"]
+COLUMNS += ["book_levels_bid", "book_levels_ask"]
+DEPTH_BPS = 10
+SHALLOW_LIMIT = 5
+MAX_DEEP_FAILS = 3
+ERROR_FIELDS = ["ts_utc", "venue", "error_type", "message", "action"]
 
 
 @dataclass(frozen=True)
@@ -105,7 +115,8 @@ def get_venues(cfg: dict) -> list[dict]:
         for v in cfg["venues"]:
             out.append({"exchange": v["exchange"], "market_type": v.get("market_type", "spot"),
                         "ccxt_id": v.get("ccxt_id", v["exchange"]), "symbol": v.get("symbol", cfg["symbol"]),
-                        "book_limit": v.get("book_limit", cfg["book_limit"])})
+                        "book_limit": v.get("book_limit", cfg["book_limit"]),
+                        "size_multiplier": v.get("size_multiplier"), "params": dict(v.get("params") or {})})
         return out
     ov = cfg.get("symbol_overrides", {})
     return [{"exchange": n, "market_type": "spot", "ccxt_id": n, "symbol": ov.get(n, cfg["symbol"])}
@@ -122,35 +133,108 @@ def make_exchange(name: str):
     return getattr(ccxt, name)({"enableRateLimit": True, "timeout": 4000})
 
 
-def fetch_top_of_book(ex, symbol: str, limit: int) -> dict:
+def fetch_book(ex, symbol: str, limit: int, size_mult=None, with_depth=True, params=None) -> dict:
     """D2 values: prices USDT, sizes BTC, depth USDT within +/-10bps of mid.
 
     Linear perpetual order sizes can be contracts: multiply by contractSize.
     Truncated depth remains an observed lower bound, with depth_censored=True.
     Event time is metadata; downstream availability must use ts_recv_utc.
     """
-    ob = ex.fetch_order_book(symbol, limit)
+    ob = ex.fetch_order_book(symbol, limit, params) if params else ex.fetch_order_book(symbol, limit)
     if not ob.get("bids") or not ob.get("asks"):
         raise ValueError("order book rỗng")
     market = ex.market(symbol)
-    if market.get("inverse"):
+    if market.get("inverse") or (market.get("contract") and not market.get("linear")):
         raise ValueError("inverse contracts unsupported by BTC/USDT D2 schema")
-    multiplier = float(market.get("contractSize") or 1) if market.get("contract") else 1.0
+    multiplier = float(market.get("contractSize") or 0) if market.get("contract") else 1.0
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError("contractSize must be positive and finite")
+    if size_mult is not None and (not math.isfinite(float(size_mult)) or not math.isclose(float(size_mult), multiplier)):
+        raise ValueError("size_multiplier disagrees with market contractSize")
     bids = [(float(row[0]), float(row[1])*multiplier) for row in ob["bids"]]
     asks = [(float(row[0]), float(row[1])*multiplier) for row in ob["asks"]]
     (bid, bid_sz), (ask, ask_sz) = bids[0], asks[0]
     if not all(math.isfinite(p) and math.isfinite(q) and p > 0 and q >= 0 for p, q in bids+asks) or ask < bid:
         raise ValueError("invalid or crossed order book")
     mid = (bid+ask)/2
-    lower, upper = mid*(1-10/10000), mid*(1+10/10000)
-    depth_bid = sum(price*size for price, size in bids if price >= lower)
-    depth_ask = sum(price*size for price, size in asks if price <= upper)
+    depth = compute_depth(bids, asks) if with_depth else {
+        "depth_bid_10bps_usdt": None, "depth_ask_10bps_usdt": None, "depth_censored": True,
+        "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
     ts_ev = ob.get("timestamp")
     return {"bid": float(bid), "ask": float(ask), "bid_size": float(bid_sz), "ask_size": float(ask_sz),
             "mid": mid, "spread_abs": ask-bid, "spread_bps": (ask-bid)/mid*10000,
-            "depth_bid_10bps_usdt": depth_bid, "depth_ask_10bps_usdt": depth_ask,
-            "depth_censored": bids[-1][0] > lower or asks[-1][0] < upper,
+            **depth,
             "ts_event_utc": datetime.fromtimestamp(ts_ev / 1000, UTC) if ts_ev else None}
+
+
+def fetch_top_of_book(ex, symbol: str, limit: int) -> dict:
+    """Compatible D2 entry point retained for existing callers and review tests."""
+    return fetch_book(ex, symbol, limit)
+
+
+def compute_depth(bids, asks, bps=DEPTH_BPS, size_mult=1.0) -> dict:
+    """Observed USDT depth; incomplete books remain censored lower bounds."""
+    if bps != DEPTH_BPS:
+        raise ValueError("D2 depth columns require exactly 10 bps")
+    if not math.isfinite(float(size_mult)) or size_mult <= 0:
+        raise ValueError("size_multiplier must be positive and finite")
+    if not bids or not asks:
+        raise ValueError("order book rỗng")
+    bids = [(float(row[0]), float(row[1])*size_mult) for row in bids]
+    asks = [(float(row[0]), float(row[1])*size_mult) for row in asks]
+    if not all(math.isfinite(p) and math.isfinite(q) and p > 0 and q >= 0 for p, q in bids+asks) or asks[0][0] < bids[0][0]:
+        raise ValueError("invalid or crossed order book")
+    mid = (bids[0][0]+asks[0][0])/2
+    lower, upper = mid*(1-bps/10000), mid*(1+bps/10000)
+    return {"depth_bid_10bps_usdt": sum(p*q for p, q in bids if p >= lower),
+            "depth_ask_10bps_usdt": sum(p*q for p, q in asks if p <= upper),
+            "depth_censored": bids[-1][0] >= lower or asks[-1][0] <= upper,
+            "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
+
+
+def is_rate_limit(error):
+    name = type(error).__name__.lower()
+    return "ratelimit" in name or "ddos" in name or "429" in str(error) or "too many" in str(error).lower()
+
+
+def is_transient(error):
+    name = type(error).__name__.lower()
+    return (isinstance(error, (TimeoutError, ConnectionError)) or is_rate_limit(error)
+            or any(word in name for word in ("timeout", "network", "notavailable", "connection", "unavailable")))
+
+
+class BookSampler:
+    """TV3 deep-book fallback, preserving canonical D2 values and units."""
+    def __init__(self, exchange, venue, writer):
+        self.exchange, self.venue, self.writer = exchange, venue, writer
+        self.deep_enabled = venue["book_limit"] > SHALLOW_LIMIT
+        self.deep_failures = self.shallow_calls = 0
+
+    def fetch(self):
+        venue = self.venue
+        try:
+            quote = fetch_book(self.exchange, venue["symbol"], venue["book_limit"] if self.deep_enabled else SHALLOW_LIMIT,
+                               venue.get("size_multiplier"), with_depth=self.deep_enabled,
+                               params=venue.get("params") if self.deep_enabled else None)
+            if self.deep_enabled:
+                self.deep_failures = 0
+            else:
+                self.shallow_calls += 1
+            return quote
+        except Exception as error:
+            if not self.deep_enabled or is_transient(error):
+                raise
+            quote = fetch_book(self.exchange, venue["symbol"], SHALLOW_LIMIT,
+                               venue.get("size_multiplier"), with_depth=False)
+            self.shallow_calls += 1
+            self.deep_failures += 1
+            self.writer.log_error(venue_key(venue), type(error).__name__, str(error),
+                                  f"deep_failed_used_shallow({self.deep_failures})")
+            if self.deep_failures >= MAX_DEEP_FAILS:
+                self.deep_enabled = False
+                self.writer.log_error(venue_key(venue), "DeepBookDisabled", f"limit={venue['book_limit']}",
+                                      "deep_disabled_for_session")
+            return quote
 
 
 # ----------------------------------------------------------------------------- ghi file
@@ -167,6 +251,22 @@ class SessionWriter:
         with self.lock:
             self.rows.append(row)
 
+    def log_error(self, venue, error_type, message, action):
+        """Best-effort diagnostic log; failure never replaces a market-data error."""
+        import csv
+        try:
+            path = self.dir / "errors.csv"
+            with self.lock:
+                new = not path.exists()
+                with path.open("a", newline="", encoding="utf-8") as stream:
+                    writer = csv.writer(stream)
+                    if new:
+                        writer.writerow(ERROR_FIELDS)
+                    writer.writerow([datetime.now(UTC).isoformat(), venue, error_type,
+                                     str(message)[:300].replace("\n", " "), action])
+        except OSError as error:
+            LOG.warning("Cannot write collector error log: %s", error)
+
     def flush(self):
         with self.lock:
             rows, self.rows = self.rows, []
@@ -174,6 +274,9 @@ class SessionWriter:
             return
         import pandas as pd
         df = pd.DataFrame(rows, columns=COLUMNS)
+        for c in ("bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
+                  "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "latency_ms"):
+            df[c] = pd.to_numeric(df[c], errors="raise").astype("float64")
         for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc", "session_start_utc", "session_end_utc"):
             df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
         self.n += 1
@@ -200,7 +303,10 @@ def _worker(venue, cfg, session, writer, stop_at, stats, stop_event=None):
         ex = make_exchange(venue["ccxt_id"])
     except Exception as e:  # noqa: BLE001
         LOG.error("[%s] không tạo được sàn: %s", key, e)
+        writer.log_error(key, type(e).__name__, str(e), "worker_stopped")
         return
+    sampler = BookSampler(ex, {**venue, "book_limit": limit}, writer)
+    jitter = random.Random(f"{cfg.get('seed', '')}:{key}")
     backoff, skip_until = 0.0, 0.0
     # lưới thời gian căn theo bội số của interval (UTC epoch) để các sàn cùng nhịp
     nxt = (int(time.time() // interval) + 1) * interval
@@ -222,18 +328,22 @@ def _worker(venue, cfg, session, writer, stop_at, stats, stop_event=None):
                 continue
             t0 = time.monotonic()
             try:
-                r = fetch_top_of_book(ex, symbol, limit)
+                r = sampler.fetch()
                 recv = datetime.now(UTC)
                 writer.add({"ts_grid_utc": grid, "ts_recv_utc": recv, "exchange": name, "market_type": venue["market_type"], "symbol": symbol.split(":")[0],
                             "latency_ms": round((time.monotonic() - t0) * 1000, 1),
                             "session_id": session.session_id, "session_start_utc": session.start,
                             "session_end_utc": session.end, "data_kind": "live", **r})
                 stats[key]["ok"] += 1
+                stats[key]["shallow"] = sampler.shallow_calls
                 backoff = 0.0
             except Exception as e:  # noqa: BLE001
                 stats[key]["err"] += 1
-                backoff = min(30.0, max(1.0, backoff * 2))
-                skip_until = time.time() + backoff
+                rate_limited = is_rate_limit(e)
+                backoff = min(60.0 if rate_limited else 30.0, max(10.0 if rate_limited else 1.0, backoff * 2))
+                wait = backoff*jitter.uniform(.8, 1.2)
+                skip_until = time.time() + wait
+                writer.log_error(key, type(e).__name__, str(e), f"skip_tick_backoff_{wait:.0f}s")
                 LOG.warning("[%s] lỗi (%s), bỏ lượt, nghỉ %.0fs: %s", key, type(e).__name__, backoff, str(e)[:160])
     finally:
         close = getattr(ex, "close", None)
@@ -247,7 +357,7 @@ def run_session(cfg, session: Session, out_dir: Path, fmt: str):
     LOG.info("=== BẮT ĐẦU phiên %s, kết thúc %s ===", session.session_id, stop_at.astimezone(tz))
     writer = SessionWriter(out_dir, session, tz, fmt)
     venues = get_venues(cfg)
-    stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0} for v in venues}
+    stats = {venue_key(v): {"ok": 0, "err": 0, "skipped": 0, "shallow": 0} for v in venues}
     stop_event = threading.Event()
     threads = [threading.Thread(target=_worker, args=(v, cfg, session, writer, stop_at, stats, stop_event), daemon=True)
                for v in venues]
@@ -367,6 +477,27 @@ def coverage(out_dir: Path, interval_s: int, cfg=None, as_of=None):
                 if key not in observed:
                     rows.append({**template, "exchange": key[1], "market_type": key[2], "rows": 0, "unique_rows": 0, "duplicate_rows": 0, "off_grid_rows": 0, "coverage_pct": 0.0, "n_gaps_gt_3_ticks": int(template["expected_rows"] > 3), "max_gap_s": template["expected_rows"]*interval_s, "first_utc": None, "last_utc": None, "median_latency_ms": None})
     res = pd.DataFrame(rows)
+    if not df.empty and "depth_bid_10bps_usdt" in df:
+        depth_rows = []
+        for (sid, ex, mt), group in df.groupby(["session_id", "exchange", "market_type"]):
+            flag = "depth_censored" if "depth_censored" in group else "depth_truncated"
+            depth_rows.append({"session_id": sid, "exchange": ex, "market_type": mt,
+                               "depth_censored_pct": 100*group[flag].mean() if flag in group else float("nan"),
+                               "median_depth_bid_usdt": group.depth_bid_10bps_usdt.median() if group.depth_bid_10bps_usdt.notna().any() else float("nan"),
+                               "median_depth_ask_usdt": group.depth_ask_10bps_usdt.median() if group.depth_ask_10bps_usdt.notna().any() else float("nan")})
+        res = res.merge(pd.DataFrame(depth_rows), how="left", on=["session_id", "exchange", "market_type"])
+    error_frames = [pd.read_csv(path).assign(session_id=path.parent.name.removeprefix("session="))
+                    for path in out_dir.rglob("errors.csv")]
+    if error_frames and not res.empty:
+        errors = pd.concat(error_frames, ignore_index=True)
+        if not errors.empty:
+            counts = errors.groupby(["session_id", "venue"]).size().rename("n_errors").reset_index()
+            counts[["exchange", "market_type"]] = counts.venue.str.split(":", n=1, expand=True)
+            res = res.merge(counts[["session_id", "exchange", "market_type", "n_errors"]],
+                            how="left", on=["session_id", "exchange", "market_type"])
+    if "n_errors" not in res:
+        res["n_errors"] = 0
+    res["n_errors"] = res.n_errors.fillna(0).astype(int)
     print(res.to_string(index=False))
     return res
 
@@ -394,7 +525,7 @@ def main(argv=None):
     if a.cmd == "schedule":
         tz = get_tz(cfg["timezone"])
         for s in build_schedule(cfg):
-            print(s.session_id, s.start.astimezone(tz).strftime("%a %d/%m %H:%M"), "→",
+            print(s.session_id, s.start.astimezone(tz).strftime("%a %d/%m %H:%M"), "->",
                   s.end.astimezone(tz).strftime("%H:%M"), cfg["timezone"])
     elif a.cmd == "coverage":
         res = coverage(a.out, cfg["interval_s"], cfg)
