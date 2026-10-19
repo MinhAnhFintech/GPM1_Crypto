@@ -26,5 +26,6 @@ def fit_vecm(logs: pd.DataFrame, k_ar_diff: int, coint_rank: int, deterministic:
         raise ValueError("fit_vecm: coint_rank must be between 1 and n_venues-1")
     if k_ar_diff < 0:
         raise ValueError("fit_vecm: k_ar_diff must be nonnegative")
-    model = VECM(logs.astype(float), k_ar_diff=k_ar_diff, coint_rank=coint_rank, deterministic=deterministic)
+    # The VECM uses row order only; a dropped-row DatetimeIndex has no frequency.
+    model = VECM(logs.astype(float).reset_index(drop=True), k_ar_diff=k_ar_diff, coint_rank=coint_rank, deterministic=deterministic)
     return model.fit()
