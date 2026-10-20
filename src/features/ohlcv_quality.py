@@ -52,7 +52,6 @@ def read_raw(path: Path) -> pd.DataFrame:
     Chap nhan ca cot kieu TV3 (ts_open_utc, volume_base) lan kieu Binance tho (open_time_utc, volume).
     """
     df = pd.read_parquet(path)
-    df = df.rename(columns=RENAME_TEAM_SCHEMA)
     time_col = next((c for c in TIME_COLS if c in df.columns), None)
     if time_col is None:
         raise ValueError(f"{path.name}: khong thay cot thoi gian trong {list(df.columns)}")

@@ -24,6 +24,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.synchronization.normalize import normalize_raw_ohlcv
+from src.utils.config import configured_venue_ids
+from src.utils.io_utils import write_parquet
+from src.utils.schema import CONTRACT_VERSION, validate_frame
+from src.utils.time_utils import utc_timestamp
+
 RAW_COLS = [
     "ts_open_utc", "exchange", "market_type", "symbol", "open", "high", "low", "close",
     "volume_base", "volume_quote", "data_kind",
@@ -39,7 +45,10 @@ DATA_KIND = "historical"
 
 def raw_path(raw_dir: Path, venue: str, symbol: str) -> Path:
     """Duong dan file tho cua venue, vi du binance_spot + BTC/USDT -> binance_spot_BTCUSDT_1m.parquet."""
-    return raw_dir / f"{venue}_{symbol.replace('/', '')}_1m.parquet"
+    configured_venue_ids({"venues": [venue]})
+    if symbol != "BTC/USDT":
+        raise ValueError("D1 symbol must be BTC/USDT")
+    return Path(raw_dir) / f"{venue}_{symbol.replace('/', '')}_1m.parquet"
 
 
 def read_venue(raw_dir: Path, venue: str, symbol: str) -> pd.DataFrame:
@@ -48,56 +57,62 @@ def read_venue(raw_dir: Path, venue: str, symbol: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Thieu file tho cua {venue}: {path}")
     df = pd.read_parquet(path)
-    missing = [c for c in RAW_COLS if c not in df.columns]
-    if missing:
-        raise ValueError(f"{path.name}: thieu cot {missing}; co {list(df.columns)}")
-
-    exchange, market_type = venue.split("_", 1)
-    wrong = (df["exchange"] != exchange) | (df["market_type"] != market_type) \
-        | (df["symbol"] != symbol) | (df["data_kind"] != DATA_KIND)
-    if wrong.any():
-        raise ValueError(f"{path.name}: {int(wrong.sum())} dong co exchange/market_type/symbol/data_kind "
-                         f"khong khop ({exchange}, {market_type}, {symbol}, {DATA_KIND})")
-
-    out = df[RAW_COLS].copy()
-    ts_open = pd.to_datetime(out.pop("ts_open_utc"), utc=True)
-    out.insert(0, "ts_available", (ts_open + pd.Timedelta(minutes=1)).dt.as_unit("ns"))
-    out[NUM_COLS] = out[NUM_COLS].astype("float64")
+    if not df.columns.is_unique:
+        raise ValueError(f"{path.name}: duplicate raw columns")
+    exchange, market_type = venue.rsplit("_", 1)
+    expected = {"exchange": exchange, "market_type": market_type, "symbol": symbol,
+                "data_kind": DATA_KIND, "venue": venue}
+    for column, value in expected.items():
+        if column in df and not (df[column].notna() & df[column].eq(value)).all():
+            raise ValueError(f"{path.name}: {column} khong khop {value}")
+        if column in df.attrs and df.attrs[column] != value:
+            raise ValueError(f"{path.name}: {column} metadata khong khop {value}")
+    # The first Binance Vision handoff has open_time_utc/volume/quote_volume,
+    # without identity columns; its explicit filename supplies the identity.
+    # Never overwrite a supplied provenance or fill unobserved quote volume.
+    try:
+        out = normalize_raw_ohlcv(df, exchange=exchange, market_type=market_type, symbol=symbol)
+    except ValueError as exc:
+        detail = "trung khoa D1: " + str(exc) if "duplicate availability" in str(exc) else str(exc)
+        raise ValueError(f"{path.name}: vi pham D1: {detail}") from exc
+    validate_long(out)
     return out[D1_COLS]
 
 
 def validate_long(df: pd.DataFrame) -> None:
     """Kiem tra bat bien cua D1; bao loi (khong tu sua) neu vi pham."""
-    problems = []
-    n_dup = int(df.duplicated(KEY).sum())
-    if n_dup:
-        problems.append(f"{n_dup} dong trung khoa {KEY}")
-    n_na = int(df[D1_COLS].isna().any(axis=1).sum())
-    if n_na:
-        problems.append(f"{n_na} dong co gia tri thieu")
-    prices = df[["open", "high", "low", "close"]]
-    if int((prices <= 0).any(axis=1).sum()):
-        problems.append("co gia <= 0")
-    top, bottom = prices[["open", "close", "low"]].max(axis=1), prices[["open", "close", "high"]].min(axis=1)
-    if int(((df["high"] < top) | (df["low"] > bottom)).sum()):
-        problems.append("high/low khong bao het open, close")
-    if int(((df["volume_base"] < 0) | (df["volume_quote"] < 0)).sum()):
-        problems.append("volume am")
-    if problems:
-        raise ValueError("ohlcv_1m_long vi pham D1: " + "; ".join(problems))
+    try:
+        if df.duplicated(KEY).any():
+            raise ValueError("trung khoa D1")
+        validate_frame(df, "D1")
+        if not df.data_kind.eq(DATA_KIND).all():
+            raise ValueError("D1 must contain historical data")
+        if df.volume_base.isna().any():
+            raise ValueError("missing volume_base")
+        if not df.ts_available.eq(df.ts_available.dt.floor("1min")).all():
+            raise ValueError("timestamps must be on the one-minute grid")
+    except ValueError as exc:
+        raise ValueError("ohlcv_1m_long vi pham D1: " + str(exc)) from exc
 
 
 def build_long(raw_dir: Path, venues: list, symbol: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     """Gop moi venue thanh bang dai D1, cat ts_available trong [start, end), sap theo (ts_available, venue)."""
+    configured_venue_ids({"venues": venues})
+    start, end = utc_timestamp(start), utc_timestamp(end)
+    if end <= start:
+        raise ValueError("sample.end must be after sample.start")
     frames = []
     for venue in venues:
         df = read_venue(raw_dir, venue, symbol)
         kept = df[(df["ts_available"] >= start) & (df["ts_available"] < end)]
+        if kept.empty:
+            raise ValueError(f"{venue}: no candles inside the selected sample")
         print(f"{venue}: doc {len(df):,} dong, giu {len(kept):,} trong khoang mau", flush=True)
         frames.append(kept)
     out = pd.concat(frames, ignore_index=True)
     out = out.sort_values(["ts_available", "exchange", "market_type"]).reset_index(drop=True)
     validate_long(out)
+    out.attrs = {"contract_version": CONTRACT_VERSION, "data_kind": DATA_KIND}
     return out[D1_COLS]
 
 
@@ -122,10 +137,7 @@ def main(argv=None):
 
     out = build_long(args.raw_dir, cfg["venues"], cfg["symbol"], start, end)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = args.out.with_suffix(".parquet.tmp")
-    out.to_parquet(tmp, index=False)
-    tmp.replace(args.out)
+    write_parquet(out, args.out, "D1")
     print(f"So dong: {len(out):,} | venue: {out.groupby(['exchange', 'market_type']).ngroups} | "
           f"ts_available tu {out['ts_available'].min()} den {out['ts_available'].max()}")
     print("Da ghi", args.out)

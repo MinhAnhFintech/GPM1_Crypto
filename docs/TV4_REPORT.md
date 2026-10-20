@@ -168,3 +168,11 @@ D2 v1.1 giữ 14 cột gốc đúng thứ tự của TV3, chuyển market_type s
 Fixtures D2 được tái sinh cùng truth checksum; giá/size/depth gốc giữ nguyên, không bịa các trường mở rộng chưa mô phỏng. D1/D3 Parquet giữ nguyên bytes. align_live_quotes giữ depth 2/5bps, độ phủ và cả hai cờ khi có, dùng cùng quote quá khứ theo ts_recv_utc và xóa giá trị khi quote hết tuổi. Chỉ D2 dùng phiên bản 1.1; hợp đồng nền và cấu hình các bảng khác vẫn 1.0. D2 live thật/coverage và D1 chuẩn hóa vẫn cần bàn giao; kiểm fixtures không nghiệm thu các dữ liệu đó.
 
 Kiểm chứng local: toàn repo với --require-tv5 đạt **368 passed, 1 skipped** (symlink không khả dụng trên máy). Hai fixtures D2 v1.1 qua CLI check_handoff; test bổ sung kiểm thứ tự cột, tương thích v1.0, cờ alias mâu thuẫn, venue sai, depth/latency âm, độ sâu không tăng theo băng và quote hết hạn. Demo nền multi (--verify) và spot_perp đều đạt 720 dòng ở outputs/synthetic/d2-v11-*, final test chưa dùng. Phạm vi bàn giao gồm code, tài liệu, fixtures và kiểm thử D2; không bao gồm dữ liệu raw thật.
+
+## C4.11 — review PR #9 TV2 và nhận D1 (20/10/2026)
+
+Đã review C2.01–C2.03 từ head db2cabd theo PCCV. Sửa tương thích raw Binance cũ/CCXT mới, giữ volume_quote không quan sát là NaN, kiểm schema/UTC/phút/provenance/venue và tránh thiếu venue trong sample; sửa alias T0 trùng cột và biên tháng theo availability. Findings và phạm vi nghiệm thu nằm trong docs/TV2_PR9_REVIEW.md.
+
+D1 Ny bàn giao có 3.006.714 dòng, sáu venue × 501.119 dòng, SHA-256 FEA20184F835471EBDD48D43F7D697D36195BAB74F1B7DF3B790D20F9B23E09F khớp. Tái lập toàn bộ D1 và T0 từ bộ raw hiện tại trên Drive khớp. Bộ raw mới được giữ riêng, bộ raw cũ và các hash xác nhận trước đó không đổi; dữ liệu thật không vào Git. Đầu vào D1 cho TV4 đã nhận; C4.08/C4.09 còn cần dựng và nghiệm thu D3/D4, config vẫn cần nhóm xác nhận TODO khoảng mẫu.
+
+Toàn repo sau sửa: **390 passed, 1 skipped**, gồm strict TV5. Hai demo nền đạt 720 dòng; final test chưa dùng. Không lấy nghiệm thu D1 để đánh dấu M2 hoặc pipeline nghiên cứu đầy đủ hoàn tất.

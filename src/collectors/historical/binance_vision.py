@@ -170,7 +170,9 @@ def main(argv=None):
         start, end = start.tz_convert("UTC"), end.tz_convert("UTC")
         if not args.start and not args.end:
             window = (start, end)
-        args.start = args.start or start.strftime("%Y-%m")
+        # Request months of candle OPEN times; availability starts one minute
+        # later and can lie at a month boundary.
+        args.start = args.start or (start-pd.Timedelta(minutes=1)).strftime("%Y-%m")
         args.end = args.end or (end-pd.Timedelta(nanoseconds=1)).strftime("%Y-%m")
 
     out_dir = Path(args.out)
@@ -196,6 +198,8 @@ def main(argv=None):
         df = clip_to_sample(df, *window)
         print(f"Cat theo config: giu {len(df):,} / {n_downloaded:,} dong "
               f"(ts_available trong [{window[0]}, {window[1]}))")
+    if df.empty:
+        raise ValueError("No candles inside the selected sample; existing raw is unchanged")
 
     dup = int(df["ts_open_utc"].duplicated().sum())
     print(f"So dong: {len(df):,} | nen trung: {dup} | tu {df['ts_open_utc'].min()} den {df['ts_open_utc'].max()}")
