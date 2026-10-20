@@ -5,10 +5,12 @@ Cach chay (tu thu muc goc repo):
     python src/features/ohlcv_quality.py
 
 Dau vao : data/raw/ohlcv/{venue}_BTCUSDT_1m.parquet   (venue = {exchange}_{market_type})
+          Nhan cot kieu TV3 (ts_open_utc, volume_base) va kieu Binance tho (open_time_utc, volume).
 Dau ra  : outputs/tables/T0_data_quality.csv          (1 dong / venue)
 
 Chi DEM va BAO CAO. Khong xoa dong trung, khong dien nen thieu, khong sua gia.
 Thoi gian: moi moc la gio MO nen, UTC. Gia: USDT. Volume: theo don vi cua san (xem C2.03).
+Nguong nhay gia: doc quality.jump_bps trong config; neu thieu thi dung DEFAULT_JUMP_BPS va in canh bao.
 coverage_status: observed_range / empty / no_valid_minute. Khi khong co moc phut
 hop le, bien mau va cac thong ke coverage de trong (khong phai 0 nen thieu).
 """
@@ -27,7 +29,8 @@ if str(ROOT) not in sys.path:
 FILE_RE = re.compile(r"^(?P<venue>(?P<exchange>[a-z0-9]+)_(?P<market_type>spot|perp))_BTCUSDT_1m\.parquet$")
 TIME_COLS = ("open_time_utc", "ts_open_utc", "open_time", "timestamp", "ts", "datetime")
 PRICE_COLS = ["open", "high", "low", "close"]
-DEFAULT_JUMP_BPS = 300.0  # chi la nguong de soi; co the dat quality.jump_bps trong config
+RENAME_TEAM_SCHEMA = {"ts_open_utc": "open_time_utc", "volume_base": "volume"}  # cot cua TV3 -> ten noi bo
+DEFAULT_JUMP_BPS = 300.0  # chi la nguong de soi (du phong); dat quality.jump_bps trong config de doi
 
 
 def to_utc(s: pd.Series) -> pd.Series:
@@ -44,8 +47,12 @@ def to_utc(s: pd.Series) -> pd.Series:
 
 
 def read_raw(path: Path) -> pd.DataFrame:
-    """Doc file tho cua 1 venue, tra ve cot open_time_utc (UTC) + open/high/low/close/volume."""
+    """Doc file tho cua 1 venue, tra ve cot open_time_utc (UTC) + open/high/low/close/volume.
+
+    Chap nhan ca cot kieu TV3 (ts_open_utc, volume_base) lan kieu Binance tho (open_time_utc, volume).
+    """
     df = pd.read_parquet(path)
+    df = df.rename(columns=RENAME_TEAM_SCHEMA)
     time_col = next((c for c in TIME_COLS if c in df.columns), None)
     if time_col is None:
         raise ValueError(f"{path.name}: khong thay cot thoi gian trong {list(df.columns)}")
@@ -119,12 +126,16 @@ def check_venue(df: pd.DataFrame, venue: str, jump_bps: float = DEFAULT_JUMP_BPS
 
 
 def default_jump_bps(config_path: Path) -> float:
-    """Doc quality.jump_bps tu config neu co; khong co thi dung DEFAULT_JUMP_BPS."""
+    """Doc quality.jump_bps tu config. Thieu config hoac thieu khoa thi dung DEFAULT_JUMP_BPS va canh bao."""
     try:
         from src.utils.config import load_config
-        return float(load_config(config_path).get("quality", {}).get("jump_bps", DEFAULT_JUMP_BPS))
+        value = (load_config(config_path).get("quality") or {}).get("jump_bps")
     except (ImportError, FileNotFoundError):
+        value = None
+    if value is None:
+        print(f"CANH BAO: config chua co quality.jump_bps, dung mac dinh {DEFAULT_JUMP_BPS} bps")
         return DEFAULT_JUMP_BPS
+    return float(value)
 
 
 def main(argv=None):
