@@ -2,10 +2,17 @@
 
 Dat tai: src/collectors/historical/binance_vision.py
 Cach chay (tu thu muc goc repo):
+    python src/collectors/historical/binance_vision.py
+        -> doc khoang mau tu config/config.yaml (sample.start / sample.end), CAT dung khoang do.
     python src/collectors/historical/binance_vision.py --start 2026-09 --end 2026-09
+        -> tai nguyen cac thang da chon, KHONG cat theo config.
 
-Dau ra: data/raw/ohlcv/binance_spot_BTCUSDT_1m.parquet  (schema tho cua Binance)
-Chi lay SPOT. Perpetual do TV3 lay qua CCXT (C3.04).
+Dau ra: data/raw/ohlcv/binance_spot_BTCUSDT_1m.parquet
+Cot (giong file cua TV3): ts_open_utc, venue, exchange, market_type, symbol,
+    open, high, low, close, volume_base, volume_quote, data_kind.
+Don vi: gia USDT; volume_base BTC; volume_quote USDT. ts_open_utc la gio MO nen (UTC).
+Khoang mau: ts_available = ts_open_utc + 1 phut nam trong [sample.start, sample.end)
+    (start gom, end loai tru). Chi lay SPOT. Perpetual do TV3 lay qua CCXT (C3.04).
 """
 import argparse
 import hashlib
@@ -28,6 +35,8 @@ COLS = [
     "open_time", "open", "high", "low", "close", "volume", "close_time",
     "quote_volume", "n_trades", "taker_buy_base", "taker_buy_quote", "ignore",
 ]
+EXCHANGE = "binance"
+MARKET_TYPE = "spot"
 
 
 def months(start: str, end: str):
@@ -106,6 +115,39 @@ def to_utc(ts: pd.Series) -> pd.Series:
     return out
 
 
+def to_team_schema(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Doi bang tho cua Binance sang cot giong file cua TV3 (D1 truoc buoc ts_available).
+
+    ts_open_utc: gio MO nen (UTC). Gia: USDT. volume_base: BTC. volume_quote: USDT.
+    Gia dinh: symbol co dang <BASE>USDT, vi du BTCUSDT -> BTC/USDT.
+    """
+    if not symbol.endswith("USDT"):
+        raise ValueError(f"Chi ho tro symbol ket thuc bang USDT, nhan duoc {symbol}")
+    return pd.DataFrame({
+        "ts_open_utc": df["open_time_utc"],
+        "venue": f"{EXCHANGE}_{MARKET_TYPE}",
+        "exchange": EXCHANGE,
+        "market_type": MARKET_TYPE,
+        "symbol": f"{symbol[:-4]}/{symbol[-4:]}",
+        "open": df["open"].astype("float64"),
+        "high": df["high"].astype("float64"),
+        "low": df["low"].astype("float64"),
+        "close": df["close"].astype("float64"),
+        "volume_base": df["volume"].astype("float64"),
+        "volume_quote": df["quote_volume"].astype("float64"),
+        "data_kind": "historical",
+    })
+
+
+def clip_to_sample(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """Giu cac nen co ts_available = ts_open_utc + 1 phut nam trong [start, end).
+
+    start gom, end loai tru (UTC), dung quy uoc cua config.sample. Khong dien nen thieu.
+    """
+    ts_available = df["ts_open_utc"] + pd.Timedelta(minutes=1)
+    return df[(ts_available >= start) & (ts_available < end)].reset_index(drop=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="BTCUSDT")
@@ -114,6 +156,8 @@ def main(argv=None):
     ap.add_argument("--config", type=Path, default=ROOT/"config/config.yaml")
     ap.add_argument("--out", type=Path, default=ROOT/"data/raw/ohlcv")
     args = ap.parse_args(argv)
+
+    window = None  # (start, end) theo config; chi cat khi khong go --start/--end
     if not args.start or not args.end:
         from src.utils.config import load_config
         cfg = load_config(args.config)
@@ -124,6 +168,8 @@ def main(argv=None):
         if start.tzinfo is None or end.tzinfo is None or end <= start:
             ap.error("Config sample dates must be aware, with end > start")
         start, end = start.tz_convert("UTC"), end.tz_convert("UTC")
+        if not args.start and not args.end:
+            window = (start, end)
         args.start = args.start or start.strftime("%Y-%m")
         args.end = args.end or (end-pd.Timedelta(nanoseconds=1)).strftime("%Y-%m")
 
@@ -142,12 +188,17 @@ def main(argv=None):
 
     df = pd.concat(frames, ignore_index=True)
     df["open_time_utc"] = to_utc(df["open_time"])
-    df["close_time_utc"] = to_utc(df["close_time"])
-    df = df.drop(columns=["open_time", "close_time", "ignore"])
     df = df.sort_values("open_time_utc").reset_index(drop=True)
+    df = to_team_schema(df, args.symbol)
 
-    dup = int(df["open_time_utc"].duplicated().sum())
-    print(f"So dong: {len(df):,} | nen trung: {dup} | tu {df['open_time_utc'].min()} den {df['open_time_utc'].max()}")
+    n_downloaded = len(df)
+    if window is not None:
+        df = clip_to_sample(df, *window)
+        print(f"Cat theo config: giu {len(df):,} / {n_downloaded:,} dong "
+              f"(ts_available trong [{window[0]}, {window[1]}))")
+
+    dup = int(df["ts_open_utc"].duplicated().sum())
+    print(f"So dong: {len(df):,} | nen trung: {dup} | tu {df['ts_open_utc'].min()} den {df['ts_open_utc'].max()}")
     # KHONG dien nen thieu o day. C2.02 se dem va bao cao.
 
     out_file = out_dir / f"binance_spot_{args.symbol}_1m.parquet"
