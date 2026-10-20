@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 FILE_RE = re.compile(r"^(?P<venue>(?P<exchange>[a-z0-9]+)_(?P<market_type>spot|perp))_BTCUSDT_1m\.parquet$")
-TIME_COLS = ("open_time_utc", "open_time", "timestamp", "ts", "datetime")
+TIME_COLS = ("open_time_utc", "ts_open_utc", "open_time", "timestamp", "ts", "datetime")
 PRICE_COLS = ["open", "high", "low", "close"]
 DEFAULT_JUMP_BPS = 300.0  # chi la nguong de soi; co the dat quality.jump_bps trong config
 
@@ -49,10 +49,13 @@ def read_raw(path: Path) -> pd.DataFrame:
     time_col = next((c for c in TIME_COLS if c in df.columns), None)
     if time_col is None:
         raise ValueError(f"{path.name}: khong thay cot thoi gian trong {list(df.columns)}")
-    missing = [c for c in PRICE_COLS + ["volume"] if c not in df.columns]
+    volume_col = next((c for c in ("volume_base", "volume") if c in df.columns), None)
+    missing = [c for c in PRICE_COLS if c not in df.columns]
+    if volume_col is None:
+        missing.append("volume_base or volume")
     if missing:
         raise ValueError(f"{path.name}: thieu cot {missing}")
-    out = df[PRICE_COLS + ["volume"]].apply(pd.to_numeric, errors="coerce")
+    out = df[PRICE_COLS + [volume_col]].rename(columns={volume_col: "volume"}).apply(pd.to_numeric, errors="coerce")
     out.insert(0, "open_time_utc", to_utc(df[time_col]))
     return out
 

@@ -18,3 +18,13 @@ Mỗi phiên có errors.csv gồm ts_utc, venue, error_type, message, action. n_
 ZIP mẫu live và checksum đã được giữ local và loại khỏi cây file được theo dõi trong bản sửa; không thay nội dung dữ liệu. File đã từng nằm trong các commit cũ vẫn có trong lịch sử Git: lần tích hợp này không rewrite/force-push lịch sử. Bàn giao dữ liệu thật qua ổ chung kèm SHA-256 theo CONTRIBUTING.md.
 
 Kiểm thử dùng order book giả lập, không khởi chạy collector hoặc xác minh khả dụng API thật. Dữ liệu live cũ cần được TV3 kiểm schema trước khi bàn giao D2; sửa code không tự chuyển đổi các part cũ hoặc nghiệm thu coverage/depth trên mẫu thật.
+
+## C3.03/C3.04 bổ sung trong PR #8 (20/10/2026)
+
+Live giữ 5 sàn/8 venue. Thêm các cột depth_bid/ask_5bps_usdt, depth_bid/ask_2bps_usdt và depth_cover_bps; các cột depth nhỏ cũng chỉ là phần quan sát nếu sổ chưa phủ đủ băng tương ứng. Khi fallback shallow, mọi cột depth đều missing và depth_censored=True. Độ phủ bps tính quanh mid của cùng snapshot; không thay định nghĩa D2 10bps.
+
+OHLCV lịch sử chạy `python -m src.collectors.historical.ccxt_ohlcv`; mặc định dùng config/config.yaml và config/exchanges.yaml, bỏ Binance spot vì TV2 tải qua Vision. `--smoke-hours 2` ghi riêng trong _smoke/, không lẫn file nghiên cứu. Nếu đã nhận file raw từ ổ chung, không cần chạy lại bộ tải để kiểm chất lượng; dùng `python -m src.features.ohlcv_quality`.
+
+Raw CCXT dùng ts_open_utc và volume_base; ts_available vẫn do chuẩn hóa tạo bằng giờ mở + 1 phút. Unified OHLCV của CCXT đã cho base volume BTC ở các venue đã chốt; không nhân contractSize như order-book. volume_quote không được quan sát thì giữ NaN. Bộ T0 đọc được cả raw Binance và CCXT.
+
+Resume chỉ dùng part có checksum/biên/venue/schema hợp lệ và đầy đủ. Part thiếu được thử lại. File chưa đủ giữ trong data/raw/ohlcv/_incomplete/ cùng status=incomplete trong fetch_log; CLI trả 1, không thay file final tại thư mục gốc. _parts/ và _incomplete/ không là file bàn giao D1, không được dùng để bỏ qua các cờ chất lượng. Chi tiết findings và kiểm chứng: docs/TV3_PR8_REVIEW.md.

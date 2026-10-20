@@ -144,3 +144,17 @@ Kiểm tra CLI sau sửa: demo spot_perp cũng dựng 720 dòng; công cụ inta
 Nhóm xác nhận nghiên cứu Binance/OKX/Bybit, mỗi sàn gồm spot và perp. Collector live giữ phạm vi 5 sàn/8 venue với Kraken spot và Coinbase spot; việc thu dư là có chủ đích. TV4 không sửa collector hoặc config thu live. Tài liệu bàn giao phân biệt kiểm D2 thu rộng không kèm config nghiên cứu với kiểm bản nghiên cứu đã chọn riêng 6 venue. Danh sách sàn không còn là đầu vào TV4 đang chờ; khoảng mẫu lịch sử và các file thật vẫn cần được bàn giao/xác nhận.
 
 Kiểm chứng bổ sung chạy trên D2 synthetic 5 sàn/8 venue: intake nhận đủ tập thu rộng, align_live_quotes giữ đủ 8 venue; bản chọn riêng 6 venue qua kiểm config nghiên cứu, bản gốc giữ nguyên SHA-256. Không đổi provenance của fixtures thành live. Toàn repo đạt **262 passed, 3 skipped**; hai ca chờ TV5, một ca symlink bị giới hạn trên Windows. Demo multi và spot_perp đều dựng 720 dòng; D3/D4 multi qua intake với counts 432/144/144, final test chưa dùng và chưa có khóa. Đây là kiểm chứng phần nền TV4; không thay thế dữ liệu thật hoặc nghiệm thu C4.13.
+
+## C4.11/C4.13 — review PR #7 TV5 (19/10/2026)
+
+Đã nhận C5.01–C5.09 từ head fef42fd và kiểm tra trong bản kết hợp với dev 59df287. PR được chuyển base từ main sang dev, không thay main. Công thức CS/IS/IL/ILS đã đối chiếu accepted manuscript Putniņš (2013), trang 14–15, phương trình (4), (7), (8), (9). Finding, giới hạn và phạm vi nghiệm thu nằm trong docs/TV5_PR7_REVIEW.md.
+
+C4.13 dùng hàm thật của TV5 và chạy cả hai fixtures gốc lẫn hai biến thể benchmark có nhiễu follower khai báo rõ. IS và ILS tìm đúng leader trên cả hai bộ gốc; CS được kiểm hữu hạn/tổng bằng 1 và không clip, đồng thời kiểm thu lại leader trên benchmark bổ sung phù hợp. Không áp giả định CS luôn cùng thứ hạng với tốc độ phản ứng khi mức nhiễu khác nhau. Không sửa các file fixtures/config gốc để làm xanh CI.
+
+Bản sửa local đạt **330 passed, 1 skipped** (symlink Windows), strict TV5 **4 passed**. Demo nền hai bộ đều 720 dòng; CLI TV5 xuất T2/T3/T3c/T3d/T3b/D6 với multi 6 cửa sổ, spot_perp 8 cửa sổ, 0 failed. Final test chưa dùng. Các sửa bao gồm không nén thời gian qua gap, available_at chờ spec đã chọn trên dev, dùng chung bảo vệ thư mục synthetic, đủ bảng stationarity level/diff1 và hai adapter đúng chữ ký PDF. Dữ liệu thật/M2, các stage nghiên cứu khác và kết quả thực nghiệm vẫn chưa được nghiệm thu bằng các demo này.
+
+## C4.11 — tích hợp TV5 và review TV3 PR #8 (20/10/2026)
+
+PR #7 TV5 đã merge vào dev ở d318a36 sau kiểm lại 330 passed, 1 skipped và cả hai lượt CI xanh; main không đổi. PR #8 TV3 được chuyển base về dev và review theo C3.03/C3.04. Bản tích hợp giữ hợp đồng D2 và các bảo vệ collector đã nghiệm thu, thêm depth nhiều băng và bộ tải lịch sử với kiểm cache/coverage/checksum, nến đóng và status chưa đủ dữ liệu. Adapter T0 đọc được raw CCXT. Findings và bằng chứng: docs/TV3_PR8_REVIEW.md.
+
+Local toàn repo sau sửa đạt **355 passed, 1 skipped** với --require-tv5, không còn skip hàm TV5. Sáu raw được nhận local và kiểm T0 sơ bộ, Binance spot khớp hash người gửi; không đưa raw lên Git. D1/D3/D4 thật chưa được tạo bởi việc review này, final test chưa dùng. Không đánh dấu M2 hoàn thành từ raw/T0 hoặc demo synthetic.

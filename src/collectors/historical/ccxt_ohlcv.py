@@ -14,8 +14,9 @@ Quy uoc thoi gian (QUAN TRONG - xem DATA_CONTRACT v1.0)
 * Nen chua dong (gio mo + 1 phut > thoi diem tai) bi loai de tranh look-ahead.
 * Cho thieu de nguyen (khong noi suy, khong lap). Bao cao trong fetch_log.
 
-Don vi: gia = USDT; volume_base = so luong theo CCXT tra ve (xem canh bao ve
-hop dong perpetual trong README_C304 / tin nhan ban giao); thoi gian CCXT = ms UTC.
+Don vi: gia = USDT; volume_base = BTC theo unified OHLCV cua CCXT cho cac
+thi truong BTC/USDT spot/linear da chot; khong nhan contractSize lan hai.
+CCXT OKX dung truong base volume (index 6) cho perp, khac order-book contracts.
 
 Cach chay (tu thu muc goc repo):
     python -m src.collectors.historical.ccxt_ohlcv --smoke-hours 2      # chay thu
@@ -38,6 +39,9 @@ from typing import Callable, Sequence
 import numpy as np
 import pandas as pd
 import yaml
+from src.utils.io_utils import write_json
+from src.utils.time_utils import require_utc
+from src.utils.schema import VENUE_PATTERN
 
 logger = logging.getLogger("collectors.historical.ccxt_ohlcv")
 
@@ -71,6 +75,11 @@ class Venue:
     market_type: str   # spot | perp
     ccxt_id: str       # id de ket noi (vd binanceusdm)
     symbol: str        # symbol CCXT (perp: BTC/USDT:USDT)
+
+    def __post_init__(self):
+        expected = CANONICAL_SYMBOL + (":USDT" if self.market_type == "perp" else "")
+        if not VENUE_PATTERN.fullmatch(self.venue_id) or self.symbol != expected:
+            raise ValueError("Venue must identify BTC/USDT spot or USDT-linear perpetual")
 
     @property
     def venue_id(self) -> str:
@@ -156,7 +165,7 @@ def _call_with_retry(fn: Callable, *, max_retries: int, base_delay_s: float,
 def fetch_range(ex, symbol: str, since_ms: int, until_ms: int, limit: int, *,
                 max_retries: int = 5, base_delay_s: float = 1.0,
                 retry_exceptions: tuple = (), sleep: Callable[[float], None] = time.sleep,
-                max_empty_pages: int = 100) -> list[list[float]]:
+                max_empty_pages: int = 100, stats: dict | None = None) -> list[list[float]]:
     """Tai nen 1m co gio mo trong [since_ms, until_ms). Don vi: ms UTC (gio MO nen).
 
     Tra ve list [ts_ms, o, h, l, c, v] da sap xep tang dan, da bo trung.
@@ -169,6 +178,13 @@ def fetch_range(ex, symbol: str, since_ms: int, until_ms: int, limit: int, *,
       dang co): nhay `limit` phut; qua `max_empty_pages` trang trong lien tiep
       thi dung va canh bao (continuity_report se bao cao phan thieu).
     """
+    if (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0
+            or since_ms >= until_ms or since_ms % MINUTE_MS or until_ms % MINUTE_MS):
+        raise ValueError("Require positive limit and ordered minute-aligned candle bounds")
+    if max_retries < 0 or max_empty_pages < 0:
+        raise ValueError("Retry/empty-page counts must be nonnegative")
+    stats = stats if stats is not None else {}
+    stats.setdefault("duplicate_rows", 0)
     rows: dict[int, list[float]] = {}
     cursor, empty_pages = since_ms, 0
     while cursor < until_ms:
@@ -180,7 +196,14 @@ def fetch_range(ex, symbol: str, since_ms: int, until_ms: int, limit: int, *,
         if fresh:
             empty_pages = 0
             for c in fresh:
-                rows[int(c[0])] = list(c[:6])      # trung: ban sau thang
+                stamp = int(c[0])
+                if len(c) < 6 or stamp != c[0] or stamp % MINUTE_MS:
+                    raise ValueError("Malformed or off-grid OHLCV candle")
+                if stamp in rows:
+                    stats["duplicate_rows"] += 1
+                    if rows[stamp] != list(c[:6]):
+                        raise ValueError("Conflicting duplicate OHLCV candle")
+                rows[stamp] = list(c[:6])
             cursor = int(max(c[0] for c in fresh)) + MINUTE_MS
         else:
             empty_pages += 1
@@ -216,7 +239,34 @@ def to_frame(rows: Sequence[Sequence[float]], v: Venue) -> pd.DataFrame:
     # CCXT chi tra volume base. KHONG tu bia volume_quote: de NaN, TV2/TV4 quyet dinh.
     out["volume_quote"] = np.float64("nan")
     out["data_kind"] = DATA_KIND
-    return out[RAW_COLUMNS]
+    out = out[RAW_COLUMNS]
+    validate_raw(out, v)
+    return out
+
+
+def validate_raw(df: pd.DataFrame, venue: Venue) -> None:
+    """Validate cached/downloaded raw data without filling or relabelling it."""
+    if set(RAW_COLUMNS)-set(df):
+        raise ValueError("Raw OHLCV columns missing")
+    require_utc(df.ts_open_utc, "ts_open_utc")
+    if not df.ts_open_utc.is_unique or not df.ts_open_utc.is_monotonic_increasing:
+        raise ValueError("Raw OHLCV timestamps must be unique and increasing")
+    if ((df.ts_open_utc.astype('int64') % (MINUTE_MS*1_000_000)) != 0).any():
+        raise ValueError("Raw OHLCV timestamps must be minute-aligned")
+    for key, value in {"venue": venue.venue_id, "exchange": venue.exchange,
+                       "market_type": venue.market_type, "symbol": CANONICAL_SYMBOL,
+                       "data_kind": DATA_KIND}.items():
+        if not df[key].eq(value).all():
+            raise ValueError(f"Raw OHLCV {key} disagrees with requested venue/provenance")
+    prices = df[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    if not np.isfinite(prices).all() or (prices <= 0).any():
+        raise ValueError("Raw OHLCV prices must be finite and positive")
+    volume = df.volume_base.to_numpy(dtype=float)
+    if not np.isfinite(volume).all() or (volume < 0).any():
+        raise ValueError("Raw OHLCV volume_base must be finite nonnegative BTC")
+    if ((df.high < df[["open", "close", "low"]].max(axis=1))
+            | (df.low > df[["open", "close", "high"]].min(axis=1))).any():
+        raise ValueError("Raw OHLCV high/low do not enclose prices")
 
 
 def continuity_report(df: pd.DataFrame, since_ms: int, until_ms: int) -> dict:
@@ -324,7 +374,10 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
     """
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
     retry_exceptions = retry_exceptions if retry_exceptions is not None else default_retry_exceptions()
-    limit = limit or DEFAULT_LIMIT_BY_CCXT_ID.get(v.ccxt_id, FALLBACK_LIMIT)
+    limit = DEFAULT_LIMIT_BY_CCXT_ID.get(v.ccxt_id, FALLBACK_LIMIT) if limit is None else limit
+    if (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0
+            or since_ms >= until_ms or since_ms % MINUTE_MS or until_ms % MINUTE_MS):
+        raise ValueError("Require positive limit and ordered minute-aligned candle bounds")
     parts_dir = out_dir / "_parts" / v.venue_id
     contract_size = None
 
@@ -336,19 +389,44 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
         if markets and v.symbol not in markets:
             raise ValueError(f"{v.ccxt_id} khong co symbol {v.symbol}")
         try:
-            contract_size = ex.market(v.symbol).get("contractSize")
+            market = ex.market(v.symbol)
         except Exception:  # san gia/khong co market info
-            contract_size = None
+            market = {}
+        if market.get("inverse") or (market.get("contract") and not market.get("linear")):
+            raise ValueError("Historical D1 requires spot or linear USDT perpetual")
+        if market.get("quote", "USDT") != "USDT" or market.get("base", "BTC") != "BTC":
+            raise ValueError("Historical D1 requires BTC/USDT units")
+        contract_size = market.get("contractSize")
         return ex
 
-    for lo, hi in month_chunks(since_ms, until_ms):
-        part = parts_dir / f"{lo}_{hi}.parquet"
-        if part.exists():
-            logger.info("[%s] bo qua (da co) %s", v.venue_id, part.name)
+    parts = []
+    fetch_stats = {"duplicate_rows": 0}
+    for lo, requested_hi in month_chunks(since_ms, until_ms):
+        hi = min(requested_hi, (now_ms // MINUTE_MS) * MINUTE_MS)
+        if hi <= lo:
             continue
+        part = parts_dir / f"{lo}_{hi}.parquet"
+        receipt = part.with_suffix(".json")
+        if part.exists():
+            try:
+                cached = pd.read_parquet(part)
+                validate_raw(cached, v)
+                proof = json.loads(receipt.read_text(encoding="utf-8"))
+                bounded = ((cached.ts_open_utc >= pd.Timestamp(lo, unit="ms", tz="UTC"))
+                           & (cached.ts_open_utc < pd.Timestamp(hi, unit="ms", tz="UTC"))).all()
+                if (bounded and proof["sha256"] == sha256_file(part)
+                        and proof["venue"] == v.venue_id and proof["bounds"] == [lo, hi]
+                        and proof.get("volume_unit") == "BTC"
+                        and continuity_report(cached, lo, hi)["missing"] == 0):
+                    logger.info("[%s] resume verified complete part %s", v.venue_id, part.name)
+                    parts.append(part)
+                    continue
+            except (ValueError, TypeError, KeyError, OSError):
+                pass
+            logger.warning("[%s] part incomplete/unverified; fetching again: %s", v.venue_id, part.name)
         rows = fetch_range(get_ex(), v.symbol, lo, hi, limit, max_retries=max_retries,
                            retry_exceptions=retry_exceptions, sleep=sleep,
-                           max_empty_pages=max_empty_pages)
+                           max_empty_pages=max_empty_pages, stats=fetch_stats)
         n_all = len(rows)
         rows = drop_unclosed(rows, now_ms)
         if n_all - len(rows):
@@ -358,22 +436,29 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
                            v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC"), pd.Timestamp(hi, unit="ms", tz="UTC"))
             continue
         write_parquet_atomic(to_frame(rows, v), part)
+        write_json({"sha256": sha256_file(part), "venue": v.venue_id,
+                    "bounds": [lo, hi], "volume_unit": "BTC"}, receipt)
+        parts.append(part)
         logger.info("[%s] %s: %d nen", v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m-%d"), len(rows))
 
-    part_files = sorted(parts_dir.glob("*.parquet")) if parts_dir.exists() else []
+    part_files = [p for p in parts if p.exists()]
     if not part_files:
         raise RuntimeError(f"[{v.venue_id}] khong tai duoc nen nao")
     df = pd.concat([pd.read_parquet(p) for p in part_files], ignore_index=True)
-    df = (df.drop_duplicates("ts_open_utc", keep="last").sort_values("ts_open_utc").reset_index(drop=True))
+    df = df.sort_values("ts_open_utc").reset_index(drop=True)
     lo_ts = pd.Timestamp(since_ms, unit="ms", tz="UTC")
     hi_ts = pd.Timestamp(until_ms, unit="ms", tz="UTC")
     df = df[(df["ts_open_utc"] >= lo_ts) & (df["ts_open_utc"] < hi_ts)].reset_index(drop=True)
+    df = df[df.ts_open_utc.le(pd.Timestamp(now_ms-MINUTE_MS, unit="ms", tz="UTC"))].reset_index(drop=True)
     df["ts_open_utc"] = df["ts_open_utc"].astype("datetime64[ns, UTC]")
-
-    final = out_dir / v.file_name
-    write_parquet_atomic(df, final)
+    validate_raw(df, v)
+    if df.empty:
+        raise RuntimeError(f"[{v.venue_id}] no closed candles in the requested interval")
 
     report = continuity_report(df, since_ms, until_ms)
+    final = (out_dir if report["missing"] == 0 else out_dir/"_incomplete") / v.file_name
+    write_parquet_atomic(df, final)
+
     try:
         import ccxt
         ccxt_version = ccxt.__version__
@@ -385,15 +470,16 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
         "candle_open_window_utc": [lo_ts.isoformat(), hi_ts.isoformat()],
         "limit_per_call": limit, "contract_size": contract_size,
+        "volume_unit": "BTC", "duplicate_rows": fetch_stats["duplicate_rows"],
+        "status": "complete" if report["missing"] == 0 else "incomplete",
         "first_open_utc": df["ts_open_utc"].iloc[0].isoformat() if len(df) else None,
         "last_open_utc": df["ts_open_utc"].iloc[-1].isoformat() if len(df) else None,
         **{k: v_ for k, v_ in report.items() if k != "gaps"},
         "gaps_first_200": report["gaps"][:200],
         **quick_sanity(df),
-        "file": final.name, "sha256": sha256_file(final),
+        "file": final.relative_to(out_dir).as_posix(), "sha256": sha256_file(final),
     }
-    with open(out_dir / f"fetch_log_{v.venue_id}.json", "w", encoding="utf-8") as f:
-        json.dump(log, f, ensure_ascii=False, indent=2)
+    write_json(log, out_dir / f"fetch_log_{v.venue_id}.json")
     logger.info("[%s] xong: %d/%d nen, thieu %d (%d khoang), sha256=%s...",
                 v.venue_id, report["actual"], report["expected"], report["missing"],
                 report["n_gaps"], log["sha256"][:12])
@@ -424,8 +510,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     venues = load_venues(args.exchanges)
     cfg_ids = list(cfg["venues"])
     if cfg_ids != [v.venue_id for v in venues]:
-        logger.warning("venues trong config.yaml va exchanges.yaml khong khop: %s vs %s",
-                       cfg_ids, [v.venue_id for v in venues])
+        p.error("venues trong config.yaml va exchanges.yaml phai khop nhau")
 
     if args.venues:
         wanted = set(args.venues)
@@ -449,6 +534,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             res = collect_venue(v, since_ms, until_ms, out_dir, limit=args.limit)
             frames[v.venue_id] = res["_frame"]
+            if res["status"] != "complete":
+                failed.append(v.venue_id)
         except Exception:
             logger.exception("[%s] THAT BAI - cac venue khac van tiep tuc", v.venue_id)
             failed.append(v.venue_id)
