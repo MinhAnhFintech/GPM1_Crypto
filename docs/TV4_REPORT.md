@@ -152,3 +152,9 @@ Kiểm chứng bổ sung chạy trên D2 synthetic 5 sàn/8 venue: intake nhận
 C4.13 dùng hàm thật của TV5 và chạy cả hai fixtures gốc lẫn hai biến thể benchmark có nhiễu follower khai báo rõ. IS và ILS tìm đúng leader trên cả hai bộ gốc; CS được kiểm hữu hạn/tổng bằng 1 và không clip, đồng thời kiểm thu lại leader trên benchmark bổ sung phù hợp. Không áp giả định CS luôn cùng thứ hạng với tốc độ phản ứng khi mức nhiễu khác nhau. Không sửa các file fixtures/config gốc để làm xanh CI.
 
 Bản sửa local đạt **330 passed, 1 skipped** (symlink Windows), strict TV5 **4 passed**. Demo nền hai bộ đều 720 dòng; CLI TV5 xuất T2/T3/T3c/T3d/T3b/D6 với multi 6 cửa sổ, spot_perp 8 cửa sổ, 0 failed. Final test chưa dùng. Các sửa bao gồm không nén thời gian qua gap, available_at chờ spec đã chọn trên dev, dùng chung bảo vệ thư mục synthetic, đủ bảng stationarity level/diff1 và hai adapter đúng chữ ký PDF. Dữ liệu thật/M2, các stage nghiên cứu khác và kết quả thực nghiệm vẫn chưa được nghiệm thu bằng các demo này.
+
+## C4.11 — tích hợp TV5 và review TV3 PR #8 (20/10/2026)
+
+PR #7 TV5 đã merge vào dev ở d318a36 sau kiểm lại 330 passed, 1 skipped và cả hai lượt CI xanh; main không đổi. PR #8 TV3 được chuyển base về dev và review theo C3.03/C3.04. Bản tích hợp giữ hợp đồng D2 và các bảo vệ collector đã nghiệm thu, thêm depth nhiều băng và bộ tải lịch sử với kiểm cache/coverage/checksum, nến đóng và status chưa đủ dữ liệu. Adapter T0 đọc được raw CCXT. Findings và bằng chứng: docs/TV3_PR8_REVIEW.md.
+
+Local toàn repo sau sửa đạt **355 passed, 1 skipped** với --require-tv5, không còn skip hàm TV5. Sáu raw được nhận local và kiểm T0 sơ bộ, Binance spot khớp hash người gửi; không đưa raw lên Git. D1/D3/D4 thật chưa được tạo bởi việc review này, final test chưa dùng. Không đánh dấu M2 hoàn thành từ raw/T0 hoặc demo synthetic.

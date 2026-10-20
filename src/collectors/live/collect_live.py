@@ -60,6 +60,9 @@ COLUMNS = ["ts_grid_utc", "ts_recv_utc", "ts_event_utc", "exchange", "market_typ
            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_censored",
            "latency_ms", "session_id", "session_start_utc", "session_end_utc", "data_kind"]
 COLUMNS += ["book_levels_bid", "book_levels_ask"]
+EXTRA_BANDS = (5, 2)
+COLUMNS += [f"depth_{side}_{band}bps_usdt" for band in EXTRA_BANDS for side in ("bid", "ask")]
+COLUMNS += ["depth_cover_bps"]
 DEPTH_BPS = 10
 SHALLOW_LIMIT = 5
 MAX_DEEP_FAILS = 3
@@ -160,6 +163,9 @@ def fetch_book(ex, symbol: str, limit: int, size_mult=None, with_depth=True, par
     depth = compute_depth(bids, asks) if with_depth else {
         "depth_bid_10bps_usdt": None, "depth_ask_10bps_usdt": None, "depth_censored": True,
         "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
+    if not with_depth:
+        depth.update({f"depth_{side}_{band}bps_usdt": None for band in EXTRA_BANDS for side in ("bid", "ask")})
+        depth["depth_cover_bps"] = None
     ts_ev = ob.get("timestamp")
     return {"bid": float(bid), "ask": float(ask), "bid_size": float(bid_sz), "ask_size": float(ask_sz),
             "mid": mid, "spread_abs": ask-bid, "spread_bps": (ask-bid)/mid*10000,
@@ -186,10 +192,16 @@ def compute_depth(bids, asks, bps=DEPTH_BPS, size_mult=1.0) -> dict:
         raise ValueError("invalid or crossed order book")
     mid = (bids[0][0]+asks[0][0])/2
     lower, upper = mid*(1-bps/10000), mid*(1+bps/10000)
-    return {"depth_bid_10bps_usdt": sum(p*q for p, q in bids if p >= lower),
+    result = {"depth_bid_10bps_usdt": sum(p*q for p, q in bids if p >= lower),
             "depth_ask_10bps_usdt": sum(p*q for p, q in asks if p <= upper),
             "depth_censored": bids[-1][0] >= lower or asks[-1][0] <= upper,
             "book_levels_bid": len(bids), "book_levels_ask": len(asks)}
+    for band in EXTRA_BANDS:
+        lo, hi = mid*(1-band/10000), mid*(1+band/10000)
+        result[f"depth_bid_{band}bps_usdt"] = sum(p*q for p, q in bids if p >= lo)
+        result[f"depth_ask_{band}bps_usdt"] = sum(p*q for p, q in asks if p <= hi)
+    result["depth_cover_bps"] = min((mid-bids[-1][0])/mid, (asks[-1][0]-mid)/mid)*10000
+    return result
 
 
 def is_rate_limit(error):
@@ -275,7 +287,8 @@ class SessionWriter:
         import pandas as pd
         df = pd.DataFrame(rows, columns=COLUMNS)
         for c in ("bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
-                  "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "latency_ms"):
+                  "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "latency_ms",
+                  "depth_bid_5bps_usdt", "depth_ask_5bps_usdt", "depth_bid_2bps_usdt", "depth_ask_2bps_usdt", "depth_cover_bps"):
             df[c] = pd.to_numeric(df[c], errors="raise").astype("float64")
         for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc", "session_start_utc", "session_end_utc"):
             df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
