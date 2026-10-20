@@ -35,6 +35,10 @@ gap_events:
   gap_threshold_bps: 5.0  # gross_gap_bps >= threshold counts as a gap. TODO: nhom chot gia tri
   grid_step_s: 60         # spacing of consecutive observations (1min grid). TODO: nhom chot gia tri
 
+# TV2 (C2.02): OHLCV quality flags (src/features/ohlcv_quality.py). Other keys belong to TV1.
+quality:
+  jump_bps: 300.0   # |log return close-close 1 phut| > nguong -> chi danh dau de xem lai, khong sua du lieu. TODO: nhom chot
+
 # Team modules registered here run after the TV4 foundation. Paths are relative
 # to repo; each command is an argv list (no shell), with {data_dir}/{output_dir}.
 pipeline_stages: []

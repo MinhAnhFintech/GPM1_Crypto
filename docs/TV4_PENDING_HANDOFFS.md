@@ -6,10 +6,10 @@
 
 | TV4 cần làm | Chờ ai / mã việc | Cần nhận cụ thể | Mốc gốc |
 | --- | --- | --- | --- |
-| C4.08 dựng D3, C4.09 đóng D4 trên dữ liệu thật | TV2 C2.02/C2.03; TV3 C3.04 cấp dữ liệu thô cho TV2 | `data/interim/ohlcv_1m_long.parquet` đúng D1, data_kind=historical, đủ venue đã chốt và khoảng mẫu; T0 chất lượng + SHA-256 | TV2 giao trước **12:00 ngày 20/10**; TV4 giao M2 cuối 20/10 |
+| C4.08 dựng D3, C4.09 đóng D4 trên dữ liệu thật | Đã nhận D1/T0 của TV2 qua PR #9; bước tiếp theo thuộc TV4 | D1 3.006.714 dòng, đủ 6 venue, hash người gửi khớp, tái lập từ raw mới khớp; TV4 dựng D3/D4 và kiểm missing/fingerprint/biên | TV2 giao trước **12:00 ngày 20/10**; TV4 giao M2 cuối 20/10 |
 | C4.08/C4.09 giữ đúng mẫu nghiên cứu | TV1 C1.02 cùng kết quả khả thi TV3 C3.01 | Xác nhận sample.start/end theo ts_available; config hiện đã có nhưng còn chú thích cần nhóm xác nhận khoảng mẫu. Danh sách sàn đã được nhóm chốt, không còn là đầu vào đang chờ | Trước khi đóng M2 |
 
-Hiện chưa có D1 thật trong data/interim, chưa có D3/D4 thật trong data/processed. Cấu hình hiện chọn 6 venue. Pipeline raw/historical yêu cầu tập venue bên trong sample khớp chính xác config, báo rõ missing/unexpected trước khi ghi D1/D3/D4. Sau khi nhận D1, TV4 tự kiểm schema/checksum, dựng D3/D4, kiểm missing/fingerprint/biên 60/20/20 và bàn giao TV5/TV6/TV2.
+Đã nhận và kiểm D1 thật của TV2 qua PR #9, chi tiết trong docs/TV2_PR9_REVIEW.md. D3/D4 thật chưa được tạo bởi việc review PR. Cấu hình hiện chọn 6 venue. Pipeline raw/historical yêu cầu tập venue bên trong sample khớp chính xác config, báo rõ missing/unexpected trước khi ghi D1/D3/D4. Bước tiếp theo của TV4 là dựng D3/D4, kiểm missing/fingerprint/biên 60/20/20 và bàn giao TV5/TV6/TV2. Không còn chờ TV2 giao D1 cho phần này; vẫn cần nhóm xác nhận TODO về khoảng mẫu trong config.
 
 Cập nhật 20/10: đã nhận sáu raw OHLCV từ thư mục bàn giao và chạy T0 sơ bộ. Sau khi Ly gửi thêm năm SHA-256, cả sáu file đều đã đối chiếu khớp hash người gửi; không cần tải lại. D1 chuẩn hóa vẫn là bàn giao tiếp theo; nhận raw chưa thay nghiệm thu D1/D3/M2. C3.03/C3.04 được review ở PR #8, chi tiết trong docs/TV3_PR8_REVIEW.md. D2 v1.1 và kiểm tương thích được bổ sung theo bàn giao Ly; vẫn chờ D2 live thật và coverage theo phiên để nghiệm thu dữ liệu.
 

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.ohlcv_quality import check_venue, main, read_raw, to_utc
+from src.features.ohlcv_quality import check_venue, default_jump_bps, main, read_raw, to_utc
 
 
 def make_clean(n=20):
@@ -62,6 +62,15 @@ def test_to_utc_handles_ms_and_us():
     ms = pd.Series([1_767_225_600_000])
     us = pd.Series([1_767_225_600_000_000])
     assert to_utc(ms).iloc[0] == to_utc(us).iloc[0] == pd.Timestamp("2026-01-01", tz="UTC")
+
+
+def test_default_jump_bps_reads_config_and_handles_empty_quality(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("quality:\n  jump_bps: 450\n", encoding="utf-8")
+    assert default_jump_bps(config) == 450.0
+
+    config.write_text("quality:\n", encoding="utf-8")
+    assert default_jump_bps(config) == 300.0
 
 
 def test_read_raw_accepts_binance_schema(tmp_path):

@@ -1,0 +1,7 @@
+venue,exchange,market_type,n_rows,coverage_status,first_open_utc,last_open_utc,expected_candles,missing_candles,missing_pct,n_gaps,longest_gap_min,duplicate_candles,misaligned_ts,nan_price_rows,nonpositive_price_rows,high_lt_low_rows,ohlc_inconsistent_rows,negative_volume_rows,zero_volume_rows,jump_threshold_bps,jump_rows,max_abs_jump_bps
+binance_perp,binance,perp,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,1,395.41
+binance_spot,binance,spot,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,0,229.93
+bybit_perp,bybit,perp,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,1,306.22
+bybit_spot,bybit,spot,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,0,245.24
+okx_perp,okx,perp,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,0,282.02
+okx_spot,okx,spot,501119,observed_range,2025-10-18T00:00:00+00:00,2026-09-30T23:58:00+00:00,501119,0,0.0,0,0,0,0,0,0,0,0,0,0,300.0,0,270.77
