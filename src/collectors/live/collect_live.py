@@ -284,24 +284,36 @@ class SessionWriter:
             rows, self.rows = self.rows, []
         if not rows:
             return
-        import pandas as pd
-        df = pd.DataFrame(rows, columns=COLUMNS)
-        for c in ("bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
-                  "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "latency_ms",
-                  "depth_bid_5bps_usdt", "depth_ask_5bps_usdt", "depth_bid_2bps_usdt", "depth_ask_2bps_usdt", "depth_cover_bps"):
-            df[c] = pd.to_numeric(df[c], errors="raise").astype("float64")
-        for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc", "session_start_utc", "session_end_utc"):
-            df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
-        self.n += 1
-        path = self.dir / f"part-{self.n:04d}.{'parquet' if self.fmt == 'parquet' else 'csv'}"
-        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp = None
         try:
+            import pandas as pd
+            from src.utils.schema import upgrade_d2_frame
+            normalized = []
+            for row in rows:
+                row = dict(row)
+                row.setdefault("venue", f"{row.get('exchange')}_{row.get('market_type')}")
+                if "depth_censored" not in row and "depth_truncated" in row:
+                    row["depth_censored"] = row["depth_truncated"]
+                row.setdefault("depth_truncated", row.get("depth_censored"))
+                normalized.append(row)
+            df = pd.DataFrame(normalized).reindex(columns=list(dict.fromkeys(COLUMNS + [c for r in normalized for c in r])))
+            for c in ("bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
+                      "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "latency_ms",
+                      "depth_bid_5bps_usdt", "depth_ask_5bps_usdt", "depth_bid_2bps_usdt", "depth_ask_2bps_usdt", "depth_cover_bps"):
+                df[c] = pd.to_numeric(df[c], errors="raise").astype("float64")
+            for c in ("ts_grid_utc", "ts_recv_utc", "ts_event_utc", "session_start_utc", "session_end_utc"):
+                df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
+            df = upgrade_d2_frame(df)
+            self.n += 1
+            path = self.dir / f"part-{self.n:04d}.{'parquet' if self.fmt == 'parquet' else 'csv'}"
+            tmp = path.with_suffix(path.suffix + ".tmp")
             (df.to_parquet(tmp, index=False) if self.fmt == "parquet" else df.to_csv(tmp, index=False))
             tmp.rename(path)
         except Exception:
             with self.lock:
                 self.rows = rows+self.rows
-            tmp.unlink(missing_ok=True)
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
             raise
         self.total += len(df)
         LOG.info("flush %s: +%d dòng (tổng phiên %d)", path.name, len(df), self.total)

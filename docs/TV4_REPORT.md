@@ -158,3 +158,13 @@ Bản sửa local đạt **330 passed, 1 skipped** (symlink Windows), strict TV5
 PR #7 TV5 đã merge vào dev ở d318a36 sau kiểm lại 330 passed, 1 skipped và cả hai lượt CI xanh; main không đổi. PR #8 TV3 được chuyển base về dev và review theo C3.03/C3.04. Bản tích hợp giữ hợp đồng D2 và các bảo vệ collector đã nghiệm thu, thêm depth nhiều băng và bộ tải lịch sử với kiểm cache/coverage/checksum, nến đóng và status chưa đủ dữ liệu. Adapter T0 đọc được raw CCXT. Findings và bằng chứng: docs/TV3_PR8_REVIEW.md.
 
 Local toàn repo sau sửa đạt **355 passed, 1 skipped** với --require-tv5, không còn skip hàm TV5. Sáu raw được nhận local và kiểm T0 sơ bộ, Binance spot khớp hash người gửi; không đưa raw lên Git. D1/D3/D4 thật chưa được tạo bởi việc review này, final test chưa dùng. Không đánh dấu M2 hoàn thành từ raw/T0 hoặc demo synthetic.
+
+## C4.02/C4.04 — D2 v1.1 theo bàn giao Ly (20/10/2026)
+
+Đã nhận năm SHA-256 bổ sung của TV3 và đối chiếu lại bytes của năm file raw local: binance_perp, bybit_spot/perp, okx_spot/perp đều khớp. Cộng Binance spot đã nhận trước đó, cả sáu file có checksum xác nhận từ người gửi. Biên nhận chi tiết giữ local trong tmp/review/drive_ohlcv_receipts.json; raw không thay đổi và không đưa vào Git.
+
+D2 v1.1 giữ 14 cột gốc đúng thứ tự của TV3, chuyển market_type sang phần mở rộng nhưng vẫn bắt buộc. Ghi rõ venue, session/grid, depth_truncated, depth_cover_bps, depth 2/5bps, số mức book và latency trong DATA_CONTRACT. depth_censored giữ làm alias tương thích, hai cờ phải khớp. Collector ghi file mới theo v1.1; validator/intake nhận bản cũ và kiểm bản mới. Lỗi chuyển kiểu/kiểm schema cũng giữ lại buffer, không mất các dòng chưa ghi. Không thu hẹp phạm vi sàn, không chạy collector thật, không sửa các part raw đã thu.
+
+Fixtures D2 được tái sinh cùng truth checksum; giá/size/depth gốc giữ nguyên, không bịa các trường mở rộng chưa mô phỏng. D1/D3 Parquet giữ nguyên bytes. align_live_quotes giữ depth 2/5bps, độ phủ và cả hai cờ khi có, dùng cùng quote quá khứ theo ts_recv_utc và xóa giá trị khi quote hết tuổi. Chỉ D2 dùng phiên bản 1.1; hợp đồng nền và cấu hình các bảng khác vẫn 1.0. D2 live thật/coverage và D1 chuẩn hóa vẫn cần bàn giao; kiểm fixtures không nghiệm thu các dữ liệu đó.
+
+Kiểm chứng local: toàn repo với --require-tv5 đạt **368 passed, 1 skipped** (symlink không khả dụng trên máy). Hai fixtures D2 v1.1 qua CLI check_handoff; test bổ sung kiểm thứ tự cột, tương thích v1.0, cờ alias mâu thuẫn, venue sai, depth/latency âm, độ sâu không tăng theo băng và quote hết hạn. Demo nền multi (--verify) và spot_perp đều đạt 720 dòng ở outputs/synthetic/d2-v11-*, final test chưa dùng. Phạm vi bàn giao gồm code, tài liệu, fixtures và kiểm thử D2; không bao gồm dữ liệu raw thật.

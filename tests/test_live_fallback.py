@@ -11,7 +11,7 @@ from src.collectors.live.collect_live import (
     BookSampler, Session, SessionWriter, coverage, fetch_book, get_venues,
 )
 from src.utils.io_utils import read_parquet
-from src.utils.schema import validate_frame
+from src.utils.schema import D2_COLUMNS, validate_frame
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -128,10 +128,33 @@ def test_shallow_quote_parquet_remains_valid_d2_and_coverage_keeps_session_edges
     assert frame.depth_bid_10bps_usdt.isna().all()
     assert frame.depth_bid_10bps_usdt.dtype == "float64"
     assert frame.depth_censored.all() and frame.symbol.eq("BTC/USDT").all()
+    assert frame.depth_truncated.all() and frame.venue.eq("okx_perp").all()
+    assert list(frame.columns[:len(D2_COLUMNS)]) == D2_COLUMNS
+    assert frame.attrs["contract_version"] == "1.1"
     report = coverage(tmp_path, 5, as_of=START+timedelta(seconds=20)).iloc[0]
     assert report.expected_rows == 4 and report.unique_rows == 1 and report.coverage_pct == 25
     assert report.n_errors == 1 and report.depth_censored_pct == 100
     assert pd.isna(report.median_depth_bid_usdt)
+
+
+def test_writer_accepts_new_flag_and_restores_rows_on_alias_conflict(tmp_path):
+    session = Session("test", START, START+timedelta(seconds=20))
+    writer = SessionWriter(tmp_path, session, timezone.utc, "parquet")
+    quote = fetch_book(Exchange(), "BTC/USDT:USDT", 5, with_depth=False)
+    quote["depth_truncated"] = quote.pop("depth_censored")
+    row = {**quote, "ts_grid_utc": START, "ts_recv_utc": START,
+           "exchange": "okx", "market_type": "perp", "symbol": "BTC/USDT",
+           "latency_ms": 10., "session_id": "test", "session_start_utc": START,
+           "session_end_utc": session.end, "data_kind": "live"}
+    writer.add(row)
+    writer.flush()
+    frame = read_parquet(writer.dir/"part-0001.parquet", "D2")
+    assert frame.depth_truncated.all() and frame.depth_censored.all()
+    writer.add({**row, "depth_censored": False})
+    with pytest.raises(ValueError, match="disagree"):
+        writer.flush()
+    assert len(writer.rows) == 1
+    assert not (writer.dir/"part-0002.parquet").exists()
 
 
 def test_schedule_cli_supports_ascii_windows_console_without_starting_collector(tmp_path):

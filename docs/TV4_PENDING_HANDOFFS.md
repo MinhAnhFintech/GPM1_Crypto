@@ -11,7 +11,7 @@
 
 Hiện chưa có D1 thật trong data/interim, chưa có D3/D4 thật trong data/processed. Cấu hình hiện chọn 6 venue. Pipeline raw/historical yêu cầu tập venue bên trong sample khớp chính xác config, báo rõ missing/unexpected trước khi ghi D1/D3/D4. Sau khi nhận D1, TV4 tự kiểm schema/checksum, dựng D3/D4, kiểm missing/fingerprint/biên 60/20/20 và bàn giao TV5/TV6/TV2.
 
-Cập nhật 20/10: đã nhận sáu raw OHLCV từ thư mục bàn giao và chạy T0 sơ bộ; Binance spot khớp SHA-256 người gửi, năm file khác có hash tải về được ghi local. D1 chuẩn hóa vẫn là bàn giao tiếp theo; nhận raw chưa thay nghiệm thu D1/D3/M2. C3.03/C3.04 được review ở PR #8, chi tiết trong docs/TV3_PR8_REVIEW.md.
+Cập nhật 20/10: đã nhận sáu raw OHLCV từ thư mục bàn giao và chạy T0 sơ bộ. Sau khi Ly gửi thêm năm SHA-256, cả sáu file đều đã đối chiếu khớp hash người gửi; không cần tải lại. D1 chuẩn hóa vẫn là bàn giao tiếp theo; nhận raw chưa thay nghiệm thu D1/D3/M2. C3.03/C3.04 được review ở PR #8, chi tiết trong docs/TV3_PR8_REVIEW.md. D2 v1.1 và kiểm tương thích được bổ sung theo bàn giao Ly; vẫn chờ D2 live thật và coverage theo phiên để nghiệm thu dữ liệu.
 
 Nhóm đã chốt nghiên cứu Binance, OKX và Bybit, mỗi sàn gồm spot và perp. Thu live rộng hơn vẫn hợp lệ: config/live_sessions.yaml còn Kraken spot và Coinbase spot để giữ dữ liệu tại thời điểm thu. Không xóa dữ liệu thu dư hoặc thu hẹp collector; kiểm D2 thu rộng không truyền config nghiên cứu, còn bàn giao cho phân tích 6 venue dùng bản đã chọn riêng. sample lịch sử không áp vào D2 live.
 

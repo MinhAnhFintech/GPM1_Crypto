@@ -1,4 +1,4 @@
-"""Executable DATA_CONTRACT v1.0, owned by TV4; errors stop a stage."""
+"""Executable data contracts: baseline v1.0 and additive D2 v1.1."""
 from __future__ import annotations
 
 import re
@@ -8,9 +8,13 @@ from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from .time_utils import require_utc, utc_timestamp
 
 CONTRACT_VERSION = "1.0"
+D2_CONTRACT_VERSION = "1.1"
+D2_BASE_COLUMNS = "ts_recv_utc ts_event_utc exchange symbol bid ask bid_size ask_size mid spread_abs spread_bps depth_bid_10bps_usdt depth_ask_10bps_usdt data_kind".split()
+D2_EXTRA_COLUMNS = "market_type venue session_id ts_grid_utc depth_truncated depth_cover_bps depth_bid_5bps_usdt depth_ask_5bps_usdt depth_bid_2bps_usdt depth_ask_2bps_usdt book_levels_bid book_levels_ask latency_ms".split()
+D2_COLUMNS = D2_BASE_COLUMNS + D2_EXTRA_COLUMNS
 SCHEMAS = {
     "D1": "ts_available exchange market_type symbol open high low close volume_base volume_quote data_kind".split(),
-    "D2": "ts_recv_utc ts_event_utc exchange market_type symbol bid ask bid_size ask_size mid spread_abs spread_bps depth_bid_10bps_usdt depth_ask_10bps_usdt data_kind".split(),
+    "D2": D2_BASE_COLUMNS + ["market_type"],
     "D5": "ts_available flag_high_vol flag_weekend flag_event regime_bull_bear".split(),
     "D6": "window_start window_end available_at venue is_lower is_upper is_mid component_share ils leader status reason".split(),
     "D7": "event_id ts_start ts_end duration_s market_type buy_exchange sell_exchange gross_bps net_bps regime".split(),
@@ -20,7 +24,29 @@ SCHEMAS = {
 TIME_COLUMNS = {"ts_available", "ts_recv_utc", "ts_event_utc", "window_start", "window_end", "available_at", "ts_start", "ts_end", "ts_decision", "ts_fill"}
 NUMBER_COLUMNS = set("open high low close volume_base volume_quote bid ask bid_size ask_size mid spread_abs spread_bps depth_bid_10bps_usdt depth_ask_10bps_usdt is_lower is_upper is_mid component_share ils duration_s gross_bps net_bps qty_btc buy_px sell_px fees_usdt pnl_usdt funding_rate funding_interval_h open_interest_base open_interest_usdt".split())
 TEXT_COLUMNS = set("exchange market_type symbol data_kind venue leader status reason event_id signal_id buy_exchange sell_exchange regime regime_bull_bear reject_reason".split())
+TIME_COLUMNS |= {"ts_grid_utc", "session_start_utc", "session_end_utc"}
+NUMBER_COLUMNS |= set("depth_cover_bps depth_bid_5bps_usdt depth_ask_5bps_usdt depth_bid_2bps_usdt depth_ask_2bps_usdt book_levels_bid book_levels_ask latency_ms".split())
+TEXT_COLUMNS.add("session_id")
 VENUE_PATTERN = re.compile(r"^[a-z][a-z0-9]*_(spot|perp)$")
+
+
+def upgrade_d2_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Copy an existing D2 into v1.1 order; never synthesize missing book data.
+
+    Keep the legacy depth_censored alias for existing consumers. No raw files
+    are rewritten by this function; callers explicitly choose an output path.
+    """
+    result = df.copy()
+    if "venue" not in result:
+        result["venue"] = result.exchange + "_" + result.market_type
+    if "depth_truncated" not in result and "depth_censored" in result:
+        result["depth_truncated"] = result.depth_censored
+    if "depth_censored" not in result and "depth_truncated" in result:
+        result["depth_censored"] = result.depth_truncated
+    order = [c for c in D2_COLUMNS if c in result]
+    result = result[order + [c for c in result if c not in order]]
+    result.attrs["contract_version"] = D2_CONTRACT_VERSION
+    return validate_frame(result, "D2")
 
 
 def data_kind(df: pd.DataFrame) -> str:
@@ -109,6 +135,12 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
         if (df[["volume_base", "volume_quote"]] < 0).any().any():
             raise ValueError("D1: negative volume")
     if schema == "D2":
+        if df.attrs.get("contract_version") == D2_CONTRACT_VERSION:
+            order = [c for c in D2_COLUMNS if c in df]
+            if list(df.columns[:len(order)]) != order:
+                raise ValueError("D2 v1.1: columns must follow base/extension order")
+        if "venue" in df and not df.venue.eq(df.exchange + "_" + df.market_type).all():
+            raise ValueError("D2: venue disagrees with exchange/market_type")
         if df[["bid", "ask"]].isna().any().any() or (df.bid <= 0).any() or (df.ask < df.bid).any():
             raise ValueError("D2: invalid/crossed book")
         expected_mid = (df.bid + df.ask) / 2
@@ -117,8 +149,22 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
                 raise ValueError(f"D2: inconsistent {column}")
         if (df[["bid_size", "ask_size", "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]] < 0).any().any():
             raise ValueError("D2: negative size/depth")
-        if "depth_censored" in df and (not is_bool_dtype(df.depth_censored) or df.depth_censored.isna().any()):
-            raise ValueError("D2: depth_censored must be boolean")
+        for flag in ("depth_censored", "depth_truncated"):
+            if flag in df and (not is_bool_dtype(df[flag]) or df[flag].isna().any()):
+                raise ValueError(f"D2: {flag} must be boolean")
+        if {"depth_censored", "depth_truncated"} <= set(df) and not df.depth_censored.eq(df.depth_truncated).all():
+            raise ValueError("D2: depth_truncated and depth_censored disagree")
+        for column in set(D2_EXTRA_COLUMNS) & NUMBER_COLUMNS & set(df):
+            if (df[column].dropna() < 0).any():
+                raise ValueError(f"D2: negative {column}")
+        for column in ("book_levels_bid", "book_levels_ask"):
+            if column in df and (df[column].dropna() % 1 != 0).any():
+                raise ValueError(f"D2: {column} must contain integer counts")
+        for side in ("bid", "ask"):
+            for narrow, wide in ((2, 5), (5, 10), (2, 10)):
+                a, b = f"depth_{side}_{narrow}bps_usdt", f"depth_{side}_{wide}bps_usdt"
+                if a in df and b in df and (df[a] > df[b] + 1e-8).any():
+                    raise ValueError("D2: depth must increase with the band width")
     if schema == "D5":
         for column in ("flag_high_vol", "flag_weekend", "flag_event"):
             if not is_bool_dtype(df[column]) or df[column].isna().any():

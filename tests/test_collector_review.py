@@ -98,7 +98,10 @@ def test_coverage_reports_completely_missing_session_without_future_ticks(tmp_pa
 def test_failed_flush_retains_pending_rows(tmp_path, monkeypatch):
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     writer = SessionWriter(tmp_path, Session("test", start, start+timedelta(minutes=1)), timezone.utc, "parquet")
-    writer.add({"ts_grid_utc": start, "ts_recv_utc": start, "session_start_utc": start, "session_end_utc": start+timedelta(minutes=1)})
+    writer.add({**fetch_top_of_book(Book(), "BTC/USDT", 100),
+                "ts_grid_utc": start, "ts_recv_utc": start, "session_start_utc": start,
+                "session_end_utc": start+timedelta(minutes=1), "exchange": "binance",
+                "market_type": "spot", "symbol": "BTC/USDT", "data_kind": "live"})
     def fail(*args, **kwargs):
         raise OSError("disk full")
     monkeypatch.setattr(pd.DataFrame, "to_parquet", fail)

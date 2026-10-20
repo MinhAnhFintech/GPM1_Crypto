@@ -8,7 +8,7 @@ import pandas as pd
 from src.synchronization.align import align_previous_tick
 from .config import load_config
 from .io_utils import file_sha256, write_json, write_parquet
-from .schema import validate_frame
+from .schema import upgrade_d2_frame, validate_frame
 from .time_utils import utc_timestamp
 
 
@@ -50,6 +50,7 @@ def make_fixture(cfg: dict, case="multi") -> tuple[pd.DataFrame, pd.DataFrame, p
         quotes.append(pd.DataFrame({"ts_recv_utc": times, "ts_event_utc": times-pd.Timedelta(milliseconds=20), "exchange": exchange, "market_type": market_type, "symbol": cfg["symbol"], "bid": bid, "ask": ask, "bid_size": volume*0.1, "ask_size": volume*0.12, "mid": close, "spread_abs": ask-bid, "spread_bps": (ask-bid)/close*1e4, "depth_bid_10bps_usdt": volume*close, "depth_ask_10bps_usdt": volume*close*1.1, "data_kind": "synthetic", "depth_censored": False}))
     d1 = pd.concat(candles, ignore_index=True).sort_values(["ts_available", "exchange", "market_type"]).reset_index(drop=True)
     d2 = pd.concat(quotes, ignore_index=True).sort_values(["ts_recv_utc", "exchange", "market_type"]).reset_index(drop=True)
+    d2 = upgrade_d2_frame(d2)
     validate_frame(d1, "D1")
     validate_frame(d2, "D2")
     d3 = align_previous_tick(d1, cfg["timeframe"], cfg["max_age"])

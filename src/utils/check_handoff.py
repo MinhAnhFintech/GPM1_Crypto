@@ -17,7 +17,7 @@ import pandas as pd
 from src.synchronization.split import validate_panel_split
 from src.utils.config import load_config
 from src.utils.io_utils import file_sha256, read_parquet, write_json
-from src.utils.schema import CONTRACT_VERSION, VENUE_PATTERN, data_kind, validate_split_manifest, venues_from_panel
+from src.utils.schema import CONTRACT_VERSION, D2_CONTRACT_VERSION, VENUE_PATTERN, data_kind, validate_split_manifest, venues_from_panel
 from src.utils.time_utils import utc_timestamp
 
 
@@ -66,7 +66,8 @@ def check_handoff(path, schema, expected_kind, *, config=None, manifest=None, sh
             raise ValueError(f"Expected {expected_kind} data, received {kind}")
         if "data_kind" in frame.attrs and frame.attrs["data_kind"] != kind:
             raise ValueError("data_kind column and metadata disagree")
-        if frame.attrs.get("contract_version", CONTRACT_VERSION) != CONTRACT_VERSION:
+        supported = {CONTRACT_VERSION, D2_CONTRACT_VERSION} if schema == "D2" else {CONTRACT_VERSION}
+        if frame.attrs.get("contract_version", CONTRACT_VERSION) not in supported:
             raise ValueError("Unsupported contract_version metadata")
         if schema == "D2" and frame.duplicated(["ts_recv_utc", "exchange", "market_type", "symbol"]).any():
             raise ValueError("D2 has duplicate receive-time/venue/symbol keys")

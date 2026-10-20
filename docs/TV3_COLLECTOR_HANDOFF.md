@@ -11,7 +11,7 @@ Mỗi venue có thể đặt book_limit và params; params chỉ đi với yêu 
 
 `fetch_top_of_book(ex, symbol, limit)` vẫn hoạt động cho code/test cũ. Giao diện mới `fetch_book` hỗ trợ params và chế độ shallow. Size được chuyển từ hợp đồng tuyến tính sang BTC bằng contractSize trong metadata CCXT. size_multiplier nếu có chỉ là kiểm tra nhất quán với metadata; sai thì báo lỗi. Hợp đồng inverse bị từ chối. Symbol đầu ra là BTC/USDT, kể cả khi kết nối dùng BTC/USDT:USDT.
 
-D2 giữ các cột mid, spread_abs, spread_bps, depth_censored và timestamp UTC ns. Các trường bổ sung book_levels_bid/ask là số mức quan sát. Không thay tên depth_censored thành depth_truncated. Các part giữ session_start_utc/end_utc; coverage vẫn đếm trên lịch đã trôi qua, không dùng dòng trùng để tăng độ phủ hoặc bỏ qua phiên mất toàn bộ dữ liệu.
+D2 v1.1 giữ 14 cột gốc trước, rồi phần mở rộng theo docs/DATA_CONTRACT.md. market_type vẫn bắt buộc; venue khớp exchange_market_type. depth_truncated là tên bàn giao TV3, depth_censored giữ làm alias tương thích sau phần mở rộng; hai cột phải khớp nhau. Timestamp UTC ns, book_levels_bid/ask là số mức quan sát. Các part giữ session_start_utc/end_utc; coverage vẫn đếm trên lịch đã trôi qua, không dùng dòng trùng để tăng độ phủ hoặc bỏ qua phiên mất toàn bộ dữ liệu. Bản v1.0 đã thu không tự bị ghi lại.
 
 Mỗi phiên có errors.csv gồm ts_utc, venue, error_type, message, action. n_errors trong coverage đếm dòng chẩn đoán (bao gồm thông báo tắt sổ sâu), không đồng nghĩa số quote mất. Các thống kê depth báo tỷ lệ censored và median phần quan sát được; không diễn giải depth censored thành tổng độ sâu đầy đủ.
 

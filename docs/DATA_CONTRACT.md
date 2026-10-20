@@ -1,4 +1,4 @@
-# Hợp đồng dữ liệu v1.0
+# Hợp đồng dữ liệu v1.0 — D2 mở rộng v1.1
 
 Chủ sở hữu: Anh (TV4). Chốt triển khai ngày 17/10/2026 theo GPM1_CRYPTO.pdf, mục 2 (trang 6–10), và sheet «Việc Code» trong GPM1_CRYPTO.xlsx. Thay đổi schema phải được TV4 review, tăng phiên bản và tái sinh fixtures. Kiểm tra tự động nằm trong `src/utils/schema.py`.
 
@@ -26,7 +26,7 @@ Phạm vi nghiên cứu đã chốt: Binance, OKX, Bybit, mỗi sàn gồm spot 
 | Mã / chủ sở hữu | Đường dẫn | Các cột bắt buộc |
 | --- | --- | --- |
 | D1 / TV2 | data/interim/ohlcv_1m_long.parquet | ts_available, exchange, market_type, symbol, open, high, low, close, volume_base, volume_quote, data_kind |
-| D2 / TV3 | data/processed/live_quotes_long.parquet | ts_recv_utc, ts_event_utc, exchange, market_type, symbol, bid, ask, bid_size, ask_size, mid, spread_abs, spread_bps, depth_bid_10bps_usdt, depth_ask_10bps_usdt, data_kind |
+| D2 / TV3 | data/processed/live_quotes_long.parquet | 14 cột gốc đúng thứ tự bên dưới; market_type bắt buộc trong phần mở rộng |
 | D3 / TV4 | data/processed/panel_1m_wide.parquet | Index ts_available; close__{venue}, log_close__{venue}, volume_base__{venue}, missing__{venue} |
 | D3b / TV2 | data/processed/features_1m.parquet | Index ts_available; ret_1m__{venue}, vol_share__{venue}, rv_60m__{venue}, dispersion_bps_spot, dispersion_bps_perp |
 | D4 / TV4 | data/processed/split_manifest.json | dev_start, dev_end, val_start, val_end, test_start, test_end, fingerprint |
@@ -38,7 +38,40 @@ Phạm vi nghiên cứu đã chốt: Binance, OKX, Bybit, mỗi sàn gồm spot 
 
 Giải quyết hai chỗ không thống nhất trong bản nguồn: phần quy ước chung ghi `missing__{exchange}` nhưng D3 và C4.08 yêu cầu suffix theo venue; dùng **missing__{venue}** để không nhập nhằng spot/perp. Quy ước chung bắt buộc market_type nhưng bảng D9 bỏ sót; D9 triển khai thêm **market_type=perp**. Bảng rộng giữ loại hợp đồng trong suffix và attrs. Đây là các lựa chọn TV4 chốt trong v1.0, không âm thầm đổi tên giữa các thành viên.
 
-Các cột bổ sung được phép nếu không thay nghĩa cột bắt buộc. D2 nên có `depth_censored` (bool). Độ sâu bị cắt là cận dưới quan sát được; không diễn giải thành độ sâu đầy đủ. Dữ liệu raw live có thêm session_id, session_start_utc, session_end_utc, latency_ms và ts_grid_utc để kiểm coverage; không dùng ts_grid_utc làm thời điểm có thông tin.
+Các cột bổ sung được phép nếu không thay nghĩa cột bắt buộc. Độ sâu bị cắt là cận dưới quan sát được; không diễn giải thành độ sâu đầy đủ. Không dùng ts_grid_utc làm thời điểm có thông tin.
+
+### D2 v1.1 — xác nhận bàn giao TV3 ngày 20/10/2026
+
+Giữ 14 cột gốc **đúng tên, đúng thứ tự**:
+
+```text
+ts_recv_utc, ts_event_utc, exchange, symbol, bid, ask, bid_size, ask_size,
+mid, spread_abs, spread_bps, depth_bid_10bps_usdt, depth_ask_10bps_usdt, data_kind
+```
+
+Các cột mở rộng nằm sau 14 cột trên, theo thứ tự sau khi có mặt:
+
+```text
+market_type, venue, session_id, ts_grid_utc, depth_truncated, depth_cover_bps,
+depth_bid_5bps_usdt, depth_ask_5bps_usdt, depth_bid_2bps_usdt, depth_ask_2bps_usdt,
+book_levels_bid, book_levels_ask, latency_ms
+```
+
+`market_type` vẫn **bắt buộc** trong hợp đồng nhóm; chỉ chuyển vị trí ra sau các cột gốc, không bỏ thông tin spot/perp. `venue` khi có phải bằng exchange + '_' + market_type. Các trường mở rộng khác được phép vắng ở bản cũ/fixtures; không dựng số đo book giả để lấp cột. Collector hiện tại xuất đủ phần mở rộng. Parquet mới ghi attrs.contract_version='1.1' riêng cho D2; D1/D3/D4 và config vẫn v1.0. Intake đọc được D2 v1.0 theo tên cột, D2 v1.1 được kiểm cả thứ tự. CSV không giữ attrs, nên khi nhận CSV phải đối chiếu thứ tự theo mục này.
+
+| Trường mở rộng | Kiểu / ý nghĩa |
+| --- | --- |
+| market_type, venue, session_id | Chuỗi; market_type spot/perp; session_id là phiên thu, không phải phiên giao dịch của sàn |
+| ts_grid_utc | UTC ns, nhịp dự kiến gửi yêu cầu; không thay ts_recv_utc |
+| depth_truncated | Bool không null, true khi sổ chưa phủ trọn băng ±10bps hoặc fallback shallow không đo được depth; không khẳng định băng 2/5bps cũng thiếu |
+| depth_cover_bps | Số bps tối thiểu được phủ ở cả hai phía quanh mid; NaN nếu không đo depth; độ phủ rộng hơn 10bps được giữ nguyên |
+| depth_bid/ask_5bps_usdt, depth_bid/ask_2bps_usdt | float64 USDT, tổng price × size BTC của các mức quan sát trong băng tương ứng; không âm, depth_2 <= depth_5 <= depth_10 khi có số đo; sổ thiếu chỉ cho cận dưới |
+| book_levels_bid, book_levels_ask | Số nguyên không âm, số mức nhận được mỗi phía; cho phép missing nếu không có số đo |
+| latency_ms | float64 không âm, thời gian thực hiện yêu cầu theo đồng hồ monotonic; không đồng nhất với ts_recv_utc - ts_event_utc |
+
+Giữ `depth_censored` làm alias tương thích của `depth_truncated`, đặt sau phần mở rộng chuẩn. Khi có cả hai, bắt buộc cùng giá trị. Code đọc cũ tiếp tục dùng depth_censored; bản chỉ có depth_truncated vẫn qua validator và đồng bộ được. ts_event_utc có thể NaT; không loại quote chỉ vì sàn không trả event timestamp. Các cột session_start_utc/session_end_utc (UTC ns) của raw part được giữ sau phần mở rộng để tính coverage.
+
+`upgrade_d2_frame` trả bản sao với thứ tự v1.1, suy venue từ định danh và sao chép cờ alias nếu có; không suy depth/latency, không đổi provenance, không tự ghi lại raw cũ. Khi cần chuyển file đã thu, TV3 dùng đầu ra riêng và kiểm checksum/schema, giữ bản gốc.
 
 ## Kiểu và bất biến
 
@@ -75,7 +108,7 @@ wide_quotes = align_live_quotes(d2, grid_freq="5s", max_age="6s")
 
 Hai khoảng thời gian trên chỉ minh họa kiểm thử synthetic; tuổi quote dùng cho nghiên cứu phải được chọn theo nhịp nhận dữ liệu thực tế. `grid_freq` phải là khoảng cố định dương; `max_age` bắt buộc khai báo, không âm. Lưới đi từ floor(min ts_recv_utc) đến **floor(max ts_recv_utc)**, không tạo mốc tương lai sau lần nhận cuối. Tại g, chọn quote gần nhất của từng venue có ts_recv_utc <= g. Không dùng ts_event_utc, ts_grid_utc hoặc cột ts_available bổ sung để đưa thông tin về quá khứ. Trùng khóa (ts_recv_utc, exchange, market_type, symbol) bị từ chối.
 
-Đầu ra giữ chín trường quote/size/depth của D2 với suffix `__{venue}` và đơn vị gốc. Khi không có quote hoặc quá max_age, cả chín trường thành NaN, `missing__{venue}=True`; đúng biên vẫn hợp lệ. Nếu đầu vào có depth_censored, đầu ra giữ boolean nullable, để NA khi quote không dùng được. Cùng sàn spot/perp được xử lý riêng.
+Đầu ra giữ chín trường quote/size/depth của D2 với suffix `__{venue}` và đơn vị gốc. Khi không có quote hoặc quá max_age, cả chín trường thành NaN, `missing__{venue}=True`; đúng biên vẫn hợp lệ. Nếu có, depth_censored/depth_truncated được giữ dạng boolean nullable, depth_cover_bps và depth 2/5bps được giữ cùng snapshot; tất cả để NA/NaN khi quote không dùng được. Cùng sàn spot/perp được xử lý riêng.
 
 Các cột `source_ts_recv_utc__{venue}`, `source_ts_event_utc__{venue}` và `quote_age_s__{venue}` lưu nguồn gần nhất trong quá khứ để kiểm tra, kể cả khi đã quá tuổi. Vì vậy phải đọc cùng missing; timestamp nguồn còn tồn tại không có nghĩa quote còn dùng được. Metadata giữ data_kind, symbol, venues, grid_freq, max_age và frame_type=aligned_quotes. Đây là bảng quotes trung gian, không thay hợp đồng OHLCV D3 hoặc schema D1–D9 v1.0.
 
