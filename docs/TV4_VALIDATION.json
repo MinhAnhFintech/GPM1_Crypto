@@ -1,121 +1,94 @@
 {
-  "checked_at_utc": "2026-10-17T15:56:29.326989+00:00",
-  "pytest": {
-    "tests": 32,
-    "passed": 30,
+  "checked_at_utc": "2026-10-20T17:49:04.684488+00:00",
+  "checked_at_local": "2026-10-21T00:49:04.696485+07:00",
+  "scope": "TV4 real historical foundation; group confirmation of sample window still pending",
+  "git_head": "2abc1b9fbc2a0e4b85500ca1eef7aa34fe0c927a",
+  "git_tree": "dc111ef02a43c1edac0edbef6bf35ae349a92bad",
+  "runtime": {
+    "numpy": "2.3.5",
+    "pandas": "3.0.1",
+    "pyarrow": "26.0.0"
+  },
+  "last_full_pytest": {
+    "passed": 390,
+    "skipped": 1,
     "failed": 0,
     "errors": 0,
-    "skipped": 2,
-    "skipped_reason": "C4.13 awaits real TV5 vecm/info_share/info_leadership modules"
+    "source": "Final pre-commit run on source code 2abc1b9; only documentation and result artifacts changed",
+    "skip_reason": "Directory symlinks unavailable on this Windows machine",
+    "rerun_before_commit": true
   },
   "strict_tv5_check": {
-    "performed": true,
-    "exit_code": 1,
-    "status": "pending_dependency",
-    "reason": "Both mandatory cases fail explicitly when --require-tv5 is set and TV5 modules are absent"
-  },
-  "synthetic_multi": {
-    "mode": "synthetic",
-    "data_kind": "synthetic",
-    "source": "C:\\Users\\User\\Downloads\\BTN10\\data\\fixtures\\multi\\ohlcv_1m_long.parquet",
-    "source_sha256": "4386c6d7f0429b24a40a1545d10ac12823ba6b5466aa3cfa82eed19332a9a4e8",
-    "config_sha256": "f1995350d50805034619fbe8ad83a615956ec1d79f521ac9cd8494b463c24666",
-    "panel_fingerprint": "8f0fb81af85a2c633be35330593c54b5f1086aa13861d9bd3c7e2133627d86a6",
-    "rows": 720,
-    "venues": [
-      "binance_perp",
-      "binance_spot",
-      "bybit_spot",
-      "okx_spot"
-    ],
-    "analysis_split": "dev",
-    "test_consumed": false,
-    "foundation_status": "passed",
-    "team_stages": [],
-    "pending_team_stages": [
-      "cost_backtest",
-      "evaluation",
-      "features",
-      "price_discovery",
-      "regime_flags"
-    ],
-    "full_research_pipeline_complete": false
-  },
-  "synthetic_spot_perp": {
-    "mode": "synthetic",
-    "data_kind": "synthetic",
-    "source": "C:\\Users\\User\\Downloads\\BTN10\\data\\fixtures\\spot_perp\\ohlcv_1m_long.parquet",
-    "source_sha256": "6d0aee204c6e16fa913e237fa0d08c747ad07213b42fe5fef82cf18701eb97b8",
-    "config_sha256": "f1995350d50805034619fbe8ad83a615956ec1d79f521ac9cd8494b463c24666",
-    "panel_fingerprint": "baad1599b35dd0e568e40170e7fd9b5b6cde6ae88835bd85aa2ee4c7cccdf627",
-    "rows": 720,
-    "venues": [
-      "binance_perp",
-      "binance_spot"
-    ],
-    "analysis_split": "dev",
-    "test_consumed": false,
-    "foundation_status": "passed",
-    "team_stages": [],
-    "pending_team_stages": [
-      "cost_backtest",
-      "evaluation",
-      "features",
-      "price_discovery",
-      "regime_flags"
-    ],
-    "full_research_pipeline_complete": false
-  },
-  "real_api_smoke": {
-    "purpose": "engineering_smoke_only",
-    "sample_start": "2026-10-17T13:51:00+00:00",
-    "sample_end_exclusive": "2026-10-17T15:51:00+00:00",
-    "ccxt_version": "4.5.88",
-    "venues": [
-      {
-        "venue": "binance_spot",
-        "ohlcv_status": "passed",
-        "n_candles": 120,
-        "orderbook_status": "passed",
-        "depth_censored": false
-      },
-      {
-        "venue": "okx_spot",
-        "ohlcv_status": "passed",
-        "n_candles": 120,
-        "orderbook_status": "passed",
-        "depth_censored": true
-      },
-      {
-        "venue": "binance_perp",
-        "ohlcv_status": "passed",
-        "n_candles": 120,
-        "orderbook_status": "passed",
-        "depth_censored": false
-      }
-    ],
-    "panel_rows": 120,
-    "panel_status": "passed",
-    "test_consumed": false,
-    "all_requested_venues_passed": true
+    "status": "passed",
+    "passed_cases": 4,
+    "exit_code": 0,
+    "included_in_targeted_pytest": true
   },
   "real_foundation": {
-    "mode": "historical",
+    "scope": "C4.08/C4.09/C4.10 technical handoff on received historical data",
+    "git_head": "2abc1b9fbc2a0e4b85500ca1eef7aa34fe0c927a",
     "data_kind": "historical",
-    "source": "tmp\\real_review\\ohlcv_1m_long.parquet",
-    "source_sha256": "01d5b9a3982edab4441ca34ce603f61ffeba03a9f4b5e66fd90e4b840effb5c4",
-    "config_sha256": "31e16b7b6eacff4b22eb3d1f1e9805265ff6864f8967f908962dfbd24f8c23c3",
-    "panel_fingerprint": "946880e0b3e8ce192357ade7547076b9bc153ddb3bd11ba97da2ae32a2b74c86",
-    "rows": 120,
+    "source_d1_rows": 3006714,
+    "panel_rows": 501119,
+    "panel_columns": 24,
     "venues": [
       "binance_perp",
       "binance_spot",
+      "bybit_perp",
+      "bybit_spot",
+      "okx_perp",
       "okx_spot"
     ],
+    "sample_start_inclusive": "2025-10-18T00:01:00Z",
+    "sample_end_exclusive": "2026-10-01T00:00:00Z",
+    "grid_first": "2025-10-18T00:01:00+00:00",
+    "grid_last": "2026-09-30T23:59:00+00:00",
+    "missing_rows_by_venue": {
+      "binance_spot": 0,
+      "binance_perp": 0,
+      "okx_spot": 0,
+      "okx_perp": 0,
+      "bybit_spot": 0,
+      "bybit_perp": 0
+    },
+    "direct_source_values_match": true,
+    "split": {
+      "contract_version": "1.0",
+      "data_kind": "historical",
+      "fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+      "fingerprint_method": "sha256:pandas_hash_values+schema+index+attrs",
+      "n_obs": 501119,
+      "ratios": [
+        0.6,
+        0.2,
+        0.2
+      ],
+      "counts": {
+        "dev": 300671,
+        "val": 100223,
+        "test": 100225
+      },
+      "test_policy": "single_final_evaluation",
+      "test_consumed": false,
+      "dev_start": "2025-10-18T00:01:00+00:00",
+      "dev_end": "2026-05-14T19:11:00+00:00",
+      "val_start": "2026-05-14T19:12:00+00:00",
+      "val_end": "2026-07-23T09:34:00+00:00",
+      "test_start": "2026-07-23T09:35:00+00:00",
+      "test_end": "2026-09-30T23:59:00+00:00"
+    },
     "analysis_split": "dev",
+    "xcorr_rows": 165,
+    "xcorr_pairs": 15,
+    "xcorr_independent_numpy_max_abs_error": 1.1102230246251565e-16,
+    "peak_correlation_lag_counts": {
+      "0": 15
+    },
     "test_consumed": false,
-    "foundation_status": "passed",
-    "team_stages": [],
+    "test_lock_present": false,
+    "technical_handoff_passed": true,
+    "sample_window_group_confirmation_pending": true,
+    "full_research_pipeline_complete": false,
     "pending_team_stages": [
       "cost_backtest",
       "evaluation",
@@ -123,27 +96,74 @@
       "price_discovery",
       "regime_flags"
     ],
-    "full_research_pipeline_complete": false
-  },
-  "full_production_guard": {
-    "checked": true,
-    "exit_code": 1,
-    "reason": "Refuses full completion while five team stages are absent"
-  },
-  "checks": {
-    "compileall": "passed",
-    "git_diff_check": "passed",
-    "streamlit_seven_sections": "passed",
-    "figures_visually_reviewed": [
-      "multi/F1",
-      "spot_perp/F6"
+    "artifacts": {
+      "data\\interim\\ohlcv_1m_long.parquet": {
+        "sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+        "bytes": 103818611
+      },
+      "data\\processed\\panel_1m_wide.parquet": {
+        "sha256": "b2c572835eb3052a1575b2719c04bbb7c6cc8643599bd6ef99ab330a82362659",
+        "bytes": 61636792
+      },
+      "data\\processed\\split_manifest.json": {
+        "sha256": "dfa9cd44975b9721986636c733db03d74152fb325ce94b7411e8a60af63020c4",
+        "bytes": 713
+      },
+      "outputs\\tables\\T0_alignment_quality.csv": {
+        "sha256": "d00deb34f06c1b852cb306710fc34905e28e73e702bc8787c58b8ace77cc82c2",
+        "bytes": 267
+      },
+      "outputs\\tables\\T2_leadlag_xcorr.csv": {
+        "sha256": "2ce365b0b6a17912ad545aae08a7dd156a7ed17fdbc242b34f3b9e5f4eb69bb5",
+        "bytes": 15306
+      },
+      "outputs\\figures\\F1_synchronized_prices.png": {
+        "sha256": "05ddb330f0f57c8944c0dcea9336379f19a6c16db48c066e936f9750f3350cd8",
+        "bytes": 96172
+      },
+      "outputs\\figures\\F6_leadlag_xcorr.png": {
+        "sha256": "444203b456afed61be9a803f4d826db150242970380607a823188acf0c926840",
+        "bytes": 90147
+      },
+      "outputs\\pipeline_report.json": {
+        "sha256": "4d2e8274a2eb79d745042dc4f625c2d7cd6d4721474c0f11858b1e2a8c1b9389",
+        "bytes": 964
+      }
+    },
+    "limits": [
+      "Uses current config window; group TODO confirmation remains.",
+      "Cross-correlations alone do not establish an IS/ILS leader or profitable arbitrage.",
+      "No validation/final-test model analysis; full-panel operations are schema/QC/split checks only."
     ]
   },
-  "requirements_sha256": "189cc5bf1ca7475ec6b22a3990d875a73bdc3dc86d85a227e18bf6bb43f3060d",
-  "reviewed_commits": {
-    "tv2": "c615f80",
-    "tv3": "f0e5c8b",
-    "local_tv2_merge": "40fbbf9"
-  },
-  "remote_pushed": false
+  "intake_status": "passed",
+  "full_research_pipeline_complete": false,
+  "pending_team_stages": [
+    "cost_backtest",
+    "evaluation",
+    "features",
+    "price_discovery",
+    "regime_flags"
+  ],
+  "visual_checks": [
+    "outputs/figures/F1_synchronized_prices.png",
+    "outputs/figures/F6_leadlag_xcorr.png"
+  ],
+  "requirements_sha256": "1c41e64bc444feab9fcfafc2e80bebc2814d75d5d6ac609915e47ad198933d92",
+  "research_config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
+  "sample_window_group_confirmation_pending": true,
+  "note": "Old 17/10 smoke evidence is historical. Current status is based on the received six-venue D1. Original source and raw files unchanged; final test unused.",
+  "targeted_foundation_pytest": {
+    "passed": 52,
+    "skipped": 0,
+    "failed": 0,
+    "errors": 0,
+    "files": [
+      "tests/test_alignment.py",
+      "tests/test_fixtures_and_splits.py",
+      "tests/test_check_handoff.py",
+      "tests/test_info_share_synthetic.py"
+    ],
+    "require_tv5": true
+  }
 }

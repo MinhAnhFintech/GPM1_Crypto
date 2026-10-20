@@ -1,0 +1,112 @@
+{
+  "scope": "C4.08/C4.09/C4.10 technical handoff on received historical data",
+  "git_head": "2abc1b9fbc2a0e4b85500ca1eef7aa34fe0c927a",
+  "data_kind": "historical",
+  "source_d1_rows": 3006714,
+  "panel_rows": 501119,
+  "panel_columns": 24,
+  "venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ],
+  "sample_start_inclusive": "2025-10-18T00:01:00Z",
+  "sample_end_exclusive": "2026-10-01T00:00:00Z",
+  "grid_first": "2025-10-18T00:01:00+00:00",
+  "grid_last": "2026-09-30T23:59:00+00:00",
+  "missing_rows_by_venue": {
+    "binance_spot": 0,
+    "binance_perp": 0,
+    "okx_spot": 0,
+    "okx_perp": 0,
+    "bybit_spot": 0,
+    "bybit_perp": 0
+  },
+  "direct_source_values_match": true,
+  "split": {
+    "contract_version": "1.0",
+    "data_kind": "historical",
+    "fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "fingerprint_method": "sha256:pandas_hash_values+schema+index+attrs",
+    "n_obs": 501119,
+    "ratios": [
+      0.6,
+      0.2,
+      0.2
+    ],
+    "counts": {
+      "dev": 300671,
+      "val": 100223,
+      "test": 100225
+    },
+    "test_policy": "single_final_evaluation",
+    "test_consumed": false,
+    "dev_start": "2025-10-18T00:01:00+00:00",
+    "dev_end": "2026-05-14T19:11:00+00:00",
+    "val_start": "2026-05-14T19:12:00+00:00",
+    "val_end": "2026-07-23T09:34:00+00:00",
+    "test_start": "2026-07-23T09:35:00+00:00",
+    "test_end": "2026-09-30T23:59:00+00:00"
+  },
+  "analysis_split": "dev",
+  "xcorr_rows": 165,
+  "xcorr_pairs": 15,
+  "xcorr_independent_numpy_max_abs_error": 1.1102230246251565e-16,
+  "peak_correlation_lag_counts": {
+    "0": 15
+  },
+  "test_consumed": false,
+  "test_lock_present": false,
+  "technical_handoff_passed": true,
+  "sample_window_group_confirmation_pending": true,
+  "full_research_pipeline_complete": false,
+  "pending_team_stages": [
+    "cost_backtest",
+    "evaluation",
+    "features",
+    "price_discovery",
+    "regime_flags"
+  ],
+  "artifacts": {
+    "data\\interim\\ohlcv_1m_long.parquet": {
+      "sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+      "bytes": 103818611
+    },
+    "data\\processed\\panel_1m_wide.parquet": {
+      "sha256": "b2c572835eb3052a1575b2719c04bbb7c6cc8643599bd6ef99ab330a82362659",
+      "bytes": 61636792
+    },
+    "data\\processed\\split_manifest.json": {
+      "sha256": "dfa9cd44975b9721986636c733db03d74152fb325ce94b7411e8a60af63020c4",
+      "bytes": 713
+    },
+    "outputs\\tables\\T0_alignment_quality.csv": {
+      "sha256": "d00deb34f06c1b852cb306710fc34905e28e73e702bc8787c58b8ace77cc82c2",
+      "bytes": 267
+    },
+    "outputs\\tables\\T2_leadlag_xcorr.csv": {
+      "sha256": "2ce365b0b6a17912ad545aae08a7dd156a7ed17fdbc242b34f3b9e5f4eb69bb5",
+      "bytes": 15306
+    },
+    "outputs\\figures\\F1_synchronized_prices.png": {
+      "sha256": "05ddb330f0f57c8944c0dcea9336379f19a6c16db48c066e936f9750f3350cd8",
+      "bytes": 96172
+    },
+    "outputs\\figures\\F6_leadlag_xcorr.png": {
+      "sha256": "444203b456afed61be9a803f4d826db150242970380607a823188acf0c926840",
+      "bytes": 90147
+    },
+    "outputs\\pipeline_report.json": {
+      "sha256": "4d2e8274a2eb79d745042dc4f625c2d7cd6d4721474c0f11858b1e2a8c1b9389",
+      "bytes": 964
+    }
+  },
+  "limits": [
+    "Uses current config window; group TODO confirmation remains.",
+    "Cross-correlations alone do not establish an IS/ILS leader or profitable arbitrage.",
+    "No validation/final-test model analysis; full-panel operations are schema/QC/split checks only."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "run_id": "6a8156c42b8a4daa999fdf599f4eb5bc",
+  "mode": "historical",
+  "pipeline_status": "foundation_only",
+  "foundation_status": "passed",
+  "team_stages": [],
+  "pending_team_stages": [
+    "cost_backtest",
+    "evaluation",
+    "features",
+    "price_discovery",
+    "regime_flags"
+  ],
+  "full_research_pipeline_complete": false,
+  "analysis_split": "dev",
+  "test_consumed": false,
+  "data_kind": "historical",
+  "source": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\interim\\ohlcv_1m_long.parquet",
+  "source_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+  "config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
+  "panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+  "rows": 501119,
+  "venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ]
+}

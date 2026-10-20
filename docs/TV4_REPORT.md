@@ -16,6 +16,8 @@ Panel được chia theo thứ tự thời gian thành development/validation/fi
 
 Tham số và lựa chọn đặc tả được phát triển trên development, xác nhận trên validation rồi đóng băng. Final test chỉ được dùng một lần sau khi ghi checksum của cấu hình đóng băng. API claim_final_test dùng khóa độc quyền và đánh dấu đã tiêu thụ test; chạy lại pipeline không đặt lại cờ này. Quy trình hiện mặc định chỉ tính lead–lag trên development và không tự mở final test. Việc quản lý quyền đọc dữ liệu gốc vẫn là trách nhiệm quy trình của cả nhóm.
 
+Áp dụng ngày 21/10 trên D1 thật Ny bàn giao: mẫu theo config từ 2025-10-18T00:01:00Z đến trước 2026-10-01T00:00:00Z có 501.119 mốc phút, sáu venue và không có missing trong D3. Development gồm 300.671 dòng (18/10/2025 00:01 đến 14/05/2026 19:11 UTC), validation 100.223 dòng (14/05/2026 19:12 đến 23/07/2026 09:34 UTC), final test 100.225 dòng (23/07/2026 09:35 đến 30/09/2026 23:59 UTC). Biên từng tập bao gồm hai đầu. Các bảng/hình phân tích hiện chỉ dùng development; final test chưa được claim. Khoảng mẫu vẫn giữ TODO cần nhóm xác nhận, không suy ra đã chốt chỉ từ việc pipeline chạy đạt. Bằng chứng và lệnh tái lập nằm trong docs/TV4_HISTORICAL_HANDOFF.md.
+
 ## Phụ lục: kiến trúc và tái lập (R4.02)
 
 Mã thu thập nằm ở src/collectors; tiện ích UTC, schema và I/O ở src/utils; đồng bộ, chuẩn hóa và chia mẫu ở src/synchronization; lead–lag ở src/price_discovery/leadlag.py. Module kinh tế lượng và IS/CS/ILS do TV5 cung cấp; chi phí và backtest do TV6 cung cấp. run_all.py kết nối phần nền và các bước nghiên cứu đăng ký bằng argv trong cấu hình, kiểm tra mã thoát và file đầu ra, rồi ghi pipeline_report.json. Khi còn thiếu bước nghiên cứu, chế độ production đầy đủ báo thiếu và trả mã lỗi, không nhận là đã hoàn tất.
@@ -176,3 +178,11 @@ Kiểm chứng local: toàn repo với --require-tv5 đạt **368 passed, 1 skip
 D1 Ny bàn giao có 3.006.714 dòng, sáu venue × 501.119 dòng, SHA-256 FEA20184F835471EBDD48D43F7D697D36195BAB74F1B7DF3B790D20F9B23E09F khớp. Tái lập toàn bộ D1 và T0 từ bộ raw hiện tại trên Drive khớp. Bộ raw mới được giữ riêng, bộ raw cũ và các hash xác nhận trước đó không đổi; dữ liệu thật không vào Git. Đầu vào D1 cho TV4 đã nhận; C4.08/C4.09 còn cần dựng và nghiệm thu D3/D4, config vẫn cần nhóm xác nhận TODO khoảng mẫu.
 
 Toàn repo sau sửa: **390 passed, 1 skipped**, gồm strict TV5. Hai demo nền đạt 720 dòng; final test chưa dùng. Không lấy nghiệm thu D1 để đánh dấu M2 hoặc pipeline nghiên cứu đầy đủ hoàn tất.
+
+## C4.08/C4.09/C4.10 — bàn giao dữ liệu thật (21/10/2026)
+
+Đã chạy nền historical từ D1 đã xác minh hash, tạo D3 501.119 × 24 và D4 60/20/20 tại data/processed. Intake D3/D4 passed, đúng sáu venue, lưới một phút liên tục, không missing. Kiểm độc lập từng timestamp/close/volume_base của D3 với D1 khớp; fingerprint D3 và biên/counts D4 hợp lệ. Không có khóa final test và test_consumed=false.
+
+C4.10 đã xuất 165 giá trị tương quan cho 15 cặp × 11 lag trên development cùng hình F6. Tất cả 15 cặp có đỉnh tại lag 0; phép tính NumPy độc lập khớp với sai khác tối đa 1,11e-16. Không suy ra venue dẫn IS/ILS từ kết quả này. F1/F6 đã kiểm trực quan, nguồn historical và phạm vi development được ghi rõ trong tài liệu bàn giao.
+
+Lượt kiểm thử liên quan đạt **52 passed**, gồm strict TV5 4/4. Không sửa thuật toán; kiểm thử toàn repo trước commit đạt 390 passed, 1 skipped. R4.01 đã có số dòng/biên/missing thật để TV1 đưa vào báo cáo chung. C4.12 vẫn thiếu các stage nghiên cứu; M2 còn bước nhóm xác nhận khoảng mẫu trong config. Chi tiết: docs/TV4_HISTORICAL_HANDOFF.md và outputs/tv4_historical_validation.json. D1/D3/D4 tiếp tục giữ local và được ignore; bảng/hình và bằng chứng kỹ thuật nằm trong outputs.

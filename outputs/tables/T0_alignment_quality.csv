@@ -1,0 +1,7 @@
+venue,n_grid_rows,n_missing,missing_pct,data_kind
+binance_perp,501119,0,0.0,historical
+binance_spot,501119,0,0.0,historical
+bybit_perp,501119,0,0.0,historical
+bybit_spot,501119,0,0.0,historical
+okx_perp,501119,0,0.0,historical
+okx_spot,501119,0,0.0,historical

@@ -1,0 +1,52 @@
+{
+  "path": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\processed\\panel_1m_wide.parquet",
+  "schema": "D3",
+  "expected_data_kind": "historical",
+  "status": "passed",
+  "scope": "handoff_contract",
+  "research_acceptance_complete": false,
+  "issues": [],
+  "warnings": [
+    "File/schema checks do not establish full sample coverage, model correctness or milestone completion"
+  ],
+  "sha256": "b2c572835eb3052a1575b2719c04bbb7c6cc8643599bd6ef99ab330a82362659",
+  "data_kind": "historical",
+  "n_rows": 501119,
+  "venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ],
+  "first_timestamp": "2025-10-18T00:01:00+00:00",
+  "last_timestamp": "2026-09-30T23:59:00+00:00",
+  "config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
+  "sample": {
+    "start_inclusive": "2025-10-18T00:01:00+00:00",
+    "end_exclusive": "2026-10-01T00:00:00+00:00",
+    "n_rows_inside": 501119,
+    "n_rows_outside": 0
+  },
+  "missing_rows_by_venue": {
+    "binance_perp": 0,
+    "binance_spot": 0,
+    "bybit_perp": 0,
+    "bybit_spot": 0,
+    "okx_perp": 0,
+    "okx_spot": 0
+  },
+  "manifest": {
+    "path": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\processed\\split_manifest.json",
+    "sha256": "dfa9cd44975b9721986636c733db03d74152fb325ce94b7411e8a60af63020c4",
+    "fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "counts": {
+      "dev": 300671,
+      "val": 100223,
+      "test": 100225
+    },
+    "test_consumed": false,
+    "test_lock_present": false
+  }
+}
