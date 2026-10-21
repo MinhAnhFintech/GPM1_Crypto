@@ -1,0 +1,219 @@
+# config/events.yaml — Danh sách sự kiện lớn của thị trường crypto (C1.04, TV1)
+#
+# Mục đích: tạo cờ flag_event trong regime_flags.parquet (D5).
+# Phạm vi dữ liệu D1:
+# 2025-10-18 00:01 UTC đến 2026-09-30 23:59 UTC.
+#
+# Quy ước:
+# - start_utc / end_utc: cửa sổ sự kiện dạng nửa mở [start, end).
+# - Tất cả thời điểm sử dụng UTC.
+# - Cửa sổ sự kiện là đề xuất của TV1 và có thể được chốt lại khi tạo flag_event.
+# - scope = market_wide: sự kiện có tác động trên phạm vi toàn thị trường.
+# - d1_check: số liệu dùng để đối chiếu sự kiện với dữ liệu D1,
+#   không được sử dụng để đặt ngưỡng flag_high_vol.
+
+version: "1.0"
+
+data_range_utc:
+  - "2025-10-18T00:01:00Z"
+  - "2026-09-30T23:59:00Z"
+
+events:
+
+  - id: E01
+    name: "BTC thủng 85.000 USD, thanh lý lớn và dòng tiền rút khỏi ETF"
+    category: market_crash
+    scope: market_wide
+    start_utc: "2025-11-20T00:00:00Z"
+    end_utc: "2025-11-22T00:00:00Z"
+    peak_date: "2025-11-21"
+    reason: >-
+      BTC giảm mạnh xuống vùng thấp nhất kể từ tháng 4/2025, trong bối cảnh
+      dòng tiền rút mạnh khỏi ETF Bitcoin giao ngay và kỳ vọng cắt giảm
+      lãi suất của Mỹ suy yếu. Sự kiện đi kèm thanh lý lớn trên thị trường
+      phái sinh và mức độ sợ hãi cao của nhà đầu tư.
+    d1_check:
+      close_start: 91555
+      close_end: 84700
+      low: 80731
+      range_pct: 15.4
+      max_rv60_bps: 225
+      rv60_pctile: 99.92
+    sources:
+      - outlet: "CoinDesk"
+        date: "2025-11-21"
+        url: "https://www.coindesk.com/markets/2025/11/21/crypto-bulls-see-usd1-7b-liquidations-as-bitcoin-swiftly-nears-usd80k"
+    
+  - id: E02
+    name: "Trump đề cử Kevin Warsh làm Chủ tịch Fed, thị trường crypto biến động mạnh"
+    category: macro_policy
+    scope: market_wide
+    start_utc: "2026-01-30T00:00:00Z"
+    end_utc: "2026-02-03T00:00:00Z"
+    peak_date: "2026-02-01"
+    reason: >-
+      Việc Kevin Warsh được đề cử làm Chủ tịch Fed làm gia tăng lo ngại
+      về định hướng chính sách tiền tệ thắt chặt hơn và đồng USD mạnh lên.
+      BTC giảm mạnh trong những ngày tiếp theo, đi kèm thanh lý vị thế
+      long và dòng vốn rút khỏi các ETF crypto.
+    d1_check:
+      close_start: 84650
+      close_end: 78740
+      low: 74630
+      range_pct: 13.5
+      max_rv60_bps: 346
+      rv60_pctile: 100.0
+    sources:
+      - outlet: "Reuters"
+        date: "2026-01-30"
+        url: "https://www.reuters.com/world/us/trump-picks-former-fed-official-warsh-run-fed-2026-01-30/"
+      - outlet: "Deep News (CoinGlass data)"
+        date: "2026-02-01"
+        url: "https://www-web.itiger.com/news/1112282108"
+
+  - id: E03
+    name: "BTC chạm vùng 60.000 USD trong đợt bán tháo lớn"
+    category: market_crash
+    scope: market_wide
+    start_utc: "2026-02-05T00:00:00Z"
+    end_utc: "2026-02-07T00:00:00Z"
+    peak_date: "2026-02-06"
+    reason: >-
+      BTC thủng vùng 70.000 USD và tiếp tục giảm xuống khoảng 60.000 USD,
+      trong bối cảnh dòng vốn ETF suy yếu, tâm lý thị trường xuống mức
+      cực kỳ sợ hãi và lượng lớn vị thế đòn bẩy bị thanh lý.
+    d1_check:
+      close_start: 73166
+      close_end: 69332
+      low: 60082
+      range_pct: 22.1
+      max_rv60_bps: 339
+      rv60_pctile: 99.99
+    sources:
+      - outlet: "ForkLog"
+        date: "2026-02-06"
+        url: "https://forklog.com/en/bitcoin-tests-60000-support-triggering-billion%E2%80%91dollar-liquidations/"
+
+  - id: E04
+    name: "Mỹ và Israel tấn công Iran vào cuối tuần"
+    category: geopolitical
+    scope: market_wide
+    start_utc: "2026-02-28T00:00:00Z"
+    end_utc: "2026-03-02T00:00:00Z"
+    peak_date: "2026-02-28"
+    reason: >-
+      Mỹ và Israel mở chiến dịch quân sự nhằm vào Iran trong thời gian
+      các thị trường tài chính truyền thống đóng cửa cuối tuần.
+      BTC và các crypto lớn giảm mạnh, tạo một giai đoạn đáng chú ý để
+      quan sát price discovery giữa các sàn crypto hoạt động 24/7.
+    d1_check:
+      close_start: 65872
+      close_end: 68776
+      low: 63120
+      range_pct: 11.0
+      max_rv60_bps: 162
+      rv60_pctile: 99.57
+    sources:
+      - outlet: "NewsBTC"
+        date: "2026-02-28"
+        url: "https://www.newsbtc.com/bitcoin-news/bitcoin-in-the-line-of-fire-price-dips-to-63k-as-us-israel-launch-strikes-on-iran/"
+
+  - id: E05
+    name: "Thông tin tạm dừng tấn công Iran khiến BTC tăng mạnh rồi đảo chiều"
+    category: geopolitical
+    scope: market_wide
+    start_utc: "2026-03-23T00:00:00Z"
+    end_utc: "2026-03-24T00:00:00Z"
+    peak_date: "2026-03-23"
+    reason: >-
+      Thông tin Mỹ tạm dừng các cuộc tấn công vào hạ tầng năng lượng Iran
+      khiến BTC tăng nhanh, sau đó đảo chiều khi phía Iran phủ nhận có
+      đàm phán. Biến động mạnh trong thời gian ngắn phù hợp để kiểm tra
+      phản ứng và độ trễ price discovery giữa các venue.
+    d1_check:
+      close_start: 67859
+      close_end: 70547
+      low: 67480
+      range_pct: 6.2
+      max_rv60_bps: 281
+      rv60_pctile: 99.97
+    sources:
+      - outlet: "ForkLog"
+        date: "2026-03-23"
+        url: "https://forklog.com/en/bitcoin-tops-70000-as-us-pauses-iran-strikes/"
+
+  - id: E06
+    name: "Mỹ và Iran giao tranh trở lại, BTC giảm mạnh"
+    category: geopolitical
+    scope: market_wide
+    start_utc: "2026-06-02T00:00:00Z"
+    end_utc: "2026-06-05T00:00:00Z"
+    peak_date: "2026-06-03"
+    reason: >-
+      Giao tranh giữa Mỹ và Iran tái diễn trong bối cảnh đàm phán
+      ngừng bắn gặp khó khăn. BTC giảm mạnh, phá các vùng hỗ trợ,
+      trong khi thị trường ghi nhận thanh lý lớn và dòng vốn ETF suy yếu.
+    d1_check:
+      close_start: 71409
+      close_end: 63884
+      low: 61467
+      range_pct: 16.2
+      max_rv60_bps: 164
+      rv60_pctile: 99.60
+    sources:
+      - outlet: "Cointelegraph"
+        date: "2026-06-03"
+        url: "https://cointelegraph.com/news/bitcoin-falls-below-66k-as-us-iran-strikes-resume"
+
+  - id: E07
+    name: "Strategy công bố khả năng bán BTC, Bitcoin xuống vùng thấp nhất nhiều tháng"
+    category: corporate_treasury
+    scope: market_wide
+    start_utc: "2026-06-29T00:00:00Z"
+    end_utc: "2026-07-02T00:00:00Z"
+    peak_date: "2026-07-01"
+    reason: >-
+      Strategy công bố khả năng bán BTC để bổ sung dự trữ tiền mặt và
+      đáp ứng nghĩa vụ tài chính, tạo thêm áp lực tâm lý trong giai đoạn
+      Bitcoin đang suy yếu. BTC tiếp tục giảm xuống vùng thấp mới vào
+      đầu tháng 7/2026.
+    d1_check:
+      close_start: 59577
+      close_end: 61560
+      low: 57882
+      range_pct: 7.4
+      max_rv60_bps: 117
+      rv60_pctile: 98.13
+    sources:
+      - outlet: "Fortune"
+        date: "2026-06-29"
+        url: "https://fortune.com/2026/06/29/strategy-may-sell-up-to-1-25-billion-in-bitcoin-to-calm-investor-jitters/"
+      - outlet: "Finbold (via CryptoNews.net)"
+        date: "2026-07-01"
+        url: "https://cryptonews.net/news/bitcoin/33081919/"
+
+  - id: E08
+    name: "Fed tăng lãi suất lần đầu kể từ 2023"
+    category: macro_policy
+    scope: market_wide
+    start_utc: "2026-09-15T00:00:00Z"
+    end_utc: "2026-09-18T00:00:00Z"
+    peak_date: "2026-09-16"
+    reason: >-
+      Fed tăng lãi suất 25 điểm cơ bản, đánh dấu lần tăng đầu tiên
+      kể từ năm 2023. Đây là một cú sốc chính sách tiền tệ quan trọng
+      đối với các tài sản rủi ro, trong đó có Bitcoin và thị trường crypto.
+    d1_check:
+      close_start: 78189
+      close_end: 80900
+      low: 75065
+      range_pct: 8.4
+      max_rv60_bps: 146
+      rv60_pctile: 99.30
+    sources:
+      - outlet: "The Block"
+        date: "2026-09-16"
+        url: "https://www.theblock.co/news/markets/2026-09-16-bitcoin-ether-swing-unanimous-quarter-point-fed-rate-hike-warsh-aim-inflation-415307"
+      - outlet: "KuCoin Blog"
+        date: "2026-09"
+        url: "https://www.kucoin.com/blog/th-fed-rate-hike-2026-why-bitcoin-isn-t-repeating-the-2022-crash"
