@@ -1,0 +1,6 @@
+- ảnh Bitcoin trên thỏi vàng (hero_coins): <Jen Titus>, Unsplash, https://unsplash.com/fr/photos/piece-de-monnaie-bitcoin-reposant-sur-un-lingot-dor-Vwp8jU1vdF8, tải 21/10/2026
+- ảnh đồng USDT bạc (cyber): <DrawKit Illustrations>, Unsplash, https://unsplash.com/fr/photos/gros-plan-dune-pile-de-pieces-de-monnaie-de-crypte-5xlHjrzQO54 
+- ảnh đồng xu trên bàn phím (dark): <Jievani Weerasinghe>, Unsplash, https://unsplash.com/fr/photos/embleme-rond-argente-et-noir-NHRM1u4GD_A
+- ảnh heo đất (coin_btc): <Alesia Kozik>, Pexels, https://www.pexels.com/vi-vn/anh/ng-i-b-bitcoin-vao-con-heo-d-t-6780838/
+- ảnh data: <Markus Winkler>, Pexels, https://www.pexels.com/vi-vn/anh/g-vi-t-ki-u-ch-ch-typo-19891028/
+- ảnh bitcoin có nến: <beyzahzah>, Pexels, https://www.pexels.com/vi-vn/anh/ti-n-b-c-d-u-t-d-th-d-ng-ti-n-17977092/
