@@ -1,0 +1,229 @@
+{
+  "scope": "C4.12 actual TV5 stage integration on synthetic only",
+  "profile": "config/pipeline.synthetic.example.yaml",
+  "profile_sha256": "475277d81e0c2974e9775c123f92d52fb4343d79de50d8c86865e5b7b2fa2980",
+  "cases": [
+    {
+      "case": "multi",
+      "n_rows": 720,
+      "panel_fingerprint": "8f0fb81af85a2c633be35330593c54b5f1086aa13861d9bd3c7e2133627d86a6",
+      "pipeline_status": "pending_team_stages",
+      "pending_team_stages": [
+        "cost_backtest",
+        "evaluation",
+        "features",
+        "regime_flags"
+      ],
+      "test_consumed": false,
+      "final_test_lock_present": false,
+      "stage_status": "passed",
+      "rolling_windows": 6,
+      "failed_windows": 0,
+      "locked_spec_sha256": "c63b1087265f464e24eae7221c978682dc2ea878b0cec72ea1dede6f5e2e21e6",
+      "stage_outputs_sha256": {
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_stationarity_dev.csv": "8cb29a8690bdf1c05da26bd881936bb6513b01ef65b754bda665c1b29bbdb3d8",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_stationarity_val.csv": "99789fdba9194e1d425a1fa9736e2aede9004945a061de710914bd5c2d212992",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_johansen_dev.csv": "16ea1f8d9463d7a33bb2beb37828fca8c833d49d46cf6e6db45119db06e7a282",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_johansen_val.csv": "902f9e8053d75bc4f78c7e71635dc92a442f7276fb85b190bd03449bc6686e8f",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3_static_is_cs.csv": "005fae5a761ff63cdd2af6b425f2bd1772bcc3b3bd44146a74b18fa77fdb9235",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3_vecm_diagnostics.csv": "141dd750310d1ce7fb3fb36133e642c2eeccf5620e7209da98628b96ca9b391f",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3d_ils.csv": "ea60a6a0ee5b1fa55226d7bd48d93ed68586cf4d62f4e9045438e21d77ce7af7",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3d_ils_summary.csv": "de7ee82b3a71d17271b210781bb5420bf2fb8bb3a6aa0585f2e4eabc093b38b6",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3c_spot_perp.csv": "546b60eae6ea9e5cb968aa3935a9476ba7e09bd4847742c7b8db2b4cd7881033",
+        "outputs\\synthetic\\integrated\\multi\\tables\\rolling_is.parquet": "35356fab42f2bba881bd55f0bdb73c1b42490617f36cd1170ef8f24b3f8a3101",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3b_sensitivity.csv": "094820cf167960ac476b1521aeeb538a2f6880d3b8a2136277a1f3ee1acdb0e0"
+      }
+    },
+    {
+      "case": "spot_perp",
+      "n_rows": 720,
+      "panel_fingerprint": "baad1599b35dd0e568e40170e7fd9b5b6cde6ae88835bd85aa2ee4c7cccdf627",
+      "pipeline_status": "pending_team_stages",
+      "pending_team_stages": [
+        "cost_backtest",
+        "evaluation",
+        "features",
+        "regime_flags"
+      ],
+      "test_consumed": false,
+      "final_test_lock_present": false,
+      "stage_status": "passed",
+      "rolling_windows": 6,
+      "failed_windows": 0,
+      "locked_spec_sha256": "691f1dd8b9e61fc9c9efffcfc9523aa13d85e07035fabb3de9941a10dc561801",
+      "stage_outputs_sha256": {
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T2_stationarity_dev.csv": "32c507c9bcf3f162904ee95fefeea0bebc1e2b7fc9929fcc905923bf860203fa",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T2_stationarity_val.csv": "b41dd6484cbe7d8f6b1189f7ef78d20b232ecdffcf5486f34a463822fa5aec57",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T2_johansen_dev.csv": "175d2a5e7d4dd247af4da536ad25c56d72f2684843a7ef3d0994d0092e58c110",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T2_johansen_val.csv": "1332a63aa130e596dd5d46b4c436d77259dc18121683a14c9b42e76f3131502d",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3_static_is_cs.csv": "6fa15456588271ec1b2e85632213ace0ba8287594c113cd05a4eb373ffe1e445",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3_vecm_diagnostics.csv": "784e2f08d0bf900d65d3c7e38042d43b15313c5bf238dc4161f53e4aa1b19fb7",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3d_ils.csv": "1181ee1530c64c016353923c7cc43cdcfef6dcc372a07d29f8a3396254731cf3",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3d_ils_summary.csv": "3ff7a7c1f63685bba9ea000349623dc2eaa19fbec6a09b286452a1f94416c8d6",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3c_spot_perp.csv": "c224296b7b1baeea78e8477e1e272fe1fdecfd66b17570a9821d8613e06b65bb",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\rolling_is.parquet": "e7dc8f0788f92662928bba88ba5038d0342105482009427329979129baf4cdfc",
+        "outputs\\synthetic\\integrated\\spot_perp\\tables\\T3b_sensitivity.csv": "3fcd77d7eb676e3f5ceebfe5af804b100c8c3692568dae09997916da334116ec"
+      }
+    },
+    {
+      "case": "multi",
+      "n_rows": 720,
+      "panel_fingerprint": "8f0fb81af85a2c633be35330593c54b5f1086aa13861d9bd3c7e2133627d86a6",
+      "pipeline_status": "pending_team_stages",
+      "pending_team_stages": [
+        "cost_backtest",
+        "evaluation",
+        "features",
+        "regime_flags"
+      ],
+      "test_consumed": false,
+      "final_test_lock_present": false,
+      "stage_status": "passed",
+      "rolling_windows": 6,
+      "failed_windows": 0,
+      "locked_spec_sha256": "c63b1087265f464e24eae7221c978682dc2ea878b0cec72ea1dede6f5e2e21e6",
+      "stage_outputs_sha256": {
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_stationarity_dev.csv": "8cb29a8690bdf1c05da26bd881936bb6513b01ef65b754bda665c1b29bbdb3d8",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_stationarity_val.csv": "99789fdba9194e1d425a1fa9736e2aede9004945a061de710914bd5c2d212992",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_johansen_dev.csv": "16ea1f8d9463d7a33bb2beb37828fca8c833d49d46cf6e6db45119db06e7a282",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T2_johansen_val.csv": "902f9e8053d75bc4f78c7e71635dc92a442f7276fb85b190bd03449bc6686e8f",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3_static_is_cs.csv": "005fae5a761ff63cdd2af6b425f2bd1772bcc3b3bd44146a74b18fa77fdb9235",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3_vecm_diagnostics.csv": "141dd750310d1ce7fb3fb36133e642c2eeccf5620e7209da98628b96ca9b391f",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3d_ils.csv": "ea60a6a0ee5b1fa55226d7bd48d93ed68586cf4d62f4e9045438e21d77ce7af7",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3d_ils_summary.csv": "de7ee82b3a71d17271b210781bb5420bf2fb8bb3a6aa0585f2e4eabc093b38b6",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3c_spot_perp.csv": "546b60eae6ea9e5cb968aa3935a9476ba7e09bd4847742c7b8db2b4cd7881033",
+        "outputs\\synthetic\\integrated\\multi\\tables\\rolling_is.parquet": "35356fab42f2bba881bd55f0bdb73c1b42490617f36cd1170ef8f24b3f8a3101",
+        "outputs\\synthetic\\integrated\\multi\\tables\\T3b_sensitivity.csv": "094820cf167960ac476b1521aeeb538a2f6880d3b8a2136277a1f3ee1acdb0e0"
+      }
+    },
+    {
+      "case": "foundation-only",
+      "n_rows": 720,
+      "panel_fingerprint": "8f0fb81af85a2c633be35330593c54b5f1086aa13861d9bd3c7e2133627d86a6",
+      "pipeline_status": "foundation_only",
+      "pending_team_stages": [
+        "cost_backtest",
+        "evaluation",
+        "features",
+        "price_discovery",
+        "regime_flags"
+      ],
+      "test_consumed": false,
+      "final_test_lock_present": false,
+      "stage_status": "not_run"
+    }
+  ],
+  "repeat_multi": "same fingerprint and all 11 output hashes; locked spec preserved; stage rewrote outputs and passed",
+  "historical_artifacts_unchanged": {
+    "data\\interim\\ohlcv_1m_long.parquet": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+    "data\\processed\\panel_1m_wide.parquet": "f3d22fbbb3129a72333e71f0ccc9b5e26e2fd08d88eb4dc13c98f89cccc72262",
+    "data\\processed\\split_manifest.json": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0",
+    "outputs\\pipeline_report.json": "225266dcd90c6019d88e3c8cd8d2e55c3dd01d955f1e945cc953cc7f820dcafb",
+    "config\\config.yaml": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad"
+  },
+  "production_stage_registered": false,
+  "full_research_pipeline_complete": false,
+  "status": "passed",
+  "checked_at_local": "2026-10-21T22:02:52.411059+07:00",
+  "git_head": "e8ea4073d3b604635738a7a54abb799da41e1872",
+  "reviewed_pr10_head": "8669a9a75cf64e65e4c875e31f560404537f29b3",
+  "pr10_merged_into_dev": true,
+  "main_unchanged": "0282d63396f59026095f981987a96f6a48506bc5",
+  "full_pytest": {
+    "passed": 423,
+    "skipped": 1,
+    "failed": 0,
+    "strict_tv5": true,
+    "source": "reviewed PR10 source tree, identical to merged dev; profile addition checked separately"
+  },
+  "dashboard_actual_tv5_synthetic_smoke": [
+    {
+      "case": "multi",
+      "seven_sections": true,
+      "actual_tv5_d6_loaded": true,
+      "exceptions": 0
+    },
+    {
+      "case": "spot_perp",
+      "seven_sections": true,
+      "actual_tv5_d6_loaded": true,
+      "exceptions": 0
+    }
+  ],
+  "current_historical_handoff": {
+    "path": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\processed\\panel_1m_wide.parquet",
+    "schema": "D3",
+    "expected_data_kind": "historical",
+    "status": "passed",
+    "scope": "handoff_contract",
+    "research_acceptance_complete": false,
+    "issues": [],
+    "warnings": [
+      "File/schema checks do not establish full sample coverage, model correctness or milestone completion"
+    ],
+    "sha256": "f3d22fbbb3129a72333e71f0ccc9b5e26e2fd08d88eb4dc13c98f89cccc72262",
+    "data_kind": "historical",
+    "n_rows": 501119,
+    "venues": [
+      "binance_perp",
+      "binance_spot",
+      "bybit_perp",
+      "bybit_spot",
+      "okx_perp",
+      "okx_spot"
+    ],
+    "first_timestamp": "2025-10-18T00:01:00+00:00",
+    "last_timestamp": "2026-09-30T23:59:00+00:00",
+    "config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
+    "sample": {
+      "start_inclusive": "2025-10-18T00:01:00+00:00",
+      "end_exclusive": "2026-10-01T00:00:00+00:00",
+      "n_rows_inside": 501119,
+      "n_rows_outside": 0
+    },
+    "missing_rows_by_venue": {
+      "binance_perp": 0,
+      "binance_spot": 0,
+      "bybit_perp": 0,
+      "bybit_spot": 0,
+      "okx_perp": 0,
+      "okx_spot": 0
+    },
+    "manifest": {
+      "path": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\processed\\split_manifest.json",
+      "sha256": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0",
+      "fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+      "counts": {
+        "dev": 300671,
+        "val": 100223,
+        "test": 100225
+      },
+      "test_consumed": false,
+      "test_lock_present": false
+    }
+  },
+  "d3_prior_receipt_comparison": {
+    "prior_handoff_sha256": "504407e57d4282a241374724085a605660f23f06073ca0db2aaea2cd8fb62f90",
+    "current_sha256": "f3d22fbbb3129a72333e71f0ccc9b5e26e2fd08d88eb4dc13c98f89cccc72262",
+    "bytes_differed_before_profile_verification": true,
+    "exact_frame_values_dtypes_index_attrs_equal_to_prior": true,
+    "fingerprint_unchanged": true,
+    "note": "Current local D3 had different Parquet bytes before this integration check; exact frame comparison with the prior received candidate passes. Preserve the original receipt as historical evidence; use current_historical_handoff for current file checksum. No historical data rewritten in this check."
+  },
+  "precommit_double_check": {
+    "checked_at_local": "2026-10-21T22:22:09.309102+07:00",
+    "tested_base_commit": "e8ea4073d3b604635738a7a54abb799da41e1872",
+    "pytest": {
+      "passed": 423,
+      "skipped": 1,
+      "failed": 0,
+      "errors": 0,
+      "strict_tv5": true
+    },
+    "scope": "five TV4 files: synthetic integration profile, documentation and verification evidence",
+    "profile_and_outputs_hashes_verified": true,
+    "historical_artifacts_hashes_verified": true,
+    "final_test_untouched": true,
+    "main_unchanged": true
+  }
+}

@@ -24,8 +24,8 @@ M2 và lead-lag từ D3 không phụ thuộc mô hình IS/ILS. D2 live và fundi
 | C4.10 số liệu lead-lag/F6 thật | Đã chạy trên development của D3 thật | 165 giá trị cho 15 cặp × 11 lag; kiểm độc lập NumPy khớp. Cả 15 đỉnh ở lag 0; không gán leader IS/ILS từ tương quan này |
 | Tích hợp/kiểm đồng bộ D2 thật, hỗ trợ C4.11/C4.12 | TV3 C3.05/C3.06: `live_quotes_long.parquet`, báo cáo T0b coverage theo phiên và checksum | Có code nhận/đồng bộ D2. Chưa có file D2 chuẩn trong data/processed; cần kiểm UTC, size BTC, depth censored, provenance và tuổi quote trước tích hợp |
 | C4.13 kiểm chứng IS/CS/ILS trên fixtures | Đã hoàn thành kiểm chứng và merge PR TV5 #7 vào dev d318a36 ngày 20/10 | Strict 4/4 trên original/identified_cs × multi/spot_perp; không còn chờ hàm TV5. Xem docs/TV5_PR7_REVIEW.md. Kết quả synthetic không thay nghiệm thu mẫu thật |
-| C4.12 pipeline nghiên cứu đầy đủ | CLI và đầu ra thật của các stage ở bảng dưới | Khung điều phối đã có; pipeline_stages hiện rỗng. Chỉ đăng ký command đã bàn giao/đã review, rồi chạy nối chuỗi và kiểm đầu ra, lỗi/timeout, provenance và tái lập |
-| C4.11 review hằng ngày | PR/commit tiếp theo của các thành viên | Việc liên tục tới 24/10; đã xử lý PR #7/#8/#9, tiếp tục khi nhóm bàn giao thêm |
+| C4.12 pipeline nghiên cứu đầy đủ | CLI và đầu ra thật của các stage ở bảng dưới | Config nghiên cứu vẫn chưa đăng ký stage. Đã có profile synthetic riêng nối nền → CLI TV5, kiểm chạy lặp và foundation-only; xem docs/TV4_PIPELINE_INTEGRATION.md. Còn nghiệm thu mô hình thật và các stage khác |
+| C4.11 review hằng ngày | PR/commit tiếp theo của các thành viên | Việc liên tục tới 24/10; đã xử lý PR #7/#8/#9/#10. PR #10 dashboard C2.07 đã sửa, kiểm 423 passed/1 skipped và merge dev; C2.08 dữ liệu thật chưa nghiệm thu |
 | R4.01 phương pháp 4.1/4.10 | Nhóm xác nhận khoảng mẫu; TV1 đưa nội dung vào báo cáo chung | Đã viết và bổ sung số dòng/biên/missing thật; không còn chờ dữ liệu để viết phần này |
 | R4.02 kiến trúc và tái lập | Kết quả C4.12 đầy đủ | Đã có kiến trúc/lệnh nền, bằng chứng IS/ILS C4.13 và lượt tái lập D3/D4 thật; còn các stage nghiên cứu để hoàn tất phụ lục toàn pipeline |
 
@@ -35,7 +35,7 @@ M2 và lead-lag từ D3 không phụ thuộc mô hình IS/ILS. D2 live và fundi
 | --- | --- | --- |
 | features | TV2 C2.04 | CLI tạo D3b features_1m từ D3; giữ từng venue và dispersion riêng spot/perp |
 | regime_flags | TV1 C1.04/C1.06 | CLI tạo D5 từ mẫu đúng split; ngưỡng high-vol fit trên development và events có nguồn |
-| price_discovery | TV5 | CLI run_price_discovery đã merge từ PR #7 và kiểm thử synthetic; cần review đặc tả và chạy trên D3 thật trước đăng ký stage nghiên cứu. available_at chờ cả window_end và thời điểm chọn spec |
+| price_discovery | TV5 | CLI từ PR #7 đã nối qua orchestrator bằng profile synthetic, cả multi/spot_perp đều có sáu cửa sổ, zero failed. Cần review đặc tả và chạy trên D3 thật trước đăng ký stage nghiên cứu. available_at chờ cả window_end và thời điểm chọn spec |
 | cost_backtest | TV6, đầu vào D2 từ TV3 | CLI backtest A/B, D7/D8 và bảng chi phí; half-spread proxy cần mẫu live được hiệu chỉnh, không tự đặt số thay dữ liệu |
 | evaluation | TV3 + TV6 | CLI hồi quy/stress/sensitivity và các bảng T4/T6/T5b/T6b phù hợp; không dùng final test để chọn lại cấu hình |
 
