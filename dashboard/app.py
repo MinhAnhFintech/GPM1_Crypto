@@ -7,7 +7,7 @@ Chạy từ gốc repo:
     D3  data/fixtures/multi/panel_1m_wide.parquet   bảng rộng 1 phút (index ts_available, UTC)
     D6  outputs/tables/rolling_is.parquet           rolling IS/CS/ILS (tùy chọn, TV5)
     D7  outputs/tables/gap_events.parquet           sự kiện gap (tùy chọn, TV6)
-Nếu D6/D7 chưa có ở đường dẫn hợp đồng, app thử outputs/synthetic/ cùng tên file.
+Chọn rõ file fixtures/synthetic hoặc historical/live; không tự chuyển nguồn khi thiếu file.
 
 Quy ước: giá USDT; gap theo bps; thời gian UTC; mỗi venue = {exchange}_{market_type}.
 Chỉ hiển thị cái đã có: ô nào chưa có nguồn thì ghi "chờ", KHÔNG tự tính hay bịa số.
@@ -32,7 +32,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from src.utils.io_utils import read_parquet
-from src.utils.schema import data_kind, venues_from_panel
+from src.utils.schema import data_kind, venues_from_panel, validate_frame, VENUE_PATTERN
 
 PANEL_DEFAULT = ROOT / "data/fixtures/multi/panel_1m_wide.parquet"
 D6_DEFAULT = ROOT / "outputs/tables/rolling_is.parquet"
@@ -72,13 +72,19 @@ def dispersion_bps(panel: pd.DataFrame, venues: list, market: str):
 
 
 def thin(series: pd.Series, max_points: int = MAX_POINTS) -> pd.Series:
-    """Giảm số điểm vẽ: chia thành nhóm liên tiếp và giữ giá trị lớn nhất mỗi nhóm (chỉ để hiển thị)."""
+    """Giữ đỉnh tại đúng timestamp gốc và các khoảng missing (chỉ để hiển thị)."""
     if len(series) <= max_points:
         return series
     step = int(np.ceil(len(series) / max_points))
-    out = series.groupby(np.arange(len(series)) // step).max()
-    out.index = series.index[::step][: len(out)]
-    return out.rename(series.name)
+    positions = []
+    for start in range(0, len(series), step):
+        chunk = series.iloc[start:start + step]
+        if chunk.notna().any():
+            positions.append(start + int(np.nanargmax(chunk.to_numpy(dtype=float))))
+    # Missing runs must remain visible even when this adds gap markers to the point budget.
+    missing = series.isna().to_numpy()
+    positions.extend(np.flatnonzero(missing & ~np.r_[False, missing[:-1]]).tolist())
+    return series.iloc[sorted(set(positions))]
 
 
 def current_window(d6: pd.DataFrame, asof: pd.Timestamp):
@@ -86,15 +92,24 @@ def current_window(d6: pd.DataFrame, asof: pd.Timestamp):
     ready = d6[d6["available_at"] <= asof]
     if ready.empty:
         return None
+    # Several historical windows may have been published together after spec selection.
+    ready = ready[ready["window_end"] == ready["window_end"].max()] if "window_end" in ready else ready
+    ready = ready[ready["window_start"] == ready["window_start"].max()] if "window_start" in ready else ready
     return ready[ready["available_at"] == ready["available_at"].max()]
 
 
 def leader_of(window: pd.DataFrame):
     """(leader, lý do). Leader để trống là kết quả hợp lệ: 'chưa phân biệt được'."""
+    if not window["status"].str.lower().eq("ok").all():
+        return None, "cửa sổ có kết quả mô hình chưa đạt; xem status/reason"
     leaders = window["leader"].dropna().astype(str).str.strip()
     leaders = leaders[leaders != ""].unique()
     if len(leaders) == 1:
-        return leaders[0], None
+        candidate = window[window.venue.eq(leaders[0])]
+        others = window[~window.venue.eq(leaders[0])]
+        if len(candidate) == 1 and not others.empty and candidate.is_lower.iloc[0] > others.is_upper.max():
+            return leaders[0], None
+        return None, "overlapping_bounds: chưa phân biệt được"
     if len(leaders) > 1:
         return None, "nhiều leader trong cùng một cửa sổ (kiểm tra rolling_is)"
     reasons = window["reason"].dropna().astype(str).str.strip()
@@ -307,10 +322,10 @@ CHART_HTML = """<!doctype html><html><body style="margin:0;background:transparen
 const D=__DATA__,C=__COLS__,ANIM=__ANIM__,H=360,P={l:50,r:16,t:14,b:30};
 const N=Object.keys(D),box=document.getElementById('b'),tp=document.getElementById('tp');
 document.getElementById('lg').innerHTML=N.map((n,k)=>'<span style="margin-right:14px"><i style="display:inline-block;width:18px;height:3px;background:'+C[k]+';vertical-align:middle;margin-right:6px"></i>'+n+'</span>').join('');
-const A=[].concat(...N.map(n=>D[n])),x0=Math.min(...A.map(p=>p[0])),x1=Math.max(...A.map(p=>p[0]));
+const A=[].concat(...N.map(n=>D[n])).filter(p=>p[1]!==null),x0=Math.min(...A.map(p=>p[0])),x1=Math.max(...A.map(p=>p[0]));
 let y1=Math.max(...A.map(p=>p[1]));const y0=0;if(!(y1>y0))y1=1;
 let lastW=0;
-const near=(a,t)=>{let lo=0,hi=a.length-1;while(hi-lo>1){const m=(lo+hi)>>1;a[m][0]<t?lo=m:hi=m}return Math.abs(a[lo][0]-t)<=Math.abs(a[hi][0]-t)?a[lo]:a[hi]};
+const near=(a,t)=>{let lo=0,hi=a.length-1;while(hi-lo>1){const m=(lo+hi)>>1;a[m][0]<=t?lo=m:hi=m}return a[hi][0]<=t?a[hi]:a[lo][0]<=t?a[lo]:null};
 const fmt=t=>new Date(t).toISOString().slice(5,16).replace('T',' ');
 function draw(play){
  const W=box.clientWidth;if(!W){lastW=0;return}
@@ -318,7 +333,7 @@ function draw(play){
  let s='<svg width="'+W+'" height="'+H+'">';
  for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4,y=sy(v);s+='<line x1="'+P.l+'" x2="'+(W-P.r)+'" y1="'+y+'" y2="'+y+'" stroke="__BORDER__"/><text x="'+(P.l-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="__MUTED__">'+v.toFixed(1)+'</text>'}
  for(let i=0;i<=5;i++){const t=x0+(x1-x0)*i/5;s+='<text x="'+sx(t)+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="__MUTED__">'+fmt(t)+'</text>'}
- N.forEach((n,k)=>{const d=D[n].map((p,i)=>(i?'L':'M')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join('');
+ N.forEach((n,k)=>{let pen=false;const d=D[n].map(p=>{if(p[1]===null){pen=false;return ''}const cmd=pen?'L':'M';pen=true;return cmd+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)}).join('');
   s+='<path class="ln" d="'+d+'" fill="none" stroke="'+C[k]+'" stroke-width="1.8" stroke-linejoin="round"/>'});
  s+='<line id="cx" y1="'+P.t+'" y2="'+(H-P.b)+'" stroke="__MUTED__" stroke-dasharray="3 3" style="display:none"/><rect id="ov" x="'+P.l+'" y="'+P.t+'" width="'+(W-P.l-P.r)+'" height="'+(H-P.t-P.b)+'" fill="transparent"/></svg>';
  box.innerHTML=s;
@@ -328,7 +343,7 @@ function draw(play){
  const ov=box.querySelector('#ov'),cx=box.querySelector('#cx');
  ov.onmousemove=e=>{const x=e.clientX-box.getBoundingClientRect().left,t=x0+(x-P.l)/(W-P.l-P.r)*(x1-x0);
   cx.setAttribute('x1',x);cx.setAttribute('x2',x);cx.style.display='';
-  tp.innerHTML='<b>'+fmt(t)+' UTC</b>'+N.map((n,k)=>{const q=near(D[n],t);return '<br><span style="color:'+C[k]+'">&#9632;</span> '+n+': '+q[1].toFixed(2)+' bps'}).join('');
+  tp.innerHTML='<b>'+fmt(t)+' UTC</b>'+N.map((n,k)=>{const q=near(D[n],t);return '<br><span style="color:'+C[k]+'">&#9632;</span> '+n+': '+(q&&q[1]!==null?q[1].toFixed(2)+' bps ('+fmt(q[0])+' UTC)':'thiếu dữ liệu')}).join('');
   tp.style.display='block';tp.style.left=Math.min(e.clientX+14,innerWidth-170)+'px';tp.style.top=(e.clientY+10)+'px'};
  ov.onmouseleave=()=>{tp.style.display='none';cx.style.display='none'};
 }
@@ -370,7 +385,8 @@ def anim_chart_html(lines: dict, colors: list, animate: bool, t: dict) -> str:
     data = {}
     for name, ser in lines.items():
         idx = ser.index.tz_localize("UTC") if ser.index.tz is None else ser.index
-        data[name] = [[int(ts.timestamp() * 1000), round(float(v), 3)] for ts, v in zip(idx, ser.to_numpy())]
+        data[name] = [[int(ts.timestamp() * 1000), None if pd.isna(v) else round(float(v), 3)]
+                      for ts, v in zip(idx, ser.to_numpy())]
     html = CHART_HTML
     for key, value in {"__DATA__": json.dumps(data), "__COLS__": json.dumps(colors[:len(data)]),
                        "__ANIM__": "true" if animate else "false", "__TEXT__": t["text"], "__MUTED__": t["muted"],
@@ -393,27 +409,53 @@ def _load_panel(source: str, mtime: float) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def _load_table(source: str, mtime: float, required: tuple, time_cols: tuple):
-    """Đọc bảng tùy chọn. Trả về (DataFrame hoặc None, thông báo hoặc None). Thiếu cột thì báo, không đoán."""
+def _load_table(source: str, mtime: float, required: tuple, time_cols: tuple,
+                expected_kind: str | None = None, venues: tuple = ()):
+    """Validate optional D6/D7 without coercing units, timestamps or provenance."""
     path = Path(source)
     if not path.exists():
         return None, f"Chờ file: {source}"
     try:
         df = pd.read_parquet(path)
-    except (OSError, ValueError) as exc:
-        return None, f"Không đọc được {path.name}: {exc}"
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        return None, f"{path.name} thiếu cột {missing}"
-    for col in time_cols:
-        df[col] = pd.to_datetime(df[col], utc=True)
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(f"thiếu cột {missing}")
+        kind = data_kind(df) if not df.empty else df.attrs.get("data_kind")
+        if kind not in {"synthetic", "historical", "live"}:
+            raise ValueError("data_kind: thiếu nguồn dữ liệu")
+        if df.attrs.get("data_kind", kind) != kind or (expected_kind is not None and kind != expected_kind):
+            raise ValueError(f"data_kind: nguồn {kind!r} không khớp panel {expected_kind!r} hoặc metadata")
+        schema = "D6" if "available_at" in required else "D7"
+        if not df.empty:
+            validate_frame(df, schema)
+            if schema == "D6":
+                if df.duplicated(["window_start", "window_end", "venue"]).any():
+                    raise ValueError("D6: duplicate window/venue")
+                if not df.venue.map(lambda v: isinstance(v, str) and bool(VENUE_PATTERN.fullmatch(v))).all():
+                    raise ValueError("D6: invalid venue")
+                if venues and not df.venue.isin(venues).all():
+                    raise ValueError("D6: venue không có trong panel")
+            else:
+                if df.event_id.duplicated().any():
+                    raise ValueError("D7: duplicate event_id")
+                if df.buy_exchange.eq(df.sell_exchange).any():
+                    raise ValueError("D7: self pair")
+                for side in ("buy", "sell"):
+                    venue = df[f"{side}_exchange"] + "_" + df.market_type
+                    if not venue.map(lambda v: isinstance(v, str) and bool(VENUE_PATTERN.fullmatch(v))).all():
+                        raise ValueError("D7: invalid venue/market_type")
+                    if venues and not venue.isin(venues).all():
+                        raise ValueError("D7: venue không có trong panel")
+                    if f"{side}_venue" in df and not df[f"{side}_venue"].eq(venue).all():
+                        raise ValueError("D7: venue disagrees with exchange/market_type")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return None, f"Không dùng được {path.name}: {exc}"
     return df, None
 
 
 def _default_path(contract: Path) -> str:
-    """Đường dẫn hợp đồng nếu file có; nếu không thử outputs/synthetic/ cùng tên."""
-    alt = ROOT / "outputs/synthetic" / contract.name
-    return str(contract if contract.exists() or not alt.exists() else alt)
+    """Không tự chuyển provenance khi thiếu file; người dùng chọn nguồn rõ ràng."""
+    return str(contract)
 
 
 # --------------------------------------------------------------------------- giao diện
@@ -454,8 +496,13 @@ def main():
     asof = pd.Timestamp(panel.index[-1])
     asof = asof.tz_localize("UTC") if asof.tzinfo is None else asof.tz_convert("UTC")
 
-    d6, d6_msg = _load_table(d6_path, _mtime(d6_path), tuple(D6_COLS), tuple(D6_TIME))
-    d7, d7_msg = _load_table(d7_path, _mtime(d7_path), tuple(D7_COLS), tuple(D7_TIME))
+    d6, d6_msg = _load_table(d6_path, _mtime(d6_path), tuple(D6_COLS), tuple(D6_TIME), kind, tuple(venues))
+    d7, d7_msg = _load_table(d7_path, _mtime(d7_path), tuple(D7_COLS), tuple(D7_TIME), kind, tuple(venues))
+    if d6 is not None:
+        d6 = d6[(d6.window_start >= panel.index[0]) & (d6.available_at <= asof)].copy()
+    if d7 is not None:
+        # A whole event's duration/summary is not available until ts_end.
+        d7 = d7[(d7.ts_start >= panel.index[0]) & (d7.ts_end <= asof)].copy()
 
     tab_home, tab_quote, tab_disp, tab_lead, tab_gap, tab_data = st.tabs(
         ["Trang chủ", "Báo giá", "Độ phân tán", "Venue dẫn giá", "Gap và arbitrage", "Tải dữ liệu"])
@@ -490,17 +537,19 @@ def main():
             first, last_day = panel.index[0].date(), panel.index[-1].date()
             custom = st.date_input("Từ ngày đến ngày", (first, last_day), min_value=first, max_value=last_day, key="drange")
         mask = range_mask(panel.index, choice, custom)
-        raw = {m: ser[mask].dropna() for m, ser in dispersions.items() if ser is not None}
-        raw = {m: r for m, r in raw.items() if not r.empty}
+        raw = {m: ser[mask] for m, ser in dispersions.items() if ser is not None}
+        raw = {m: r for m, r in raw.items() if r.notna().any()}
         if not raw:
             st.write("Không có dữ liệu độ phân tán trong khoảng này (cần ít nhất hai venue cùng market_type).")
         else:
             for col, (market, r) in zip(st.columns(len(raw)), raw.items()):
-                col.metric(f"{market}: lần cuối có đủ giá (bps)", f"{r.iloc[-1]:.2f}")
+                valid = r.dropna()
+                col.metric(f"{market}: lần cuối có đủ giá (bps)", f"{valid.iloc[-1]:.2f}")
+                col.caption(f"{valid.index[-1]:%Y-%m-%d %H:%M} UTC")
             pal = palette(mode, accent)
             components.html(anim_chart_html({m: thin(r) for m, r in raw.items()}, [accent, pal["text"]], effects, pal),
                             height=430)
-            st.caption("Rê chuột lên đồ thị để xem giá trị; bấm Chạy lại để đường vẽ lại. Số liệu gốc không đổi.")
+            st.caption("Giữ đỉnh tại thời gian gốc; khoảng thiếu để ngắt đường. Hover ghi thời gian của điểm được giữ, không phải giá nội suy.")
 
     # 3 và 4. Venue dẫn, xếp hạng IS
     window = None
@@ -511,6 +560,7 @@ def main():
         window_msg = None if window is not None else "Chưa có cửa sổ rolling nào sẵn sàng tại thời điểm này."
     with tab_lead:
         st.markdown(wm_html("lead"), unsafe_allow_html=True)
+        st.caption(f"D6: {d6_path} | data_kind={kind} | chỉ kết quả đã sẵn sàng đến {asof:%Y-%m-%d %H:%M} UTC")
         st.subheader("3. Venue dẫn hiện tại")
         if window is None:
             st.write(window_msg)
@@ -534,6 +584,7 @@ def main():
     # 5, 6, 7. Gap
     with tab_gap:
         st.markdown(wm_html("gap"), unsafe_allow_html=True)
+        st.caption(f"D7: {d7_path} | data_kind={kind} | sự kiện trong mẫu và ts_end ≤ {asof:%Y-%m-%d %H:%M} UTC")
         for title in ("5. Gap gross (bps)", "6. Gap net ước tính (bps)", "7. Cờ arbitrage"):
             st.subheader(title)
             if d7 is None:

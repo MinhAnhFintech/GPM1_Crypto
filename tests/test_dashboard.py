@@ -49,10 +49,12 @@ def test_current_window_ignores_not_yet_available():
 
 
 def test_leader_blank_is_valid_result():
-    win = pd.DataFrame({"leader": [None, None], "reason": ["overlapping_bounds", "overlapping_bounds"]})
+    win = pd.DataFrame({"leader": [None, None], "reason": ["overlapping_bounds", "overlapping_bounds"], "status": "ok"})
     assert app.leader_of(win) == (None, "overlapping_bounds")
-    assert app.leader_of(pd.DataFrame({"leader": ["okx_perp", "okx_perp"], "reason": [None, None]})) == ("okx_perp", None)
-    leader, reason = app.leader_of(pd.DataFrame({"leader": ["a", "b"], "reason": [None, None]}))
+    assert app.leader_of(pd.DataFrame({"venue": ["okx_perp", "binance_perp"], "is_lower": [0.8, 0.1],
+                                      "is_upper": [0.9, 0.2], "leader": ["okx_perp", "okx_perp"],
+                                      "reason": [None, None], "status": "ok"})) == ("okx_perp", None)
+    leader, reason = app.leader_of(pd.DataFrame({"leader": ["a", "b"], "reason": [None, None], "status": "ok"}))
     assert leader is None and "nhiều leader" in reason
 
 
@@ -104,14 +106,18 @@ def test_app_with_rolling_and_gap_tables(panel_file, tmp_path):
     t = pd.Timestamp(read_parquet(str(panel_file), "D3").index[-1])
     t = t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
     d6 = pd.DataFrame({
-        "window_start": t - pd.Timedelta(hours=24), "window_end": t, "available_at": t,
+        "window_start": t - pd.Timedelta(hours=2), "window_end": t, "available_at": t,
         "venue": ["binance_spot", "okx_spot"], "is_lower": [0.4, 0.1], "is_upper": [0.9, 0.5], "is_mid": [0.65, 0.3],
         "component_share": [0.6, 0.4], "ils": [0.55, 0.45], "leader": [None, None], "status": ["ok", "ok"],
         "reason": ["overlapping_bounds", "overlapping_bounds"]})
     d7 = pd.DataFrame({
-        "event_id": [1, 2, 3], "ts_start": t, "ts_end": t + pd.Timedelta(minutes=1), "duration_s": [60.0, 120.0, 30.0],
-        "market_type": ["spot", "perp", "perp"], "buy_exchange": "binance", "sell_exchange": "okx",
+        "event_id": ["one", "two", "three"], "ts_start": t - pd.Timedelta(minutes=2), "ts_end": t, "duration_s": [180.0, 180.0, 180.0],
+        "market_type": ["spot", "spot", "spot"], "buy_exchange": "binance", "sell_exchange": "okx",
         "gross_bps": [8.0, 3.0, 12.0], "net_bps": [1.0, -4.0, np.nan], "regime": "normal"})
+    for frame, columns in ((d6, app.D6_TIME), (d7, app.D7_TIME)):
+        frame.attrs["data_kind"] = "synthetic"
+        for col in columns:
+            frame[col] = frame[col].astype("datetime64[ns, UTC]")
     p6, p7 = tmp_path / "d6.parquet", tmp_path / "d7.parquet"
     d6.to_parquet(p6, index=False)
     d7.to_parquet(p7, index=False)
