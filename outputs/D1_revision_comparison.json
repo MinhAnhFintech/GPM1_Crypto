@@ -1,0 +1,354 @@
+{
+  "old_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+  "new_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+  "new_rows": 3006714,
+  "new_first_available": "2025-10-18T00:01:00+00:00",
+  "new_last_available": "2026-09-30T23:59:00+00:00",
+  "new_dtypes": {
+    "ts_available": "datetime64[ns, UTC]",
+    "exchange": "str",
+    "market_type": "str",
+    "symbol": "str",
+    "open": "float64",
+    "high": "float64",
+    "low": "float64",
+    "close": "float64",
+    "volume_base": "float64",
+    "volume_quote": "float64",
+    "data_kind": "str"
+  },
+  "new_attrs": {
+    "contract_version": "1.0",
+    "data_kind": "historical"
+  },
+  "rows_inside_sample": 3006714,
+  "rows_outside_sample": 0,
+  "panel_inputs_equal_inside_sample": false,
+  "differences": [
+    {
+      "venue": "binance_perp",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    },
+    {
+      "venue": "binance_spot",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    },
+    {
+      "venue": "bybit_perp",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    },
+    {
+      "venue": "bybit_spot",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    },
+    {
+      "venue": "okx_perp",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    },
+    {
+      "venue": "okx_spot",
+      "old_rows_inside": 501119,
+      "new_rows_inside": 501119,
+      "added_timestamps": 0,
+      "removed_timestamps": 0,
+      "columns": {
+        "open": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "high": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "low": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "close": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        },
+        "volume_base": {
+          "changed_rows": 501119,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 75496548.7897865
+        },
+        "volume_quote": {
+          "changed_rows": 0,
+          "old_missing": 0,
+          "new_missing": 0,
+          "max_abs_change": 0.0
+        }
+      }
+    }
+  ],
+  "kind": "historical",
+  "group_sample_confirmation_pending": true,
+  "volume_units_checked": [
+    {
+      "venue": "binance_perp",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 0,
+      "max_outside_bps": 0.0
+    },
+    {
+      "venue": "binance_spot",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 0,
+      "max_outside_bps": 0.0
+    },
+    {
+      "venue": "bybit_perp",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 0,
+      "max_outside_bps": 1.9680468087846985e-12
+    },
+    {
+      "venue": "bybit_spot",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 2,
+      "max_outside_bps": 1.856848001204597
+    },
+    {
+      "venue": "okx_perp",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 0,
+      "max_outside_bps": 0.0
+    },
+    {
+      "venue": "okx_spot",
+      "rows_checked": 501119,
+      "implied_vwap_outside_by_more_than_0_0001bps": 0,
+      "max_outside_bps": 1.7317647428598624e-12
+    }
+  ],
+  "downstream_revision": {
+    "previous_d1_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+    "source_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+    "previous_panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+    "changed_d3_columns": {
+      "volume_base__okx_spot": 501119
+    },
+    "split_boundaries_unchanged": true,
+    "test_consumed": false,
+    "previous_release_archive": "data\\processed\\_revisions\\d1-fea20184f835471e",
+    "price_and_leadlag_results_unchanged": true,
+    "raw_rebuild_verified": false,
+    "raw_note": "Corrected D1 received directly; prior raw release is historical and does not reproduce corrected OKX spot BTC volume."
+  }
+}

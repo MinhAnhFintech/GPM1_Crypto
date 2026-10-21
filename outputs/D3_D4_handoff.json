@@ -9,7 +9,7 @@
   "warnings": [
     "File/schema checks do not establish full sample coverage, model correctness or milestone completion"
   ],
-  "sha256": "b2c572835eb3052a1575b2719c04bbb7c6cc8643599bd6ef99ab330a82362659",
+  "sha256": "504407e57d4282a241374724085a605660f23f06073ca0db2aaea2cd8fb62f90",
   "data_kind": "historical",
   "n_rows": 501119,
   "venues": [
@@ -39,8 +39,8 @@
   },
   "manifest": {
     "path": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\processed\\split_manifest.json",
-    "sha256": "dfa9cd44975b9721986636c733db03d74152fb325ce94b7411e8a60af63020c4",
-    "fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "sha256": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0",
+    "fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
     "counts": {
       "dev": 300671,
       "val": 100223,

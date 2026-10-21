@@ -4,8 +4,8 @@
 
 ## Nguồn và kết quả
 
-- Code nền: dev 2abc1b9, sau tích hợp PR TV2 #9.
-- D1: data/interim/ohlcv_1m_long.parquet, 3.006.714 dòng; SHA-256 FEA20184F835471EBDD48D43F7D697D36195BAB74F1B7DF3B790D20F9B23E09F.
+- Code hiện tại: dev f50b1f2; không sửa thuật toán trong lượt cập nhật dữ liệu C2.03 này.
+- D1 mới nhất: data/interim/ohlcv_1m_long.parquet, 3.006.714 dòng; SHA-256 A162AFFAEAE0AE16BD4F52DD9B1ABD68C226555C8665D3BEF3AF73757F8209F3.
 - Mẫu theo ts_available: [2025-10-18T00:01:00Z, 2026-10-01T00:00:00Z), đúng config và D1 Ny bàn giao.
 - Sáu venue: Binance/OKX/Bybit, mỗi sàn spot và perp. Collector live 5 sàn/8 venue không thay đổi.
 - D3: data/processed/panel_1m_wide.parquet, 501.119 dòng × 24 cột, lưới UTC một phút; close/log_close/volume_base/missing theo từng venue.
@@ -15,7 +15,7 @@
 Panel fingerprint:
 
 ```text
-e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be
+9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4
 ```
 
 ## Biên chia mẫu — UTC, bao gồm hai đầu mỗi tập
@@ -45,11 +45,23 @@ python -m src.utils.check_handoff --input data/processed/panel_1m_wide.parquet -
 
 D1/D3/D4 là dữ liệu local, được ignore; không thêm vào Git. Các bảng, hình và chứng cứ kiểm nghiệm nằm trong outputs/. outputs/pipeline_report.json ghi foundation_status=passed, analysis_split=dev, test_consumed=false. outputs/tv4_historical_validation.json lưu checksum từng artifact và kết quả đối chiếu. Các số này là kết quả hiện tại trước đóng băng, cần tái lập theo bản cấu hình cuối khi viết báo cáo nộp.
 
-Nếu dựng lại D1, dùng raw đúng phiên bản data/raw/ohlcv/_handoffs/pr9-db2cabd/. Bộ raw cũ vẫn ở thư mục gốc để đối chiếu; không dùng nhầm bộ cũ thiếu quote volume rồi ghi đè D1 Ny đã xác nhận. Receipt nguồn nằm cạnh D1. Khi dữ liệu/config thay đổi làm fingerprint khác D4 hiện tại, chương trình từ chối; không xóa manifest hoặc khóa để bỏ qua kiểm soát.
+D1 hiện tại nhận trực tiếp từ link Drive người dùng cung cấp và đã khớp hash A162…09F3. Các bộ raw đã lưu, kể cả data/raw/ohlcv/_handoffs/pr9-db2cabd/, là bản lịch sử và chưa tái tạo được phần volume OKX spot đã sửa. Để dựng lại D1 từ raw cần Ny/TV3 bàn giao raw hoặc bản xử lý tương ứng; không dùng lệnh mode raw hoặc CLI gộp với raw cũ để ghi đè D1 mới. Các lệnh historical ở trên đọc trực tiếp D1 mới và vẫn tái lập được D3/D4. Receipt nguồn nằm cạnh D1. Khi dữ liệu/config thay đổi làm fingerprint khác D4 hiện tại, chương trình từ chối; không xóa manifest hoặc khóa để bỏ qua kiểm soát.
+
+## Bản sửa C2.03 A162…09F3
+
+Nguồn: https://drive.google.com/file/d/1a0mpUm46oyyC1zqJBi22KLY_khefWeyi/view. Đã kiểm SHA-256 toàn bộ 116.591.087 bytes, schema D1, UTC/lưới phút, khóa duy nhất, sáu venue và khoảng mẫu.
+
+Chỉ volume_base của OKX spot đổi ở 501.119 dòng; bản cũ đã ghi volume_quote USDT vào cả cột volume_base. Bản mới dùng BTC, với volume_quote/volume_base nằm trong khoảng low–high ở toàn bộ các dòng OKX spot. Giá OHLC, timestamp, quote volume và các venue khác không đổi. Volume này được dùng trong D3, vì vậy đã dựng lại D3 và D4 với fingerprint mới ở trên; biên và số dòng ba tập không đổi. Bảng lead-lag và bytes hai hình F1/F6 không đổi vì chỉ dùng giá.
+
+Bản D1 FEA…E09F, D3, D4 và các kết quả/biên nhận cũ được lưu nguyên tại data/processed/_revisions/d1-fea20184f835471e/. D4 cũ có test_consumed=false và không có khóa; trạng thái được lưu cùng bản cũ. Không xóa khóa hoặc reset một final test đã dùng. Bản hiện tại cũng có test_consumed=false.
+
+Chi tiết so sánh nằm trong outputs/D1_revision_comparison.json. outputs/tables/T0_D1_quality.csv kiểm trực tiếp D1 mới và ghi hash nguồn; T0_data_quality.csv cũ vẫn là snapshot kiểm raw của PR #9. Kiểm thêm quan hệ volume_quote/volume_base phát hiện hai dòng Bybit spot có giá bình quân suy ra nằm ngoài low–high: 2025-12-19T07:50Z và 07:58Z, chênh tối đa 1,856848 bps. Hai dòng giữ nguyên từ bản trước; chưa kết luận nguyên nhân và không tự sửa số liệu. Cờ chi tiết: outputs/tables/T0_D1_volume_flags.csv, để Ny đối chiếu nguồn.
 
 ## Kiểm thử và phần còn chờ
 
 Lượt dựng thật: 52 passed cho alignment, fixtures/splits, intake và strict TV5. Kiểm cuối toàn repo trước commit: 390 passed, 1 skipped (symlink Windows). Lượt dựng thật không sửa code thuật toán; có thêm kiểm schema, dữ liệu nguồn, NumPy xcorr và xem hình trên đầu ra thật.
+
+Lượt cập nhật A162: 48 passed cho alignment, fixtures/splits và intake; D3/D4 mới qua kiểm bàn giao, đối chiếu từng giá trị với D1 mới và kiểm độc lập đủ 165 xcorr. Không chạy lại các stage mô hình hoặc final test.
 
 - C4.08/C4.09/C4.10: đã có đầu ra thật và bằng chứng kỹ thuật theo config hiện tại.
 - R4.01: đã bổ sung biên mẫu, số dòng và missing thực tế trong tài liệu TV4; TV1/nhóm còn xác nhận khoảng mẫu và đưa nội dung vào bản báo cáo chung.

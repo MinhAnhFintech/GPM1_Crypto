@@ -18,6 +18,8 @@ Tham số và lựa chọn đặc tả được phát triển trên development,
 
 Áp dụng ngày 21/10 trên D1 thật Ny bàn giao: mẫu theo config từ 2025-10-18T00:01:00Z đến trước 2026-10-01T00:00:00Z có 501.119 mốc phút, sáu venue và không có missing trong D3. Development gồm 300.671 dòng (18/10/2025 00:01 đến 14/05/2026 19:11 UTC), validation 100.223 dòng (14/05/2026 19:12 đến 23/07/2026 09:34 UTC), final test 100.225 dòng (23/07/2026 09:35 đến 30/09/2026 23:59 UTC). Biên từng tập bao gồm hai đầu. Các bảng/hình phân tích hiện chỉ dùng development; final test chưa được claim. Khoảng mẫu vẫn giữ TODO cần nhóm xác nhận, không suy ra đã chốt chỉ từ việc pipeline chạy đạt. Bằng chứng và lệnh tái lập nằm trong docs/TV4_HISTORICAL_HANDOFF.md.
 
+Nguồn D1 hiện tại là bản sửa C2.03 có SHA-256 A162AFFAEAE0AE16BD4F52DD9B1ABD68C226555C8665D3BEF3AF73757F8209F3, thay cho bản FEA…E09F. Lần sửa đổi đơn vị volume_base OKX spot về BTC làm đổi fingerprint, không đổi biên mẫu hoặc giá; các mô tả chia mẫu trên vẫn giữ nguyên. D3 và D4 hiện tại đã được cập nhật cùng phiên bản dữ liệu.
+
 ## Phụ lục: kiến trúc và tái lập (R4.02)
 
 Mã thu thập nằm ở src/collectors; tiện ích UTC, schema và I/O ở src/utils; đồng bộ, chuẩn hóa và chia mẫu ở src/synchronization; lead–lag ở src/price_discovery/leadlag.py. Module kinh tế lượng và IS/CS/ILS do TV5 cung cấp; chi phí và backtest do TV6 cung cấp. run_all.py kết nối phần nền và các bước nghiên cứu đăng ký bằng argv trong cấu hình, kiểm tra mã thoát và file đầu ra, rồi ghi pipeline_report.json. Khi còn thiếu bước nghiên cứu, chế độ production đầy đủ báo thiếu và trả mã lỗi, không nhận là đã hoàn tất.
@@ -186,3 +188,11 @@ Toàn repo sau sửa: **390 passed, 1 skipped**, gồm strict TV5. Hai demo nề
 C4.10 đã xuất 165 giá trị tương quan cho 15 cặp × 11 lag trên development cùng hình F6. Tất cả 15 cặp có đỉnh tại lag 0; phép tính NumPy độc lập khớp với sai khác tối đa 1,11e-16. Không suy ra venue dẫn IS/ILS từ kết quả này. F1/F6 đã kiểm trực quan, nguồn historical và phạm vi development được ghi rõ trong tài liệu bàn giao.
 
 Lượt kiểm thử liên quan đạt **52 passed**, gồm strict TV5 4/4. Không sửa thuật toán; kiểm thử toàn repo trước commit đạt 390 passed, 1 skipped. R4.01 đã có số dòng/biên/missing thật để TV1 đưa vào báo cáo chung. C4.12 vẫn thiếu các stage nghiên cứu; M2 còn bước nhóm xác nhận khoảng mẫu trong config. Chi tiết: docs/TV4_HISTORICAL_HANDOFF.md và outputs/tv4_historical_validation.json. D1/D3/D4 tiếp tục giữ local và được ignore; bảng/hình và bằng chứng kỹ thuật nằm trong outputs.
+
+## C2.03 cập nhật D1 A162…09F3 và tác động TV4 (21/10/2026)
+
+Đã nhận bản D1 mới từ link người dùng gửi, khớp toàn bộ SHA-256 A162AFFAEAE0AE16BD4F52DD9B1ABD68C226555C8665D3BEF3AF73757F8209F3. So sánh đủ sáu venue cho thấy chỉ volume_base OKX spot thay đổi ở 501.119 dòng: bản cũ đã sao chép khối lượng USDT vào cột BTC. Lượt review trước chưa phát hiện lỗi đơn vị này; đối chiếu schema và hash chỉ xác nhận cấu trúc/bytes, chưa đủ xác nhận đơn vị kinh tế.
+
+Đã dựng D3/D4 ứng viên và kiểm đầy đủ trước khi thay bản đang dùng. Chỉ volume_base__okx_spot của D3 đổi; fingerprint mới 9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4. Số dòng, biên 60/20/20, giá và 165 kết quả lead-lag giữ nguyên; F1/F6 không đổi. D1/D3/D4, receipt và bằng chứng cũ được lưu nguyên trong data/processed/_revisions/d1-fea20184f835471e/. Cả bản cũ và mới đều chưa dùng final test; không xóa khóa hoặc reset trạng thái.
+
+Lượt này đạt **48 passed** cho đồng bộ/chia mẫu/intake; kiểm D3/D4 thật passed và đối chiếu độc lập xcorr khớp. Kiểm bổ sung quote/base volume ghi cờ hai quan sát Bybit spot từ bản cũ, không tự sửa, trong T0_D1_volume_flags.csv. D1 mới nhận trực tiếp từ Drive; cần raw/code tương ứng từ Ny/TV3 nếu muốn tái tạo từ raw, không lấy raw pr9-db2cabd làm nguồn của bản sửa. Không chạy các stage mô hình chưa bàn giao, không thay config hoặc main. Dữ liệu thật giữ local và được ignore; tài liệu, bảng kiểm tra và bằng chứng phiên bản nằm trong repo.

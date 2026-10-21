@@ -1,5 +1,5 @@
 {
-  "run_id": "6a8156c42b8a4daa999fdf599f4eb5bc",
+  "run_id": "0cff10c4e51445b693011ec26e710a0d",
   "mode": "historical",
   "pipeline_status": "foundation_only",
   "foundation_status": "passed",
@@ -15,10 +15,10 @@
   "analysis_split": "dev",
   "test_consumed": false,
   "data_kind": "historical",
-  "source": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\data\\interim\\ohlcv_1m_long.parquet",
-  "source_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+  "source": "tmp\\review\\c203-a162-ohlcv_1m_long.parquet",
+  "source_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
   "config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
-  "panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+  "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
   "rows": 501119,
   "venues": [
     "binance_perp",
@@ -27,5 +27,21 @@
     "bybit_spot",
     "okx_perp",
     "okx_spot"
-  ]
+  ],
+  "canonical_source": "data\\interim\\ohlcv_1m_long.parquet",
+  "data_revision": {
+    "previous_d1_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+    "source_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+    "previous_panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+    "changed_d3_columns": {
+      "volume_base__okx_spot": 501119
+    },
+    "split_boundaries_unchanged": true,
+    "test_consumed": false,
+    "previous_release_archive": "data\\processed\\_revisions\\d1-fea20184f835471e",
+    "price_and_leadlag_results_unchanged": true,
+    "raw_rebuild_verified": false,
+    "raw_note": "Corrected D1 received directly; prior raw release is historical and does not reproduce corrected OKX spot BTC volume."
+  }
 }

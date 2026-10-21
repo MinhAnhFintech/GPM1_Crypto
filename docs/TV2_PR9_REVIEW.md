@@ -1,5 +1,7 @@
 # TV4 review PR #9 — C2.01–C2.03 (20/10/2026)
 
+**Bản dữ liệu đã được thay thế ngày 21/10:** D1 FEA…E09F được review dưới đây có lỗi đơn vị volume_base OKX spot chưa phát hiện trong lượt review gốc. Người dùng đã bàn giao D1 sửa A162…09F3; bản mới và các đầu ra phụ thuộc đã cập nhật, xem docs/TV4_HISTORICAL_HANDOFF.md. Các hash/kết quả bên dưới là hồ sơ của bản cũ, không phải nguồn D1 hiện hành. Khớp raw/schema lúc đó không đủ chứng minh đơn vị BTC đúng.
+
 Base dev f9238b8, head gốc db2cabd, nhánh feat/tv2-c2-01-03. Đối chiếu GPM1_CRYPTO.xlsx, C2.01/C2.02/C2.03 và DATA_CONTRACT D1. Không sửa main hoặc cập nhật trạng thái Excel.
 
 ## Kết quả bàn giao dữ liệu

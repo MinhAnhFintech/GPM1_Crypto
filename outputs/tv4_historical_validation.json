@@ -1,6 +1,6 @@
 {
   "scope": "C4.08/C4.09/C4.10 technical handoff on received historical data",
-  "git_head": "2abc1b9fbc2a0e4b85500ca1eef7aa34fe0c927a",
+  "git_head": "f50b1f2aed0b24e9be11fc9136a7eaf561747239",
   "data_kind": "historical",
   "source_d1_rows": 3006714,
   "panel_rows": 501119,
@@ -29,7 +29,7 @@
   "split": {
     "contract_version": "1.0",
     "data_kind": "historical",
-    "fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
     "fingerprint_method": "sha256:pandas_hash_values+schema+index+attrs",
     "n_obs": 501119,
     "ratios": [
@@ -72,15 +72,15 @@
   ],
   "artifacts": {
     "data\\interim\\ohlcv_1m_long.parquet": {
-      "sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
-      "bytes": 103818611
+      "sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+      "bytes": 116591087
     },
     "data\\processed\\panel_1m_wide.parquet": {
-      "sha256": "b2c572835eb3052a1575b2719c04bbb7c6cc8643599bd6ef99ab330a82362659",
-      "bytes": 61636792
+      "sha256": "504407e57d4282a241374724085a605660f23f06073ca0db2aaea2cd8fb62f90",
+      "bytes": 61636696
     },
     "data\\processed\\split_manifest.json": {
-      "sha256": "dfa9cd44975b9721986636c733db03d74152fb325ce94b7411e8a60af63020c4",
+      "sha256": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0",
       "bytes": 713
     },
     "outputs\\tables\\T0_alignment_quality.csv": {
@@ -100,13 +100,61 @@
       "bytes": 90147
     },
     "outputs\\pipeline_report.json": {
-      "sha256": "4d2e8274a2eb79d745042dc4f625c2d7cd6d4721474c0f11858b1e2a8c1b9389",
-      "bytes": 964
+      "sha256": "225266dcd90c6019d88e3c8cd8d2e55c3dd01d955f1e945cc953cc7f820dcafb",
+      "bytes": 1854
+    },
+    "outputs\\D1_revision_comparison.json": {
+      "sha256": "997e3dec095d112854d203716cdfe26aedc3cd122f6e72dd34339a02790ebe8c",
+      "bytes": 9660
+    },
+    "outputs\\tables\\T0_D1_quality.csv": {
+      "sha256": "31c39b80d30e3e7ef61d051938b1d3add8163d0f76529c8d5ac8529d960dcfb0",
+      "bytes": 1619
+    },
+    "outputs\\tables\\T0_D1_volume_flags.csv": {
+      "sha256": "30e8f9afec7367a53c7d451589febf3fe33ccb61bf3274ed6631c4c2ad62e5d5",
+      "bytes": 343
+    },
+    "outputs\\D3_D4_handoff.json": {
+      "sha256": "679ba4b7a1b94618d596edc9f3bc0d398bf5fb9daa243bf1f9e76c0b5f2a9919",
+      "bytes": 1657
     }
   },
   "limits": [
     "Uses current config window; group TODO confirmation remains.",
     "Cross-correlations alone do not establish an IS/ILS leader or profitable arbitrage.",
-    "No validation/final-test model analysis; full-panel operations are schema/QC/split checks only."
-  ]
+    "No validation/final-test model analysis; full-panel operations are schema/QC/split checks only.",
+    "Latest D1 is a direct corrected handoff; previous raw does not reproduce corrected OKX spot volume. Two preexisting Bybit spot quote/base flags retained for source verification."
+  ],
+  "data_revision": {
+    "previous_d1_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
+    "source_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+    "previous_panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
+    "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+    "changed_d3_columns": {
+      "volume_base__okx_spot": 501119
+    },
+    "split_boundaries_unchanged": true,
+    "test_consumed": false,
+    "previous_release_archive": "data\\processed\\_revisions\\d1-fea20184f835471e",
+    "price_and_leadlag_results_unchanged": true,
+    "raw_rebuild_verified": false,
+    "raw_note": "Corrected D1 received directly; prior raw release is historical and does not reproduce corrected OKX spot BTC volume."
+  },
+  "source_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+  "price_artifacts_byte_identical_to_previous": true,
+  "volume_unit_correction": {
+    "venue": "okx_spot",
+    "changed_rows": 501119,
+    "old_base_was_quote_usdt": true,
+    "new_base_unit": "BTC"
+  },
+  "additional_qc_flags": {
+    "file": "outputs/tables/T0_D1_volume_flags.csv",
+    "n_rows": 2,
+    "venue": "bybit_spot",
+    "preexisting_unchanged": true,
+    "reason": "implied quote/base average outside candle high-low; source check pending"
+  },
+  "raw_rebuild_verified": false
 }
