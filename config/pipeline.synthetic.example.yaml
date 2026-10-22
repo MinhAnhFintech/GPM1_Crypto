@@ -1,0 +1,55 @@
+# TV4 C4.12 integration demo: foundation -> actual TV5 CLI on synthetic data.
+# Separate from config.yaml; null sample prevents use as a historical profile.
+contract_version: '1.0'
+symbol: BTC/USDT
+timeframe: 1min
+max_age: 5min
+seed: 20261017
+rolling:
+  window_obs: 240
+  step_obs: 60
+split_ratios: [0.6, 0.2, 0.2]
+max_lag: 5
+sample:
+  start: null
+  end: null
+fixtures:
+  start: '2026-01-01T00:01:00Z'
+  n_obs: 720
+  initial_price_usdt: 60000.0
+  innovation_sigma: 0.0005
+  leader_noise_sigma: 0.000002
+  follower_noise_sigma: 0.00002
+  multi:
+    leader: binance_spot
+    lags: {binance_spot: 0, okx_spot: 1, bybit_spot: 2, binance_perp: 1}
+  spot_perp:
+    leader: binance_perp
+    lags: {binance_spot: 1, binance_perp: 0}
+pipeline_stages:
+  - name: price_discovery
+    command:
+      - '{python}'
+      - '-m'
+      - src.price_discovery.run_price_discovery
+      - '--data-dir'
+      - '{data_dir}'
+      - '--output-dir'
+      - '{output_dir}'
+      - '--config'
+      - config/pipeline.synthetic.example.yaml
+    timeout_s: 3600
+    outputs:
+      # T2_vecm_spec.json is a persistent locked input after the first run;
+      # only outputs that must be rewritten belong in this list.
+      - '{output_dir}/tables/T2_stationarity_dev.csv'
+      - '{output_dir}/tables/T2_stationarity_val.csv'
+      - '{output_dir}/tables/T2_johansen_dev.csv'
+      - '{output_dir}/tables/T2_johansen_val.csv'
+      - '{output_dir}/tables/T3_static_is_cs.csv'
+      - '{output_dir}/tables/T3_vecm_diagnostics.csv'
+      - '{output_dir}/tables/T3d_ils.csv'
+      - '{output_dir}/tables/T3d_ils_summary.csv'
+      - '{output_dir}/tables/T3c_spot_perp.csv'
+      - '{output_dir}/tables/rolling_is.parquet'
+      - '{output_dir}/tables/T3b_sensitivity.csv'

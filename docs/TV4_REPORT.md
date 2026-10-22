@@ -196,3 +196,19 @@ Lượt kiểm thử liên quan đạt **52 passed**, gồm strict TV5 4/4. Khô
 Đã dựng D3/D4 ứng viên và kiểm đầy đủ trước khi thay bản đang dùng. Chỉ volume_base__okx_spot của D3 đổi; fingerprint mới 9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4. Số dòng, biên 60/20/20, giá và 165 kết quả lead-lag giữ nguyên; F1/F6 không đổi. D1/D3/D4, receipt và bằng chứng cũ được lưu nguyên trong data/processed/_revisions/d1-fea20184f835471e/. Cả bản cũ và mới đều chưa dùng final test; không xóa khóa hoặc reset trạng thái.
 
 Lượt này đạt **48 passed** cho đồng bộ/chia mẫu/intake; kiểm D3/D4 thật passed và đối chiếu độc lập xcorr khớp. Kiểm bổ sung quote/base volume ghi cờ hai quan sát Bybit spot từ bản cũ, không tự sửa, trong T0_D1_volume_flags.csv. D1 mới nhận trực tiếp từ Drive; cần raw/code tương ứng từ Ny/TV3 nếu muốn tái tạo từ raw, không lấy raw pr9-db2cabd làm nguồn của bản sửa. Không chạy các stage mô hình chưa bàn giao, không thay config hoặc main. Dữ liệu thật giữ local và được ignore; tài liệu, bảng kiểm tra và bằng chứng phiên bản nằm trong repo.
+
+## C4.11 — TV2 PR #10, C2.07 (21/10/2026)
+
+Đã đối chiếu C2.07/C2.08/C2.09 với PCCV gốc. PR #10 chọn nhầm main được chuyển về dev; sửa kiểm provenance/validator D6-D7, leader bounds/status, cửa sổ cùng thời điểm công bố, sự kiện chưa sẵn sàng và timestamp/missing trên đồ thị. Không sửa mô hình/collector hoặc dữ liệu thật. Bản sửa 8669a9a đạt **423 passed, 1 skipped** với --require-tv5; hai lượt CI xanh. Đã merge vào dev bằng e8ea4073d3b604635738a7a54abb799da41e1872, local dev đã fast-forward. Main vẫn 0282d63396f59026095f981987a96f6a48506bc5. Chi tiết: docs/TV2_PR10_REVIEW.md.
+
+C2.07 khung dashboard synthetic đủ bảy khối đã được nghiệm thu kỹ thuật. Chưa nghiệm thu C2.08 kết nối đầy đủ nguồn thật hoặc đóng toàn dashboard; không sửa trạng thái Excel hoặc gửi thông báo cho thành viên.
+
+## C4.12 — profile tích hợp và tái lập nền → TV5 (21/10/2026)
+
+Bổ sung config/pipeline.synthetic.example.yaml riêng, không đổi config/config.yaml. Một lệnh run_all.py gọi CLI thật TV5 và kiểm 11 đầu ra phải ghi mới; spec đã khóa giữ nguyên. Ca chạy lặp ban đầu phát hiện spec không được khai báo như output mới; đã sửa profile, giữ cơ chế chặn stale file và khóa spec.
+
+Đã chạy multi và spot_perp, mỗi bộ 720 dòng/sáu cửa sổ/zero failed; chạy lặp multi giữ nguyên fingerprint, hash cả 11 đầu ra và spec. --foundation-only không gọi TV5, không tạo D6. Dashboard đã đọc D6 thực do CLI TV5 sinh trên cả hai bộ mà không lỗi. Kiểm trước/sau xác nhận D1/D3/D4 lịch sử, pipeline_report nghiên cứu và config nghiên cứu giữ nguyên hash; final test không dùng.
+
+Bằng chứng: outputs/tv4_pipeline_integration_validation.json; lệnh tái lập và phụ thuộc: docs/TV4_PIPELINE_INTEGRATION.md. Profile và bằng chứng kỹ thuật được đưa vào repo; dữ liệu/kết quả synthetic vẫn được ignore. C4.12 nghiên cứu đầy đủ vẫn chờ features/D3b, D5, cost_backtest, evaluation và nghiệm thu đặc tả TV5 trên D3 thật; không đánh dấu hoàn thành từ synthetic.
+
+Kiểm lại trước commit: toàn repo với --require-tv5 đạt **423 passed, 1 skipped** (symlink thư mục không khả dụng trên Windows). Đã đối chiếu lại hash profile, 11 đầu ra, spec, D1/D3/D4 và config nghiên cứu; final test chưa dùng và main không đổi. Chi tiết ở precommit_double_check trong JSON bằng chứng.
