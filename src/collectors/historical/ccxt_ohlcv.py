@@ -1,468 +1,476 @@
-"""C3.04 (TV3) - Tai nen 1 phut BTC/USDT qua CCXT, phan trang theo `since`.
+"""C3.04 — Tải nến 1 phút BTC/USDT qua CCXT cho 5 venue: okx_spot, okx_perp, bybit_spot, bybit_perp, binance_perp.
 
-Dau ra moi venue: data/raw/ohlcv/{venue}_BTCUSDT_1m.parquet
-(venue = {exchange}_{market_type}, vi du okx_spot, bybit_perp).
 
-Quy uoc thoi gian (QUAN TRONG - xem DATA_CONTRACT v1.0)
--------------------------------------------------------
-* Cot `ts_open_utc` la gio MO nen, UTC, kieu datetime64[ns, UTC].
-* File tho nay CHUA co `ts_available`. TV2 (C2.03) tao:
-  ts_available = ts_open_utc + 1 phut.
-* Cua so mau trong config.yaml (`sample.start` / `sample.end`) tinh theo
-  ts_available, start bao gom, end LOAI TRU. Gio mo nen can tai la:
-  [start - 1 phut, end - 1 phut).
-* Nen chua dong (gio mo + 1 phut > thoi diem tai) bi loai de tranh look-ahead.
-* Cho thieu de nguyen (khong noi suy, khong lap). Bao cao trong fetch_log.
 
-Don vi: gia = USDT; volume_base = BTC theo unified OHLCV cua CCXT cho cac
-thi truong BTC/USDT spot/linear da chot; khong nhan contractSize lan hai.
-CCXT OKX dung truong base volume (index 6) cho perp, khac order-book contracts.
 
-volume_quote (tuy chon, --with-quote): mac dinh de NaN. Voi --with-quote script goi them endpoint nen tho cua san va lay
-SO SAN BAO (OKX volCcyQuote, Bybit turnover, Binance quoteVolume), khong uoc luong bang volume x gia; kiem tra cheo
-volume_quote / volume_base phai nam trong [low, high] (ghi vao fetch_log). Chi them cot volume_quote; cac cot khac khong doi.
-Ket qua tung thang duoc cache trong _parts/{venue}/quote_*.parquet de chay lai khong goi lai san.
+Chỉ binance_spot do TV2 tải bằng Binance Vision (C2.01); script tự bỏ qua venue này trừ khi dùng --include-binance-spot
+(chỉ để đối chiếu quy ước thời gian với file của TV2). binance_perp vẫn do script này tải.
 
-Cach chay (tu thu muc goc repo):
-    python -m src.collectors.historical.ccxt_ohlcv --smoke-hours 2      # chay thu
-    python -m src.collectors.historical.ccxt_ohlcv                      # tai day du
-    python -m src.collectors.historical.ccxt_ohlcv --venues okx_spot    # mot venue
-    python -m src.collectors.historical.ccxt_ohlcv --with-quote         # them volume_quote that tu san
+
+
+
+Đọc config/config.yaml (venues, symbol, sample) và config/exchanges.yaml (ccxt_id, symbol kết nối) — không gõ cứng.
+Mỗi venue cho ra:
+    data/raw/ohlcv/{venue}_BTCUSDT_1m.parquet       dữ liệu thô: ts_open_utc, exchange, market_type, symbol, open, high,
+                                                    low, close, volume_base, volume_quote, data_kind="historical"
+    data/raw/ohlcv_meta/{venue}_BTCUSDT_1m_gaps.csv     các khoảng nến THIẾU (không nội suy, không điền giả) -> T0 của TV2
+    data/raw/ohlcv_meta/{venue}_BTCUSDT_1m_report.json  số dòng, khoảng thời gian, thiếu, trùng, sha256 -> SOURCE_LOG
+    data/raw/ohlcv_parts/{venue}/                       file tạm theo tháng, cho phép chạy tiếp khi bị ngắt
+(file phụ để ngoài data/raw/ohlcv/ để run_all --mode raw chỉ thấy đúng các file {venue}_BTCUSDT_1m.parquet).
+
+
+
+
+volume_quote (khối lượng theo USDT, cột bắt buộc của D1): hàm fetch_ohlcv thống nhất của CCXT KHÔNG trả cột này, nên
+với okx / bybit / binance (perp) script gọi thẳng endpoint nến của sàn và lấy số sàn báo (OKX volCcyQuote, Bybit turnover,
+Binance quoteVolume). Không ước lượng bằng volume x giá. Sàn chưa có bộ đọc riêng (hoặc --no-quote) -> volume_quote = NaN.
+Với OKX: spot volume_base = vol (BTC); perp volume_base = volCcy (BTC, không phải số hợp đồng ở vol).
+volCcy của spot là USDT (trùng volCcyQuote), nên không dùng làm base cho spot.
+
+
+
+
+Quy ước thời gian (chống look-ahead):
+  * ts_open_utc = giờ MỞ nến (UTC, có timezone). ts_available = ts_open_utc + 1 phút do TV2 tính ở C2.03; script KHÔNG tự tính.
+  * `sample` trong config.yaml tính theo ts_available (start gồm, end KHÔNG gồm). Script đổi sang giờ mở nến:
+    ts_open_start = sample.start - 1 phút, ts_open_end(không gồm) = sample.end - 1 phút.
+    Ví dụ sample 2025-10-18T00:01Z .. 2026-10-01T00:00Z -> nến mở đầu 2025-10-18 00:00, nến mở cuối 2026-09-30 23:58.
+  * Nến phút hiện tại (chưa đóng) bị loại: chỉ giữ nến có ts_open + 60s <= bây giờ.
+  * --start/--end trên dòng lệnh là giờ MỞ nến (start gồm, end không gồm); ngày không kèm giờ = 00:00 UTC.
+  * Symbol trong dữ liệu là BTC/USDT (chuẩn); symbol CCXT (vd BTC/USDT:USDT cho perp) chỉ dùng để kết nối.
+
+
+
+
+Dùng:
+    python ccxt_ohlcv.py                                   # 5 venue (mọi venue trừ binance_spot), khoảng mẫu theo config
+    python ccxt_ohlcv.py --venues okx_spot --start 2026-10-01 --end 2026-10-02 --out data/raw/ohlcv_probe   # thử nhanh
 """
 from __future__ import annotations
+
+
+
 
 import argparse
 import hashlib
 import json
 import logging
-import os
+import random
+import re
+import shutil
+import sys
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Sequence
-
-import numpy as np
 import pandas as pd
-import yaml
-from src.utils.io_utils import write_json
-from src.utils.time_utils import require_utc
-from src.utils.schema import VENUE_PATTERN
 
-logger = logging.getLogger("collectors.historical.ccxt_ohlcv")
 
+
+
+HERE = Path(__file__).resolve().parent
+
+
+
+
+
+
+
+
+def _find_project_root() -> Path:
+    for p in [HERE, *HERE.parents]:
+        if any((p / m).exists() for m in (".git", "config", "data", ".venv")):
+            return p
+    return Path.cwd()
+
+
+
+
+
+
+
+
+PROJECT_ROOT = _find_project_root()
+DEFAULT_OUT = PROJECT_ROOT / "data" / "raw" / "ohlcv"
+DEFAULT_CONFIG = PROJECT_ROOT / "config" / "config.yaml"
+DEFAULT_EXCHANGES = PROJECT_ROOT / "config" / "exchanges.yaml"
+
+
+
+
+LOG = logging.getLogger("ccxt_ohlcv")
+UTC = timezone.utc
 MINUTE_MS = 60_000
-CANONICAL_SYMBOL = "BTC/USDT"
-FILE_STEM = "BTCUSDT"
-TIMEFRAME = "1m"
-DATA_KIND = "historical"
-
-# TV2 tai binance_spot bang Binance Vision (C2.01) -> bo qua mac dinh.
-DEFAULT_SKIP_VENUES = ("binance_spot",)
-
-# So nen moi lan goi. DOI CHIEU voi docs/EXCHANGE_FEASIBILITY.md (C3.01) va
-# ghi de bang --limit neu khac. Vong lap khong phu thuoc gia tri nay: no di
-# tiep tu nen cuoi cung thuc su nhan duoc.
-DEFAULT_LIMIT_BY_CCXT_ID = {"okx": 300, "bybit": 1000, "binance": 1000, "binanceusdm": 1000}
-FALLBACK_LIMIT = 100
-
-RAW_COLUMNS = [
-    "ts_open_utc", "venue", "exchange", "market_type", "symbol",
-    "open", "high", "low", "close", "volume_base", "volume_quote", "data_kind",
-]
+COLUMNS = ["ts_open_utc", "exchange", "market_type", "symbol", "open", "high", "low", "close", "volume_base",
+           "volume_quote", "data_kind"]
+PRICE_COLS = ["open", "high", "low", "close"]
+# Số nến tối đa mỗi lần gọi, theo ccxt_id (mặc định thận trọng). Ghi đè bằng --limit theo số đo ở C3.01.
+DEFAULT_LIMIT = {"okx": 300, "bybit": 1000, "binance": 1000, "binanceusdm": 1000}
+SKIP_BY_DEFAULT = {"binance_spot"}   # TV2 tải bằng Binance Vision (C2.01)
+FALLBACK_LIMIT = 300
+HISTORY_LATE_FLAG_MIN = 60   # nến đầu tiên muộn hơn --start quá bấy nhiêu phút -> cờ history_starts_later
 
 
-# --------------------------------------------------------------------------
-# Config
-# --------------------------------------------------------------------------
-@dataclass(frozen=True)
-class Venue:
-    exchange: str      # id viet thuong ghi vao du lieu
-    market_type: str   # spot | perp
-    ccxt_id: str       # id de ket noi (vd binanceusdm)
-    symbol: str        # symbol CCXT (perp: BTC/USDT:USDT)
-
-    def __post_init__(self):
-        expected = CANONICAL_SYMBOL + (":USDT" if self.market_type == "perp" else "")
-        if not VENUE_PATTERN.fullmatch(self.venue_id) or self.symbol != expected:
-            raise ValueError("Venue must identify BTC/USDT spot or USDT-linear perpetual")
-
-    @property
-    def venue_id(self) -> str:
-        return f"{self.exchange}_{self.market_type}"
-
-    @property
-    def file_name(self) -> str:
-        return f"{self.venue_id}_{FILE_STEM}_{TIMEFRAME}.parquet"
 
 
-def to_ms(ts) -> int:
-    """Timestamp co timezone -> ms UTC. Cam timestamp khong timezone."""
-    t = pd.Timestamp(ts)
-    if t.tzinfo is None:
-        raise ValueError(f"Timestamp phai co timezone (UTC), nhan duoc: {ts!r}")
-    return int(round(t.tz_convert("UTC").timestamp() * 1000))
 
 
-def candle_open_window(sample_start, sample_end) -> tuple[int, int]:
-    """Cua so ts_available [start, end) -> cua so gio mo nen [since_ms, until_ms).
-
-    ts_available = gio mo + 1 phut  =>  gio mo = ts_available - 1 phut.
-    """
-    return to_ms(sample_start) - MINUTE_MS, to_ms(sample_end) - MINUTE_MS
 
 
-def load_config(config_path: Path) -> dict:
-    with open(config_path, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    for key in ("sample", "venues"):
-        if key not in cfg:
-            raise KeyError(f"config.yaml thieu muc '{key}'")
-    return cfg
+# ----------------------------------------------------------------------------- thời gian
+def floor_minute_ms(ts_ms: int) -> int:
+    return (int(ts_ms) // MINUTE_MS) * MINUTE_MS
 
 
-def load_venues(exchanges_path: Path) -> list[Venue]:
-    with open(exchanges_path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-    venues = []
-    for item in raw["venues"]:
-        if item["exchange"] != item["exchange"].lower():
-            raise ValueError(f"exchange phai viet thuong: {item['exchange']}")
-        venues.append(Venue(item["exchange"], item["market_type"], item["ccxt_id"], item["symbol"]))
-    return venues
 
 
-def month_chunks(since_ms: int, until_ms: int) -> list[tuple[int, int]]:
-    """Cat [since, until) theo ranh gioi thang UTC (de checkpoint/resume)."""
-    chunks, cur = [], since_ms
-    while cur < until_ms:
-        t = pd.Timestamp(cur, unit="ms", tz="UTC")
-        first = t.replace(day=1, hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
-        nxt = int(round((first + pd.DateOffset(months=1)).timestamp() * 1000))
-        chunks.append((cur, min(nxt, until_ms)))
-        cur = nxt
-    return chunks
 
 
-# --------------------------------------------------------------------------
-# Fetch (phan trang + retry)
-# --------------------------------------------------------------------------
-def default_retry_exceptions() -> tuple:
-    """Loi mang/tam thoi cua CCXT (RateLimitExceeded, RequestTimeout,
-    ExchangeNotAvailable deu la con cua NetworkError)."""
-    import ccxt
-    return (ccxt.NetworkError,)
 
 
-def _call_with_retry(fn: Callable, *, max_retries: int, base_delay_s: float,
-                     retry_exceptions: tuple, sleep: Callable[[float], None]):
+def ceil_minute_ms(ts_ms: int) -> int:
+    return -((-int(ts_ms)) // MINUTE_MS) * MINUTE_MS
+
+
+
+
+
+
+
+
+def parse_utc_ms(value) -> int:
+    """'2026-09-01' / '2026-09-01T12:30:00Z' / datetime / số ms -> mili giây UTC. Không có timezone = UTC."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    ts = pd.Timestamp(value)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    return int(ts.timestamp() * 1000)
+
+
+
+
+
+
+
+
+def ms_to_dt(ms: int) -> datetime:
+    return datetime.fromtimestamp(ms / 1000, UTC)
+
+
+
+
+
+
+
+
+def sample_to_open_range(sample_start, sample_end) -> tuple[int, int]:
+    """sample (ts_available, start gồm / end không gồm) -> khoảng GIỜ MỞ NẾN [start_open, end_open) cần tải.
+    ts_available = ts_open + 1 phút  =>  ts_open = ts_available - 1 phút."""
+    return parse_utc_ms(sample_start) - MINUTE_MS, parse_utc_ms(sample_end) - MINUTE_MS
+
+
+
+
+
+
+
+
+def month_windows(start_ms: int, end_ms: int) -> list[tuple[str, int, int]]:
+    """Chia [start, end) thành các đoạn theo tháng lịch UTC: [(nhãn 'YYYY-MM', start_ms, end_ms), ...]."""
+    out, cur, cur_ms = [], ms_to_dt(start_ms), start_ms
+    while cur_ms < end_ms:
+        nxt = datetime(cur.year + (cur.month == 12), 1 if cur.month == 12 else cur.month + 1, 1, tzinfo=UTC)
+        nxt_ms = int(nxt.timestamp() * 1000)
+        out.append((f"{cur:%Y-%m}", cur_ms, min(nxt_ms, end_ms)))
+        cur, cur_ms = nxt, nxt_ms
+    return out
+
+
+
+
+
+
+
+
+# ----------------------------------------------------------------------------- retry
+def is_rate_limit(e: Exception) -> bool:
+    n = type(e).__name__.lower()
+    return "ratelimit" in n or "ddos" in n or "too many" in str(e).lower() or "429" in str(e)
+
+
+
+
+
+
+
+
+def is_retryable(e: Exception) -> bool:
+    """Lỗi tạm thời (mạng, timeout, sàn bận, giới hạn tốc độ) -> thử lại. Lỗi cấu hình (BadSymbol, Auth...) -> không."""
+    n = type(e).__name__.lower()
+    return (isinstance(e, (TimeoutError, ConnectionError)) or is_rate_limit(e)
+            or any(k in n for k in ("timeout", "network", "notavailable", "connection", "unavailable")))
+
+
+
+
+
+
+
+
+def with_retry(fn, *, max_retries: int = 6, base_s: float = 1.0, sleep=time.sleep):
+    """Gọi fn(); lỗi tạm thời thì nghỉ theo cấp số nhân (có jitter) rồi thử lại; hết lượt hoặc lỗi cấu hình thì ném lỗi."""
     for attempt in range(max_retries + 1):
         try:
             return fn()
-        except retry_exceptions as exc:
-            if attempt == max_retries:
+        except Exception as e:  # noqa: BLE001
+            if attempt >= max_retries or not is_retryable(e):
                 raise
-            delay = base_delay_s * (2 ** attempt)
-            logger.warning("Loi tam thoi (%s). Thu lai sau %.1fs (lan %d/%d)",
-                           exc, delay, attempt + 1, max_retries)
-            sleep(delay)
+            wait = min(60.0, max(10.0 if is_rate_limit(e) else base_s, base_s * 2 ** attempt))
+            wait *= 0.8 + 0.4 * random.random()
+            LOG.warning("lỗi tạm thời (%s), thử lại lần %d/%d sau %.1fs: %s", type(e).__name__, attempt + 1,
+                        max_retries, wait, str(e)[:160])
+            sleep(wait)
+    raise RuntimeError("unreachable")
 
 
-def fetch_range(ex, symbol: str, since_ms: int, until_ms: int, limit: int, *,
-                max_retries: int = 5, base_delay_s: float = 1.0,
-                retry_exceptions: tuple = (), sleep: Callable[[float], None] = time.sleep,
-                max_empty_pages: int = 100, stats: dict | None = None) -> list[list[float]]:
-    """Tai nen 1m co gio mo trong [since_ms, until_ms). Don vi: ms UTC (gio MO nen).
 
-    Tra ve list [ts_ms, o, h, l, c, v] da sap xep tang dan, da bo trung.
-    Gia dinh thoi gian: chi lay nen co gio mo trong cua so; viec loai nen chua
-    dong lam o `drop_unclosed`.
-    * Con tro tien theo nen LON NHAT thuc su nhan duoc (khong theo `limit`),
-      nen sang sau khi san tra it nen hon `limit`.
-    * San bo qua `since` / tra nguoc thu tu: bi loc/sap xep lai, khong an nen.
-    * Trang trong (khoang trong du lieu that, hoac con tro tre hon du lieu
-      dang co): nhay `limit` phut; qua `max_empty_pages` trang trong lien tiep
-      thi dung va canh bao (continuity_report se bao cao phan thieu).
+
+
+
+
+
+# ----------------------------------------------------------------------------- tải một đoạn
+def fetch_range(ex, symbol: str, start_ms: int, end_ms: int, limit: int, *, use_until: bool = True,
+                sleep=time.sleep, progress=None, page_fn=None) -> list[list]:
+    """Phân trang theo `since` cho đoạn [start_ms, end_ms). Trả về list nến [ts, o, h, l, c, v(, quote)] (chưa lọc trùng).
+
+
+
+
+    Mỗi trang xin đúng `limit` phút: since .. since+limit*60s-1, nên không phụ thuộc việc sàn trả nến cũ nhất hay mới
+    nhất. Mỗi vòng since luôn tăng (hoặc nhảy sang cửa sổ kế tiếp) nên không thể lặp vô hạn. Nến ngoài [start, end) bị
+    loại. Không nội suy.
+      * Mặc định gọi ex.fetch_ohlcv (CCXT thống nhất; use_until gửi tham số `until`). Trang trống -> gọi thêm một lần
+        KHÔNG có until để nhảy tới nến đầu tiên còn dữ liệu; vẫn trống thì dừng.
+      * page_fn(ex, symbol, since, limit, until_inclusive) -> list nến 7 cột [ts,o,h,l,c,v_base,v_quote] (bộ đọc endpoint
+        thô của sàn, có volume_quote). Trang trống -> nhảy sang cửa sổ kế tiếp (đã bị chặn bởi end_ms).
     """
-    if (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0
-            or since_ms >= until_ms or since_ms % MINUTE_MS or until_ms % MINUTE_MS):
-        raise ValueError("Require positive limit and ordered minute-aligned candle bounds")
-    if max_retries < 0 or max_empty_pages < 0:
-        raise ValueError("Retry/empty-page counts must be nonnegative")
-    stats = stats if stats is not None else {}
-    stats.setdefault("duplicate_rows", 0)
-    rows: dict[int, list[float]] = {}
-    cursor, empty_pages = since_ms, 0
-    while cursor < until_ms:
-        batch = _call_with_retry(
-            lambda: ex.fetch_ohlcv(symbol, TIMEFRAME, since=cursor, limit=limit),
-            max_retries=max_retries, base_delay_s=base_delay_s,
-            retry_exceptions=retry_exceptions, sleep=sleep)
-        fresh = [c for c in (batch or []) if cursor <= c[0] < until_ms]
-        if fresh:
-            empty_pages = 0
-            for c in fresh:
-                stamp = int(c[0])
-                if len(c) < 6 or stamp != c[0] or stamp % MINUTE_MS:
-                    raise ValueError("Malformed or off-grid OHLCV candle")
-                if stamp in rows:
-                    stats["duplicate_rows"] += 1
-                    if rows[stamp] != list(c[:6]):
-                        raise ValueError("Conflicting duplicate OHLCV candle")
-                rows[stamp] = list(c[:6])
-            cursor = int(max(c[0] for c in fresh)) + MINUTE_MS
+    rows: list[list] = []
+    since, window, pages = start_ms, limit * MINUTE_MS, 0
+    while since < end_ms:
+        pages += 1
+        if page_fn is not None:
+            batch = with_retry(lambda: page_fn(ex, symbol, since, limit, since + window - 1), sleep=sleep)
+            new = [c for c in (batch or []) if c and since <= c[0] < end_ms]
+            if not new:
+                since += window
+                continue
         else:
-            empty_pages += 1
-            if empty_pages > max_empty_pages:
-                logger.warning("%s: %d trang trong lien tiep tai %s - dung tai day.",
-                               symbol, empty_pages,
-                               pd.Timestamp(cursor, unit="ms", tz="UTC"))
+            params = {"until": since + window - 1} if use_until else {}
+            batch = with_retry(lambda: ex.fetch_ohlcv(symbol, "1m", since, limit, params), sleep=sleep)
+            new = [c for c in (batch or []) if c and since <= c[0] < end_ms]
+            if not new and use_until:
+                batch = with_retry(lambda: ex.fetch_ohlcv(symbol, "1m", since, limit, {}), sleep=sleep)
+                new = [c for c in (batch or []) if c and since <= c[0] < end_ms]
+                if new:
+                    LOG.info("[%s] cửa sổ từ %s trống, nhảy tới nến %s", symbol, ms_to_dt(since),
+                             ms_to_dt(min(c[0] for c in new)))
+            if not new:
                 break
-            cursor += limit * MINUTE_MS
-    return [rows[k] for k in sorted(rows)]
+        rows.extend(new)
+        since = max(c[0] for c in new) + MINUTE_MS
+        if progress and pages % 50 == 0:
+            progress(pages, ms_to_dt(since), len(rows))
+    return rows
 
 
-def drop_unclosed(rows: Sequence[Sequence[float]], now_ms: int) -> list:
-    """Bo nen chua dong: gio mo + 1 phut > now. Giu nen chua dong = look-ahead."""
-    return [r for r in rows if r[0] + MINUTE_MS <= now_ms]
 
 
-# --------------------------------------------------------------------------
-# Chuan hoa + kiem tra
-# --------------------------------------------------------------------------
-def to_frame(rows: Sequence[Sequence[float]], v: Venue) -> pd.DataFrame:
-    """List nen CCXT -> DataFrame theo schema tho. Gia = USDT, float64."""
-    df = pd.DataFrame([list(r[:6]) for r in rows],
-                      columns=["ts_ms", "open", "high", "low", "close", "volume_base"])
-    ts = pd.to_datetime(df.pop("ts_ms").astype("int64"), unit="ms", utc=True)
-    out = pd.DataFrame({"ts_open_utc": ts.astype("datetime64[ns, UTC]")})
-    out["venue"] = v.venue_id
-    out["exchange"] = v.exchange
-    out["market_type"] = v.market_type
-    out["symbol"] = CANONICAL_SYMBOL
-    for col in ("open", "high", "low", "close", "volume_base"):
-        out[col] = df[col].astype("float64")
-    # CCXT chi tra volume base. KHONG tu bia volume_quote: de NaN, TV2/TV4 quyet dinh.
-    out["volume_quote"] = np.float64("nan")
-    out["data_kind"] = DATA_KIND
-    out = out[RAW_COLUMNS]
-    validate_raw(out, v)
-    return out
 
 
-def validate_raw(df: pd.DataFrame, venue: Venue) -> None:
-    """Validate cached/downloaded raw data without filling or relabelling it."""
-    if set(RAW_COLUMNS)-set(df):
-        raise ValueError("Raw OHLCV columns missing")
-    require_utc(df.ts_open_utc, "ts_open_utc")
-    if not df.ts_open_utc.is_unique or not df.ts_open_utc.is_monotonic_increasing:
-        raise ValueError("Raw OHLCV timestamps must be unique and increasing")
-    if ((df.ts_open_utc.astype('int64') % (MINUTE_MS*1_000_000)) != 0).any():
-        raise ValueError("Raw OHLCV timestamps must be minute-aligned")
-    for key, value in {"venue": venue.venue_id, "exchange": venue.exchange,
-                       "market_type": venue.market_type, "symbol": CANONICAL_SYMBOL,
-                       "data_kind": DATA_KIND}.items():
-        if not df[key].eq(value).all():
-            raise ValueError(f"Raw OHLCV {key} disagrees with requested venue/provenance")
-    prices = df[["open", "high", "low", "close"]].to_numpy(dtype=float)
-    if not np.isfinite(prices).all() or (prices <= 0).any():
-        raise ValueError("Raw OHLCV prices must be finite and positive")
-    volume = df.volume_base.to_numpy(dtype=float)
-    if not np.isfinite(volume).all() or (volume < 0).any():
-        raise ValueError("Raw OHLCV volume_base must be finite nonnegative BTC")
-    if ((df.high < df[["open", "close", "low"]].max(axis=1))
-            | (df.low > df[["open", "close", "high"]].min(axis=1))).any():
-        raise ValueError("Raw OHLCV high/low do not enclose prices")
 
 
-def continuity_report(df: pd.DataFrame, since_ms: int, until_ms: int) -> dict:
-    """Dem nen thieu va liet ke khoang thieu. KHONG lap, KHONG noi suy."""
-    if len(df):
-        delta = pd.to_datetime(df["ts_open_utc"], utc=True) - pd.Timestamp("1970-01-01", tz="UTC")
-        ts = np.sort((delta // pd.Timedelta(milliseconds=1)).to_numpy().astype("int64"))
-    else:
-        ts = np.array([], dtype="int64")
-    bounds = np.concatenate([[since_ms - MINUTE_MS], ts, [until_ms]])
-    gaps = []
-    for a, b in zip(bounds[:-1], bounds[1:]):
-        missing = int((b - a) // MINUTE_MS) - 1
-        if missing > 0:
-            start = int(a) + MINUTE_MS
-            gaps.append({
-                "start_utc": pd.Timestamp(start, unit="ms", tz="UTC").isoformat(),
-                "end_utc": pd.Timestamp(start + (missing - 1) * MINUTE_MS, unit="ms", tz="UTC").isoformat(),
-                "minutes": missing,
-            })
-    expected = int((until_ms - since_ms) // MINUTE_MS)
-    return {
-        "expected": expected,
-        "actual": int(len(ts)),
-        "missing": int(sum(g["minutes"] for g in gaps)),
-        "n_gaps": len(gaps),
-        "max_gap_min": max((g["minutes"] for g in gaps), default=0),
-        "gaps": gaps,
-    }
-
-
-def quick_sanity(df: pd.DataFrame) -> dict:
-    """Kiem tra nhanh. Kiem tra day du la viec cua C2.02 (TV2)."""
-    px = df[["open", "high", "low", "close"]]
-    return {
-        "rows_nonpositive_price": int((px <= 0).any(axis=1).sum()),
-        "rows_high_lt_low": int((df["high"] < df["low"]).sum()),
-        "rows_nan_price": int(px.isna().any(axis=1).sum()),
-        "median_close": float(df["close"].median()) if len(df) else None,
-        "median_volume_base": float(df["volume_base"].median()) if len(df) else None,
-    }
-
-
-def crosscheck_close(frames: dict[str, pd.DataFrame]) -> dict[str, dict]:
-    """Chenh lech |close| (bps) giua moi venue va venue dau tien, tren cac phut chung.
-
-    Perp vs spot co basis vai bps la binh thuong. Lech hang chuc bps o
-    muc median nghia la nghi sai gio / lech 1 nen / sai don vi.
-    """
-    names = list(frames)
-    if len(names) < 2:
-        return {}
-    ref_name = names[0]
-    ref = frames[ref_name].set_index("ts_open_utc")["close"]
-    out = {}
-    for n in names[1:]:
-        s = frames[n].set_index("ts_open_utc")["close"]
-        j = pd.concat([ref, s], axis=1, join="inner", keys=["ref", "x"])
-        bps = ((j["x"] / j["ref"]) - 1.0).abs() * 10_000
-        out[n] = {"vs": ref_name, "common_minutes": int(len(j)),
-                  "median_abs_bps": float(bps.median()) if len(j) else None,
-                  "p99_abs_bps": float(bps.quantile(0.99)) if len(j) else None}
-    return out
-
-
-# --------------------------------------------------------------------------
-# volume_quote that tu endpoint nen tho cua san (tuy chon, --with-quote)
-# --------------------------------------------------------------------------
-# So nen toi da moi lan goi cua endpoint THO (bao thu; OKX history-candles toi da 100).
-RAW_QUOTE_LIMIT = {"okx": 100, "bybit": 1000, "binance": 1000, "binanceusdm": 1000}
-
-
-def _raw_okx(ex, symbol, since, limit, until):
-    """OKX history-candles: [ts,o,h,l,c,vol,volCcy,volCcyQuote,confirm], MOI nhat truoc; `after` = nen cu hon ts.
-    Tra ve [ts, base, quote]. SPOT: base = vol (BTC); SWAP: base = volCcy (BTC; vol la so hop dong). Bo nen chua dong."""
+# ----------------------------------------------------------------------------- bộ đọc endpoint thô (có volume_quote)
+def _okx_page(ex, symbol, since, limit, until):
+    """OKX history-candles: [ts,o,h,l,c,vol,volCcy,volCcyQuote,confirm], MỚI nhất trước; `after` = lấy nến cũ hơn ts.
+    Ý nghĩa cột khối lượng phụ thuộc loại sản phẩm: SPOT: vol = BTC, volCcy = USDT (trùng volCcyQuote);
+    SWAP: vol = số HỢP ĐỒNG, volCcy = BTC. Nên volume_base = vol (spot) hoặc volCcy (hợp đồng); volume_quote = volCcyQuote.
+    confirm=0: nến chưa đóng."""
     base_idx = 6 if ex.market(symbol).get("contract") else 5
     res = ex.publicGetMarketHistoryCandles({"instId": ex.market(symbol)["id"], "bar": "1m",
                                             "after": str(until + 1), "limit": str(limit)})
-    return [[int(r[0]), r[base_idx], r[7]] for r in (res.get("data") or []) if str(r[8]) != "0"]
+    out = [[int(r[0]), r[1], r[2], r[3], r[4], r[base_idx], r[7]] for r in (res.get("data") or []) if str(r[8]) != "0"]
+    return sorted(out, key=lambda c: c[0])
 
 
-def _raw_bybit(ex, symbol, since, limit, until):
-    """Bybit v5 kline: [start,o,h,l,c,volume,turnover]; volume theo BTC, turnover theo USDT."""
+
+
+
+
+
+
+def _bybit_page(ex, symbol, since, limit, until):
+    """Bybit v5 kline: [start,o,h,l,c,volume,turnover], MỚI nhất trước; volume theo BTC, turnover theo USDT."""
     m = ex.market(symbol)
     res = ex.publicGetV5MarketKline({"category": "spot" if m.get("spot") else "linear", "symbol": m["id"],
                                      "interval": "1", "start": since, "end": until, "limit": limit})
-    return [[int(r[0]), r[5], r[6]] for r in ((res.get("result") or {}).get("list") or [])]
+    lst = (res.get("result") or {}).get("list") or []
+    return sorted([[int(r[0]), r[1], r[2], r[3], r[4], r[5], r[6]] for r in lst], key=lambda c: c[0])
 
 
-def _raw_binance(ex, symbol, since, limit, until):
+
+
+
+
+
+
+def _binance_page(ex, symbol, since, limit, until):
     """Binance spot klines: [openTime,o,h,l,c,volume,closeTime,quoteVolume,...]."""
     res = ex.publicGetKlines({"symbol": ex.market(symbol)["id"], "interval": "1m", "startTime": since,
                               "endTime": until, "limit": min(limit, 1000)})
-    return [[int(r[0]), r[5], r[7]] for r in res]
+    return [[int(r[0]), r[1], r[2], r[3], r[4], r[5], r[7]] for r in res]
 
 
-def _raw_binanceusdm(ex, symbol, since, limit, until):
-    """Binance USD-M futures klines (cung bo cuc voi spot)."""
+
+
+
+
+
+
+def _binanceusdm_page(ex, symbol, since, limit, until):
+    """Binance USD-M futures klines (cùng bố cục với spot)."""
     res = ex.fapiPublicGetKlines({"symbol": ex.market(symbol)["id"], "interval": "1m", "startTime": since,
-                                  "endTime": until, "limit": min(limit, 1000)})
-    return [[int(r[0]), r[5], r[7]] for r in res]
+                                  "endTime": until, "limit": min(limit, 1500)})
+    return [[int(r[0]), r[1], r[2], r[3], r[4], r[5], r[7]] for r in res]
 
 
-RAW_QUOTE_PAGE = {"okx": _raw_okx, "bybit": _raw_bybit, "binance": _raw_binance, "binanceusdm": _raw_binanceusdm}
 
 
-def fetch_quote_range(ex, ccxt_id: str, symbol: str, since_ms: int, until_ms: int, *,
-                      max_retries: int = 5, base_delay_s: float = 1.0, retry_exceptions: tuple = (),
-                      sleep: Callable[[float], None] = time.sleep) -> dict[int, float]:
-    """{ts_open_ms: volume_quote} cho nen co gio mo trong [since_ms, until_ms). Cua so lien tiep, moi cua so dung `limit` phut,
-    nen khong phu thuoc san tra nen cu nhat hay moi nhat truoc. Nen thieu thi khong co khoa (NaN sau khi ghep), khong noi suy."""
-    page = RAW_QUOTE_PAGE[ccxt_id]
-    limit = RAW_QUOTE_LIMIT[ccxt_id]
-    out: dict[int, float] = {}
-    cursor = since_ms
-    while cursor < until_ms:
-        hi = min(cursor + limit * MINUTE_MS, until_ms)
-        batch = _call_with_retry(lambda: page(ex, symbol, cursor, limit, hi - 1),
-                                 max_retries=max_retries, base_delay_s=base_delay_s,
-                                 retry_exceptions=retry_exceptions, sleep=sleep)
-        for r in batch or []:
-            ts = int(r[0])
-            if cursor <= ts < hi and r[2] is not None:
-                out[ts] = float(r[2])
-        cursor = hi
-    return out
 
 
-def _open_ms(series: pd.Series) -> pd.Series:
-    """ts_open_utc (datetime64[ns, UTC]) -> so nguyen ms UTC."""
-    return ((pd.to_datetime(series, utc=True) - pd.Timestamp("1970-01-01", tz="UTC"))
-            // pd.Timedelta(milliseconds=1)).astype("int64")
 
 
-def attach_volume_quote(df: pd.DataFrame, quote: dict[int, float]) -> pd.DataFrame:
-    """Them volume_quote (float64) theo ts_open_utc. Nen khong co trong `quote` -> NaN. Khong dong vao cot khac."""
-    out = df.copy()
-    out["volume_quote"] = _open_ms(out["ts_open_utc"]).map(quote).astype("float64")
-    return out
+RAW_PAGE = {"okx": _okx_page, "bybit": _bybit_page, "binance": _binance_page, "binanceusdm": _binanceusdm_page}
 
 
-def quote_check(df: pd.DataFrame) -> dict:
-    """volume_quote / volume_base la gia binh quan cua phut do -> phai nam trong [low, high] (+-0,1%).
-    Lech hang loat nghia la volume_base dang tinh theo hop dong (perp) hoac sai don vi."""
-    base = df["volume_base"].where(df["volume_base"] > 0)
-    ratio = df["volume_quote"] / base
-    outside = ratio.notna() & ((ratio < df["low"] * (1 - 1e-3)) | (ratio > df["high"] * (1 + 1e-3)))
-    return {"n_quote_missing": int(df["volume_quote"].isna().sum()), "n_quote_vwap_outside_hl": int(outside.sum())}
 
 
-def collect_quote(ex, v: "Venue", df: pd.DataFrame, since_ms: int, until_ms: int, now_ms: int, parts_dir: Path, *,
-                  retry_exceptions: tuple, sleep, max_retries: int) -> tuple[pd.DataFrame, dict]:
-    """Lay volume_quote that cho df. Cache theo thang trong parts_dir/quote_{lo}_{hi}.parquet (chay lai khong goi lai san)."""
-    if v.ccxt_id not in RAW_QUOTE_PAGE:
-        logger.warning("[%s] chua co bo doc endpoint tho cho ccxt_id=%s: volume_quote giu NaN", v.venue_id, v.ccxt_id)
-        return df, {"volume_quote_source": "khong co (NaN)"}
-    quote: dict[int, float] = {}
-    for lo, requested_hi in month_chunks(since_ms, until_ms):
-        hi = min(requested_hi, (now_ms // MINUTE_MS) * MINUTE_MS)
-        if hi <= lo:
-            continue
-        cache = parts_dir / f"quote_{lo}_{hi}.parquet"
-        if cache.exists():
-            c = pd.read_parquet(cache)
-            quote.update(dict(zip(c["ts"].astype("int64"), c["volume_quote"].astype("float64"))))
-            logger.info("[%s] volume_quote %s: dung lai cache (%d nen)", v.venue_id,
-                        pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m"), len(c))
-            continue
-        got = fetch_quote_range(ex, v.ccxt_id, v.symbol, lo, hi, max_retries=max_retries,
-                                retry_exceptions=retry_exceptions, sleep=sleep)
-        write_parquet_atomic(pd.DataFrame({"ts": pd.Series(list(got), dtype="int64"),
-                                           "volume_quote": pd.Series(list(got.values()), dtype="float64")}), cache)
-        quote.update(got)
-        logger.info("[%s] volume_quote %s: %d nen", v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m"), len(got))
-    out = attach_volume_quote(df, quote)
-    chk = quote_check(out)
-    if chk["n_quote_missing"] or chk["n_quote_vwap_outside_hl"] > 0.001 * len(out):
-        logger.warning("[%s] volume_quote: %d dong thieu, %d dong co quote/base ngoai [low, high] (>0,1%%) -> kiem tra don vi "
-                       "volume_base truoc khi ban giao.", v.venue_id, chk["n_quote_missing"], chk["n_quote_vwap_outside_hl"])
-    return out, {"volume_quote_source": "endpoint tho cua san", **chk}
 
 
-# --------------------------------------------------------------------------
-# IO
-# --------------------------------------------------------------------------
-def write_parquet_atomic(df: pd.DataFrame, path: Path) -> None:
+
+
+# ----------------------------------------------------------------------------- chuẩn hóa / kiểm tra
+def empty_frame() -> pd.DataFrame:
+    return pd.DataFrame({
+        "ts_open_utc": pd.Series([], dtype="datetime64[ns, UTC]"), "exchange": pd.Series([], dtype="object"),
+        "market_type": pd.Series([], dtype="object"), "symbol": pd.Series([], dtype="object"),
+        **{c: pd.Series([], dtype="float64") for c in PRICE_COLS},
+        "volume_base": pd.Series([], dtype="float64"), "volume_quote": pd.Series([], dtype="float64"),
+        "data_kind": pd.Series([], dtype="object")})[COLUMNS]
+
+
+
+
+
+
+
+
+def to_frame(rows: list[list], exchange: str, market_type: str, symbol: str) -> tuple[pd.DataFrame, int]:
+    """list nến -> DataFrame đúng schema thô. Mỗi nến 6 cột (CCXT) hoặc 7 cột (có volume_quote từ endpoint thô).
+    Loại nến trùng (giữ bản tải sau), sắp xếp tăng dần. Trả về (df, số_dòng_trùng_đã_loại).
+    ts_open_utc = giờ MỞ nến, datetime64[ns, UTC]. Thiếu volume_quote thì để NaN, không ước lượng."""
+    if not rows:
+        return empty_frame(), 0
+    recs = [list(r[:7]) + [None] * (7 - len(r[:7])) for r in rows]
+    raw = pd.DataFrame(recs, columns=["ts", "open", "high", "low", "close", "volume_base", "volume_quote"])
+    n0 = len(raw)
+    raw["ts"] = pd.to_numeric(raw["ts"]).astype("int64")
+    raw = raw.sort_values("ts", kind="stable").drop_duplicates("ts", keep="last")
+    for c in PRICE_COLS + ["volume_base", "volume_quote"]:
+        raw[c] = pd.to_numeric(raw[c], errors="coerce").astype("float64")
+    df = pd.DataFrame({"ts_open_utc": pd.to_datetime(raw["ts"], unit="ms", utc=True).astype("datetime64[ns, UTC]"),
+                       "exchange": exchange, "market_type": market_type, "symbol": symbol,
+                       **{c: raw[c].to_numpy() for c in PRICE_COLS},
+                       "volume_base": raw["volume_base"].to_numpy(), "volume_quote": raw["volume_quote"].to_numpy(),
+                       "data_kind": "historical"})
+    return df[COLUMNS].reset_index(drop=True), n0 - len(raw)
+
+
+
+
+
+
+
+
+def _ts_ms(series: pd.Series):
+    return series.astype("datetime64[ns, UTC]").astype("int64") // 1_000_000
+
+
+
+
+
+
+
+
+def find_gaps(df: pd.DataFrame, start_ms: int, end_ms: int) -> pd.DataFrame:
+    """Các khoảng nến thiếu trong [start, end): đầu (leading), giữa (interior), cuối (trailing).
+    Cột: kind, gap_start_utc (phút thiếu đầu tiên), gap_end_utc (phút thiếu cuối cùng), n_missing. Không điền gì vào đó."""
+    cols = ["kind", "gap_start_utc", "gap_end_utc", "n_missing"]
+    recs = []
+    if df.empty:
+        n = max(0, (end_ms - start_ms) // MINUTE_MS)
+        if n:
+            recs.append(("all_missing", start_ms, end_ms - MINUTE_MS, n))
+    else:
+        ts = _ts_ms(df["ts_open_utc"]).to_numpy()
+        if ts[0] > start_ms:
+            recs.append(("leading", start_ms, ts[0] - MINUTE_MS, (ts[0] - start_ms) // MINUTE_MS))
+        for a, b in zip(ts[:-1], ts[1:]):
+            if b - a > MINUTE_MS:
+                recs.append(("interior", a + MINUTE_MS, b - MINUTE_MS, (b - a) // MINUTE_MS - 1))
+        if ts[-1] < end_ms - MINUTE_MS:
+            recs.append(("trailing", ts[-1] + MINUTE_MS, end_ms - MINUTE_MS, (end_ms - MINUTE_MS - ts[-1]) // MINUTE_MS))
+    out = pd.DataFrame(recs, columns=["kind", "s", "e", "n_missing"])
+    if out.empty:
+        return pd.DataFrame(columns=cols)
+    out["gap_start_utc"] = pd.to_datetime(out["s"].astype("int64"), unit="ms", utc=True)
+    out["gap_end_utc"] = pd.to_datetime(out["e"].astype("int64"), unit="ms", utc=True)
+    out["n_missing"] = out["n_missing"].astype("int64")
+    return out[cols]
+
+
+
+
+
+
+
+
+# ----------------------------------------------------------------------------- ghi / đọc file
+def _write_parquet(df: pd.DataFrame, path: Path) -> None:
+    """Ghi nguyên tử: ghi .tmp rồi đổi tên, file hỏng giữa chừng không bao giờ mang tên chính thức."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    df.to_parquet(tmp, index=False)
-    os.replace(tmp, path)
+    try:
+        df.to_parquet(tmp, index=False)
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+
+
+
+
+
+
+def _read_parquet(path: Path) -> pd.DataFrame:
+    return pd.read_parquet(path)
+
+
+
+
+
+
 
 
 def sha256_file(path: Path) -> str:
@@ -473,211 +481,311 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def make_exchange(v: Venue, *, retry_exceptions: tuple | None = None, sleep=time.sleep):
-    import ccxt
-    ex = getattr(ccxt, v.ccxt_id)({"enableRateLimit": True})
-    retry_exceptions = retry_exceptions if retry_exceptions is not None else default_retry_exceptions()
-    _call_with_retry(ex.load_markets, max_retries=5, base_delay_s=1.0,
-                     retry_exceptions=retry_exceptions, sleep=sleep)
-    return ex
 
 
-# --------------------------------------------------------------------------
-# Thu thap mot venue
-# --------------------------------------------------------------------------
-def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
-                  limit: int | None = None, ex=None, now_ms: int | None = None,
-                  retry_exceptions: tuple | None = None,
-                  sleep: Callable[[float], None] = time.sleep,
-                  max_retries: int = 5, max_empty_pages: int = 100, with_quote: bool = False) -> dict:
-    """Tai [since_ms, until_ms) (gio mo nen) cho mot venue, ghi parquet + fetch_log.
 
-    Resume: moi thang ghi mot file part (ten gom cua so ms). Part da co thi bo qua.
-    Part chi duoc ghi khi thang do tai xong (ghi nguyen tu), nen chay lai an toan.
-    """
-    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
-    retry_exceptions = retry_exceptions if retry_exceptions is not None else default_retry_exceptions()
-    limit = DEFAULT_LIMIT_BY_CCXT_ID.get(v.ccxt_id, FALLBACK_LIMIT) if limit is None else limit
-    if (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0
-            or since_ms >= until_ms or since_ms % MINUTE_MS or until_ms % MINUTE_MS):
-        raise ValueError("Require positive limit and ordered minute-aligned candle bounds")
-    parts_dir = out_dir / "_parts" / v.venue_id
-    contract_size = None
 
-    def get_ex():
-        nonlocal ex, contract_size
-        if ex is None:
-            ex = make_exchange(v, retry_exceptions=retry_exceptions, sleep=sleep)
-        markets = getattr(ex, "markets", None)
-        if markets and v.symbol not in markets:
-            raise ValueError(f"{v.ccxt_id} khong co symbol {v.symbol}")
-        try:
-            market = ex.market(v.symbol)
-        except Exception:  # san gia/khong co market info
-            market = {}
-        if market.get("inverse") or (market.get("contract") and not market.get("linear")):
-            raise ValueError("Historical D1 requires spot or linear USDT perpetual")
-        if market.get("quote", "USDT") != "USDT" or market.get("base", "BTC") != "BTC":
-            raise ValueError("Historical D1 requires BTC/USDT units")
-        contract_size = market.get("contractSize")
-        return ex
 
-    parts = []
-    fetch_stats = {"duplicate_rows": 0}
-    for lo, requested_hi in month_chunks(since_ms, until_ms):
-        hi = min(requested_hi, (now_ms // MINUTE_MS) * MINUTE_MS)
-        if hi <= lo:
-            continue
-        part = parts_dir / f"{lo}_{hi}.parquet"
-        receipt = part.with_suffix(".json")
+
+def compact_symbol(symbol: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", symbol.split(":")[0])
+
+
+
+
+
+
+
+
+def venue_name(v: dict) -> str:
+    return f"{v['exchange']}_{v['market_type']}"
+
+
+
+
+
+
+
+
+def make_exchange(ccxt_id: str):
+    import ccxt  # import muộn: chỉ cần khi chạy thật
+    return getattr(ccxt, ccxt_id)({"enableRateLimit": True, "timeout": 20000})
+
+
+
+
+
+
+
+
+def _py(v):
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return v.isoformat()
+    if hasattr(v, "item"):
+        return v.item()
+    return v
+
+
+
+
+
+
+
+
+def ensure_markets(ex, sleep=time.sleep) -> None:
+    """Tải danh sách thị trường của sàn một lần (CCXT cần để tra id, spot/perp, contractSize). fetch_ohlcv tự làm việc này,
+    nhưng các hàm đọc endpoint thô gọi ex.market() trực tiếp nên phải gọi trước, nếu không báo 'markets not loaded'."""
+    if getattr(ex, "markets", None) or not hasattr(ex, "load_markets"):
+        return
+    with_retry(lambda: ex.load_markets(), sleep=sleep)
+
+
+
+
+
+
+
+
+def _contract_size(ex, symbol: str):
+    """contractSize nếu là hợp đồng (perp), None nếu là spot hoặc không tra được."""
+    try:
+        m = ex.market(symbol)
+        return float(m["contractSize"]) if m.get("contract") and m.get("contractSize") else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+
+
+
+
+
+
+# ----------------------------------------------------------------------------- một venue
+def download_venue(venue: dict, symbol: str, start_ms: int, end_ms: int, out_dir: Path, limit: int, *,
+                   ex=None, use_until: bool = True, fresh: bool = False, now_ms: int | None = None,
+                   sleep=time.sleep, parts_dir: Path | None = None, meta_dir: Path | None = None,
+                   with_quote: bool = True, page_fn=None) -> dict:
+    """Tải [start, end) (giờ MỞ nến) cho một venue, ghi file thô + gaps + report; trả về dict report.
+    venue = {exchange, market_type, ccxt_id, symbol(CCXT)}; `symbol` là symbol chuẩn ghi vào dữ liệu (BTC/USDT)."""
+    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    cutoff = floor_minute_ms(now_ms)             # nến mở tại cutoff là phút đang chạy, chưa đóng -> loại
+    start_ms, end_ms = ceil_minute_ms(start_ms), min(floor_minute_ms(end_ms), cutoff)
+    if end_ms <= start_ms:
+        raise ValueError(f"khoảng thời gian rỗng sau khi bỏ nến chưa đóng: {ms_to_dt(start_ms)} .. {ms_to_dt(end_ms)}")
+    vname, out_dir = venue_name(venue), Path(out_dir)
+    parts_dir = (Path(parts_dir) if parts_dir else out_dir.parent / "ohlcv_parts") / vname
+    meta_dir = Path(meta_dir) if meta_dir else out_dir.parent / "ohlcv_meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    if fresh:
+        shutil.rmtree(parts_dir, ignore_errors=True)
+    ex = ex if ex is not None else make_exchange(venue["ccxt_id"])
+    ensure_markets(ex, sleep)
+    ccxt_symbol = venue["symbol"]
+    page_fn = page_fn if page_fn is not None else (RAW_PAGE.get(venue["ccxt_id"]) if with_quote else None)
+    if page_fn is None and with_quote:
+        LOG.warning("[%s] chưa có bộ đọc endpoint thô cho ccxt_id=%s: volume_quote sẽ là NaN", vname, venue["ccxt_id"])
+
+
+
+
+    frames, dups, reused = [], 0, 0
+    for label, s, e in month_windows(start_ms, end_ms):
+        part = parts_dir / f"{label}__{s}_{e}.parquet"
         if part.exists():
-            try:
-                cached = pd.read_parquet(part)
-                validate_raw(cached, v)
-                proof = json.loads(receipt.read_text(encoding="utf-8"))
-                bounded = ((cached.ts_open_utc >= pd.Timestamp(lo, unit="ms", tz="UTC"))
-                           & (cached.ts_open_utc < pd.Timestamp(hi, unit="ms", tz="UTC"))).all()
-                if (bounded and proof["sha256"] == sha256_file(part)
-                        and proof["venue"] == v.venue_id and proof["bounds"] == [lo, hi]
-                        and proof.get("volume_unit") == "BTC"
-                        and continuity_report(cached, lo, hi)["missing"] == 0):
-                    logger.info("[%s] resume verified complete part %s", v.venue_id, part.name)
-                    parts.append(part)
-                    continue
-            except (ValueError, TypeError, KeyError, OSError):
-                pass
-            logger.warning("[%s] part incomplete/unverified; fetching again: %s", v.venue_id, part.name)
-        rows = fetch_range(get_ex(), v.symbol, lo, hi, limit, max_retries=max_retries,
-                           retry_exceptions=retry_exceptions, sleep=sleep,
-                           max_empty_pages=max_empty_pages, stats=fetch_stats)
-        n_all = len(rows)
-        rows = drop_unclosed(rows, now_ms)
-        if n_all - len(rows):
-            logger.info("[%s] bo %d nen chua dong", v.venue_id, n_all - len(rows))
-        if not rows:
-            logger.warning("[%s] khong co nen nao cho %s..%s - khong ghi part, se thu lai o lan chay sau",
-                           v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC"), pd.Timestamp(hi, unit="ms", tz="UTC"))
-            continue
-        write_parquet_atomic(to_frame(rows, v), part)
-        write_json({"sha256": sha256_file(part), "venue": v.venue_id,
-                    "bounds": [lo, hi], "volume_unit": "BTC"}, receipt)
-        parts.append(part)
-        logger.info("[%s] %s: %d nen", v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m-%d"), len(rows))
+            df = _read_parquet(part)
+            reused += 1
+            LOG.info("[%s] %s: dùng lại file tạm (%d dòng)", vname, label, len(df))
+        else:
+            LOG.info("[%s] %s: tải %s -> %s", vname, label, ms_to_dt(s), ms_to_dt(e))
+            rows = fetch_range(ex, ccxt_symbol, s, e, limit, use_until=use_until, sleep=sleep, page_fn=page_fn,
+                               progress=lambda p, t, n: LOG.info("[%s] %d trang, tới %s, %d nến", vname, p, t, n))
+            df, d = to_frame(rows, venue["exchange"], venue["market_type"], symbol)
+            dups += d
+            if len(df):
+                _write_parquet(df, part)
+        frames.append(df)
 
-    part_files = [p for p in parts if p.exists()]
-    if not part_files:
-        raise RuntimeError(f"[{v.venue_id}] khong tai duoc nen nao")
-    df = pd.concat([pd.read_parquet(p) for p in part_files], ignore_index=True)
-    df = df.sort_values("ts_open_utc").reset_index(drop=True)
-    lo_ts = pd.Timestamp(since_ms, unit="ms", tz="UTC")
-    hi_ts = pd.Timestamp(until_ms, unit="ms", tz="UTC")
-    df = df[(df["ts_open_utc"] >= lo_ts) & (df["ts_open_utc"] < hi_ts)].reset_index(drop=True)
-    df = df[df.ts_open_utc.le(pd.Timestamp(now_ms-MINUTE_MS, unit="ms", tz="UTC"))].reset_index(drop=True)
-    df["ts_open_utc"] = df["ts_open_utc"].astype("datetime64[ns, UTC]")
-    validate_raw(df, v)
-    if df.empty:
-        raise RuntimeError(f"[{v.venue_id}] no closed candles in the requested interval")
 
-    quote_info: dict = {}
-    if with_quote:
-        df, quote_info = collect_quote(get_ex(), v, df, since_ms, until_ms, now_ms, parts_dir,
-                                       retry_exceptions=retry_exceptions, sleep=sleep, max_retries=max_retries)
 
-    report = continuity_report(df, since_ms, until_ms)
-    final = (out_dir if report["missing"] == 0 else out_dir/"_incomplete") / v.file_name
-    write_parquet_atomic(df, final)
 
+    frames = [f for f in frames if len(f)]
+    if not frames:
+        raise RuntimeError(f"{vname}: không tải được nến nào trong {ms_to_dt(start_ms)} .. {ms_to_dt(end_ms)}")
+    full = pd.concat(frames, ignore_index=True).sort_values("ts_open_utc", kind="stable")
+    n_before = len(full)
+    full = full.drop_duplicates("ts_open_utc", keep="last")
+    dups += n_before - len(full)
+    t_ms = _ts_ms(full["ts_open_utc"])
+    full = full[(t_ms >= start_ms) & (t_ms < end_ms)].reset_index(drop=True)
+    full["data_kind"] = "historical"
+    full = full[COLUMNS]
+
+
+
+
+    base = f"{vname}_{compact_symbol(symbol)}_1m"
+    final = out_dir / f"{base}.parquet"
+    _write_parquet(full, final)
+    gaps = find_gaps(full, start_ms, end_ms)
+    gaps.to_csv(meta_dir / f"{base}_gaps.csv", index=False)
+
+
+
+
+    expected = (end_ms - start_ms) // MINUTE_MS
+    first_ms = int(_ts_ms(full["ts_open_utc"]).iloc[0])
+    delay_min = (first_ms - start_ms) / MINUTE_MS
     try:
         import ccxt
-        ccxt_version = ccxt.__version__
-    except Exception:
+        ccxt_version = getattr(ccxt, "__version__", None)
+    except Exception:  # noqa: BLE001
         ccxt_version = None
-    log = {
-        "venue": v.venue_id, "ccxt_id": v.ccxt_id, "symbol_ccxt": v.symbol,
-        "ccxt_version": ccxt_version,
-        "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
-        "candle_open_window_utc": [lo_ts.isoformat(), hi_ts.isoformat()],
-        "limit_per_call": limit, "contract_size": contract_size,
-        "volume_unit": "BTC", "duplicate_rows": fetch_stats["duplicate_rows"], **quote_info,
-        "status": "complete" if report["missing"] == 0 else "incomplete",
-        "first_open_utc": df["ts_open_utc"].iloc[0].isoformat() if len(df) else None,
-        "last_open_utc": df["ts_open_utc"].iloc[-1].isoformat() if len(df) else None,
-        **{k: v_ for k, v_ in report.items() if k != "gaps"},
-        "gaps_first_200": report["gaps"][:200],
-        **quick_sanity(df),
-        "file": final.relative_to(out_dir).as_posix(), "sha256": sha256_file(final),
+    px, csize = full[PRICE_COLS], _contract_size(ex, ccxt_symbol)
+    # Kiểm tra chéo: volume_quote / volume_base là giá bình quân của phút đó nên phải nằm trong [low, high].
+    # Nếu volume_base đang là số hợp đồng (perp) hoặc sai đơn vị thì tỷ lệ này lệch hẳn.
+    ratio = full["volume_quote"] / full["volume_base"].where(full["volume_base"] > 0)
+    outside = ratio.notna() & ((ratio < full["low"] * (1 - 1e-3)) | (ratio > full["high"] * (1 + 1e-3)))
+    report = {
+        "venue": vname, "exchange": venue["exchange"], "market_type": venue["market_type"], "symbol": symbol,
+        "ccxt_symbol": ccxt_symbol, "timeframe": "1m", "ts_convention": "ts_open_utc = giờ MỞ nến (UTC)",
+        "requested_open_start_utc": ms_to_dt(start_ms), "requested_open_end_utc_exclusive": ms_to_dt(end_ms),
+        "limit_per_call": limit, "use_until": use_until, "ccxt_version": ccxt_version,
+        "fetched_at_utc": datetime.now(UTC), "n_rows": len(full), "first_utc": full["ts_open_utc"].iloc[0],
+        "last_utc": full["ts_open_utc"].iloc[-1], "expected_rows": expected, "n_missing": expected - len(full),
+        "coverage_pct": round(100 * len(full) / expected, 4), "n_gap_events": len(gaps),
+        "max_gap_min": int(gaps["n_missing"].max()) if len(gaps) else 0, "n_duplicates_removed": dups,
+        "n_nan_price": int(px.isna().any(axis=1).sum()), "n_nonpositive_price": int((px <= 0).any(axis=1).sum()),
+        "n_high_lt_low": int((full["high"] < full["low"]).sum()), "first_candle_delay_min": delay_min,
+        "history_starts_later": bool(delay_min > HISTORY_LATE_FLAG_MIN), "month_parts_reused": reused,
+        "contract_size": csize,
+        "quote_source": "endpoint thô của sàn" if page_fn is not None else "không có (NaN)",
+        "n_quote_missing": int(full["volume_quote"].isna().sum()), "n_quote_vwap_outside_hl": int(outside.sum()),
+        "volume_note": ("hợp đồng perp: kiểm tra n_quote_vwap_outside_hl ~ 0 để chắc volume_base đang tính theo BTC "
+                        "(không phải số hợp đồng)") if csize else None,
+        "file": str(final), "sha256": sha256_file(final) if final.exists() else None,
     }
-    write_json(log, out_dir / f"fetch_log_{v.venue_id}.json")
-    logger.info("[%s] xong: %d/%d nen, thieu %d (%d khoang), sha256=%s...",
-                v.venue_id, report["actual"], report["expected"], report["missing"],
-                report["n_gaps"], log["sha256"][:12])
-    return {**log, "_frame": df}
+    (meta_dir / f"{base}_report.json").write_text(
+        json.dumps({k: _py(v) for k, v in report.items()}, ensure_ascii=False, indent=2), encoding="utf-8")
+    if page_fn is not None and (report["n_quote_missing"] or report["n_quote_vwap_outside_hl"] > 0.001 * len(full)):
+        LOG.warning("[%s] volume_quote: %d dòng thiếu, %d dòng có quote/base ngoài [low, high] (>0,1%%) -> kiểm tra "
+                    "đơn vị volume trước khi bàn giao.", vname, report["n_quote_missing"], report["n_quote_vwap_outside_hl"])
+    if report["history_starts_later"]:
+        LOG.warning("[%s] nến đầu tiên muộn %.0f phút so với đầu khoảng mẫu: lịch sử sàn KHÔNG phủ đủ. "
+                    "Báo nhóm ngay (ảnh hưởng mốc M1 và R2.02).", vname, delay_min)
+    return report
 
 
-# --------------------------------------------------------------------------
-# CLI
-# --------------------------------------------------------------------------
-def main(argv: Sequence[str] | None = None) -> int:
-    repo = Path(__file__).resolve().parents[3]
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--config", type=Path, default=repo / "config" / "config.yaml")
-    p.add_argument("--exchanges", type=Path, default=repo / "config" / "exchanges.yaml")
-    p.add_argument("--out-dir", type=Path, default=repo / "data" / "raw" / "ohlcv")
-    p.add_argument("--venues", nargs="*", help="id venue, vd okx_spot bybit_perp (mac dinh: tat ca tru venue TV2 lo)")
-    p.add_argument("--include-skipped", action="store_true",
-                   help=f"gom ca {', '.join(DEFAULT_SKIP_VENUES)} (mac dinh bo vi TV2 tai bang Binance Vision)")
-    p.add_argument("--limit", type=int, default=None, help="so nen moi lan goi (ghi de mac dinh theo san)")
-    p.add_argument("--smoke-hours", type=float, default=None,
-                   help="chay thu: chi tai N gio dau cua mau, ghi vao <out-dir>/_smoke")
-    p.add_argument("--with-quote", action="store_true",
-                   help="them volume_quote THAT tu endpoint nen tho cua san (mac dinh: NaN). Goi them API, cham hon")
-    p.add_argument("-v", "--verbose", action="store_true")
-    args = p.parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
 
-    cfg = load_config(args.config)
-    venues = load_venues(args.exchanges)
-    cfg_ids = list(cfg["venues"])
-    if cfg_ids != [v.venue_id for v in venues]:
-        p.error("venues trong config.yaml va exchanges.yaml phai khop nhau")
 
-    if args.venues:
-        wanted = set(args.venues)
-        unknown = wanted - {v.venue_id for v in venues}
-        if unknown:
-            p.error(f"venue khong co trong exchanges.yaml: {sorted(unknown)}")
-        venues = [v for v in venues if v.venue_id in wanted]
-    elif not args.include_skipped:
-        venues = [v for v in venues if v.venue_id not in DEFAULT_SKIP_VENUES]
 
-    since_ms, until_ms = candle_open_window(cfg["sample"]["start"], cfg["sample"]["end"])
-    out_dir = args.out_dir
-    if args.smoke_hours:
-        until_ms = since_ms + int(args.smoke_hours * 3600 * 1000)
-        out_dir = out_dir / "_smoke"
-    logger.info("Venues: %s | gio mo nen [%s, %s)", [v.venue_id for v in venues],
-                pd.Timestamp(since_ms, unit="ms", tz="UTC"), pd.Timestamp(until_ms, unit="ms", tz="UTC"))
 
-    frames, failed = {}, []
+
+
+# ----------------------------------------------------------------------------- cấu hình / CLI
+def load_yaml(path: Path) -> dict:
+    import yaml
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+
+
+
+
+
+
+
+
+def resolve_venues(requested: list[str], exchanges_cfg: dict) -> list[dict]:
+    """Tên venue (vd 'okx_perp') -> dict kết nối trong exchanges.yaml. Venue không có trong file -> báo lỗi rõ ràng."""
+    table = {venue_name(v): v for v in exchanges_cfg.get("venues", [])}
+    unknown = [r for r in requested if r not in table]
+    if unknown:
+        raise ValueError(f"venue không có trong exchanges.yaml: {unknown}; có: {sorted(table)}")
+    return [table[r] for r in requested]
+
+
+
+
+
+
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--venues", nargs="+", help="vd: okx_spot okx_perp bybit_spot bybit_perp binance_perp (mặc định: "
+                                                "venues trong config.yaml trừ binance_spot)")
+    ap.add_argument("--start", help="giờ MỞ nến, gồm (mặc định: sample.start - 1 phút)")
+    ap.add_argument("--end", help="giờ MỞ nến, KHÔNG gồm (mặc định: sample.end - 1 phút)")
+    ap.add_argument("--limit", type=int, default=None, help="số nến tối đa mỗi lần gọi (theo C3.01)")
+    ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    ap.add_argument("--exchanges-config", type=Path, default=DEFAULT_EXCHANGES)
+    ap.add_argument("--no-until", action="store_true", help="không gửi tham số until (nếu CCXT/sàn không hỗ trợ)")
+    ap.add_argument("--fresh", action="store_true", help="xóa file tạm theo tháng, tải lại từ đầu")
+    ap.add_argument("--no-quote", action="store_true", help="chỉ dùng fetch_ohlcv của CCXT (volume_quote = NaN)")
+    ap.add_argument("--include-binance-spot", action="store_true",
+                    help="tải cả binance_spot qua CCXT (chỉ để đối chiếu với file Binance Vision của TV2)")
+    a = ap.parse_args(argv)
+
+
+
+
+    a.out.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
+                        handlers=[logging.StreamHandler(), logging.FileHandler(a.out / "ccxt_ohlcv.log", encoding="utf-8")])
+    cfg, ex_cfg = load_yaml(a.config), load_yaml(a.exchanges_config)
+    symbol = cfg.get("symbol", "BTC/USDT")
+    requested = a.venues or [str(v) for v in cfg.get("venues", [])]
+    if not a.include_binance_spot:
+        skipped = [v for v in requested if v in SKIP_BY_DEFAULT]
+        if skipped:
+            LOG.info("Bỏ qua %s: TV2 tải bằng Binance Vision (C2.01). Dùng --include-binance-spot nếu muốn đối chiếu.",
+                     skipped)
+        requested = [v for v in requested if v not in SKIP_BY_DEFAULT]
+    if not requested:
+        sys.exit("Không có venue nào để tải (kiểm tra config/config.yaml: venues).")
+    sample = cfg.get("sample") or {}
+    cfg_start = cfg_end = None
+    if sample.get("start") and sample.get("end"):
+        cfg_start, cfg_end = sample_to_open_range(sample["start"], sample["end"])
+    start_ms = parse_utc_ms(a.start) if a.start else cfg_start
+    end_ms = parse_utc_ms(a.end) if a.end else (cfg_end if cfg_end is not None else int(time.time() * 1000))
+    if start_ms is None:
+        sys.exit("Thiếu khoảng mẫu: truyền --start/--end hoặc điền sample (start, end) trong config/config.yaml.")
+    LOG.info("Khoảng nến cần tải (giờ mở nến, UTC): %s .. %s (không gồm)", ms_to_dt(start_ms), ms_to_dt(end_ms))
+
+
+
+
+    venues = resolve_venues(requested, ex_cfg)
+    failed, reports = [], []
     for v in venues:
+        limit = a.limit or DEFAULT_LIMIT.get(v["ccxt_id"], FALLBACK_LIMIT)
         try:
-            res = collect_venue(v, since_ms, until_ms, out_dir, limit=args.limit, with_quote=args.with_quote)
-            frames[v.venue_id] = res["_frame"]
-            if res["status"] != "complete":
-                failed.append(v.venue_id)
-        except Exception:
-            logger.exception("[%s] THAT BAI - cac venue khac van tiep tuc", v.venue_id)
-            failed.append(v.venue_id)
-
-    for name, stats in crosscheck_close(frames).items():
-        logger.info("crosscheck %s vs %s: %d phut chung, median |diff|=%.2f bps, p99=%.2f bps",
-                    name, stats["vs"], stats["common_minutes"], stats["median_abs_bps"], stats["p99_abs_bps"])
+            reports.append(download_venue(v, symbol, start_ms, end_ms, a.out, limit,
+                                          use_until=not a.no_until, fresh=a.fresh,
+                                          with_quote=not a.no_quote))
+        except Exception as e:  # noqa: BLE001 — một venue lỗi không chặn venue khác
+            LOG.error("[%s] THẤT BẠI: %s: %s", venue_name(v), type(e).__name__, e)
+            failed.append(venue_name(v))
+    if reports:
+        keep = ["venue", "n_rows", "first_utc", "last_utc", "expected_rows", "n_missing", "coverage_pct",
+                "n_gap_events", "max_gap_min", "n_duplicates_removed", "history_starts_later"]
+        print(pd.DataFrame(reports)[keep].to_string(index=False))
     if failed:
-        logger.error("Venue that bai: %s", failed)
-        return 1
-    return 0
+        print("Thất bại:", ", ".join(failed))
+    return 1 if failed else 0
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
+
+
+
+
+
