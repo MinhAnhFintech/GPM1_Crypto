@@ -11,19 +11,20 @@ chỉ giữ ~30 ngày). Mỗi venue perp ghi:
     data/raw/live/funding/funding_report.csv           (số kỳ, khoảng thiếu, khoảng thời gian, thống kê funding)
     data/raw/live/funding/oi_report.csv                (số nến, khoảng thiếu, median OI, giá ngầm định = USDT/BTC để soát đơn vị)
     data/raw/live/funding/funding_snapshots.csv        (chỉ khi dùng --snapshot: funding tạm tính + OI hiện tại, mark/index price)
-    data/processed/funding_oi.parquet                  (BẢNG GỘP, lưới 1 giờ mỗi venue: cái người dùng phân tích cần)
+    data/processed/funding_oi.parquet                  (BẢNG GỘP: mỗi quan sát một dòng; --hourly cho lưới 1 giờ)
 
 Cột file funding: ts_funding_utc, ts_available, exchange, market_type, symbol, funding_rate, funding_rate_bps, funding_interval_h,
-          data_kind, source.
+          data_kind, in_live_window, source.
   * ts_funding_utc = giờ chốt kỳ (làm tròn giây). ts_available = ts_funding_utc: funding của một kỳ chỉ BIẾT tại giờ chốt kỳ đó,
     nên mọi phép ghép/hồi quy phải dùng dữ liệu có ts_available <= t (không look-ahead).
   * funding_rate = tỷ lệ THEO KỲ ở dạng số thập phân (0.0001 = 1 bps cho một kỳ); funding_rate_bps = funding_rate * 1e4.
   * funding_interval_h = khoảng cách giờ tới kỳ trước (phát hiện sàn đổi 8h -> 4h). Kỳ đầu tiên để trống.
-  * data_kind = "live" nếu kỳ chốt từ ngày bắt đầu thu live (live_sessions.yaml: start_date) trở đi, ngược lại "historical".
+  * data_kind = "historical" cho TOÀN BỘ file (dữ liệu lấy qua API lịch sử, một nhãn nguồn cho cả file). Thông tin giai đoạn live giữ ở
+    cột in_live_window (True nếu mốc >= ngày bắt đầu thu live trong live_sessions.yaml: start_date).
   * Không nội suy, không lấp kỳ thiếu: kỳ thiếu được đếm trong funding_report.csv.
 
 Cột file OI: ts_oi_utc, ts_available, exchange, market_type, symbol, timeframe, open_interest_base (BTC), open_interest_usdt,
-          data_kind, source.
+          data_kind, in_live_window, source.
   * ts_oi_utc = mốc sàn gán cho điểm OI; để KHÔNG look-ahead (sàn không nói rõ mốc là đầu hay cuối nến) lấy bảo thủ
     ts_available = ts_oi_utc + độ dài nến.
   * open_interest_base phải tính theo BTC. Nếu sàn trả theo hợp đồng (vd OKX), dùng --oi-mult okx_perp=0.01 (1 hợp đồng = 0.01 BTC).
@@ -38,7 +39,7 @@ BẢNG GỘP data/processed/funding_oi.parquet — MẶC ĐỊNH MỘT DÒNG M�
     ts_utc, ts_available (= ts_utc), exchange, market_type, venue, symbol,
     funding_rate, funding_rate_bps, funding_interval_h, funding_ts_utc   (kỳ funding đã chốt GẦN NHẤT, không quá 2 kỳ),
     open_interest_base, open_interest_usdt, oi_ts_utc                     (nến OI đã khép GẦN NHẤT, không quá 2 nến; ngoài đó để NaN),
-    data_kind
+    data_kind (= "historical"), in_live_window
   * Không nội suy, không lấp: ô nào không có thông tin hợp lệ thì để NaN.
 
 Mặc định tải funding từ sample.start (config.yaml) đến hiện tại; chạy lại bao nhiêu lần cũng được (ghi lại cả file, kết quả xác định).
@@ -90,7 +91,8 @@ OI_REPORT_COLS = ["venue", "n_rows", "first_utc", "last_utc", "timeframe", "n_ex
                   "oi_usdt_median", "implied_price_median", "pct_usdt_missing", "oi_mult", "n_windows", "n_failed_windows",
                   "fetched_at_utc"]
 PROCESSED_COLS = ["ts_utc", "ts_available", "exchange", "market_type", "venue", "symbol", "funding_rate", "funding_rate_bps",
-                  "funding_interval_h", "funding_ts_utc", "open_interest_base", "open_interest_usdt", "oi_ts_utc", "data_kind"]
+                  "funding_interval_h", "funding_ts_utc", "open_interest_base", "open_interest_usdt", "oi_ts_utc", "data_kind",
+                  "in_live_window"]
 
 
 def tf_ms(tf: str) -> int:
@@ -237,12 +239,13 @@ def to_frame(rec: dict, v: dict, live0: datetime):
     df["funding_rate"] = df["funding_rate"].astype("float64")
     df["funding_rate_bps"] = df["funding_rate"] * 1e4
     df["funding_interval_h"] = df["ts_funding_utc"].diff().dt.total_seconds() / 3600.0
-    df["data_kind"] = ["live" if t >= pd.Timestamp(live0) else "historical" for t in df["ts_funding_utc"]]
+    df["data_kind"] = "historical"                              # lấy qua API lịch sử: một nhãn nguồn cho cả file
+    df["in_live_window"] = df["ts_funding_utc"] >= pd.Timestamp(live0)   # giữ thông tin giai đoạn live
     df["exchange"], df["market_type"], df["symbol"], df["source"] = v["exchange"], "perp", "BTC/USDT", "ccxt"
     for c in ("ts_funding_utc", "ts_available"):
         df[c] = df[c].astype("datetime64[ns, UTC]")
     return df[["ts_funding_utc", "ts_available", "exchange", "market_type", "symbol", "funding_rate", "funding_rate_bps",
-               "funding_interval_h", "data_kind", "source"]]
+               "funding_interval_h", "data_kind", "in_live_window", "source"]]
 
 
 def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None):
@@ -257,10 +260,11 @@ def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None
     if mult:
         df["open_interest_base"] = df["open_interest_base"] * mult
     df["timeframe"] = tf
-    df["data_kind"] = ["live" if t >= pd.Timestamp(live0) else "historical" for t in df["ts_oi_utc"]]
+    df["data_kind"] = "historical"                              # lấy qua API lịch sử: một nhãn nguồn cho cả file
+    df["in_live_window"] = df["ts_oi_utc"] >= pd.Timestamp(live0)        # giữ thông tin giai đoạn live
     df["exchange"], df["market_type"], df["symbol"], df["source"] = v["exchange"], "perp", "BTC/USDT", "ccxt"
     return df[["ts_oi_utc", "ts_available", "exchange", "market_type", "symbol", "timeframe", "open_interest_base",
-               "open_interest_usdt", "data_kind", "source"]]
+               "open_interest_usdt", "data_kind", "in_live_window", "source"]]
 
 
 def make_oi_report(df, v, tf, since_ms, until_ms, stats, mult) -> dict:
@@ -410,7 +414,8 @@ def _events(v, fu, oi, live0):
         g[c] = pd.to_datetime(g[c], utc=True).astype("datetime64[ns, UTC]")
     g["ts_utc"] = g["ts_available"]
     g["exchange"], g["market_type"], g["venue"], g["symbol"] = v["exchange"], "perp", v["venue"], "BTC/USDT"
-    g["data_kind"] = ["live" if t >= pd.Timestamp(live0) else "historical" for t in g["ts_utc"]]
+    g["data_kind"] = "historical"                              # lấy qua API lịch sử: một nhãn nguồn cho cả file
+    g["in_live_window"] = g["ts_utc"] >= pd.Timestamp(live0)   # giữ thông tin giai đoạn live
     return g[PROCESSED_COLS]
 
 
@@ -459,7 +464,8 @@ def build_processed(a, venues, live0):
         g = g[g["funding_rate"].notna() | g["open_interest_base"].notna()].copy()
         g["ts_available"] = g["ts_utc"]
         g["exchange"], g["market_type"], g["venue"], g["symbol"] = v["exchange"], "perp", v["venue"], "BTC/USDT"
-        g["data_kind"] = ["live" if t >= pd.Timestamp(live0) else "historical" for t in g["ts_utc"]]
+        g["data_kind"] = "historical"                              # lấy qua API lịch sử: một nhãn nguồn cho cả file
+        g["in_live_window"] = g["ts_utc"] >= pd.Timestamp(live0)   # giữ thông tin giai đoạn live
         parts.append(g[PROCESSED_COLS])
     if not parts:
         print("Chưa có file funding/OI nào để dựng funding_oi")

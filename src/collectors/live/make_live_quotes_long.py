@@ -1,14 +1,10 @@
 """C3.06 — Chuẩn hóa dữ liệu live thô thành data/processed/live_quotes_long.parquet (file bàn giao D2).
 
 
-
-
 Đầu vào : data/raw/live/date=*/session=*/part-*.parquet  (đầu ra của collect_live.py, C3.02/C3.03)
 Đầu ra  : data/processed/live_quotes_long.parquet
           data/processed/live_quotes_long_manifest.csv   (từng phiên x venue: số dòng vào/ra, dòng bị loại, độ lệch giờ)
           data/processed/live_quotes_long_manifest.json  (phiên đã đưa vào / bị loại + lý do, thời điểm tạo)
-
-
 
 
 Cột D2 bắt buộc (đúng thứ tự, đúng tên): ts_recv_utc, ts_event_utc, exchange, symbol, bid, ask, bid_size, ask_size,
@@ -17,16 +13,15 @@ Cột thêm (đặt sau cột D2; cần TV4 ghi vào D2 v1.1): market_type, venu
 depth_cover_bps, depth_{bid,ask}_{5,2}bps_usdt, book_levels_bid/ask, latency_ms.
 
 
-
-
 Quy tắc:
   * mid = (bid+ask)/2 ; spread_abs = ask-bid (USDT) ; spread_bps = spread_abs/mid*1e4 ; data_kind = "live".
   * symbol luôn là BTC/USDT (collector ghi BTC/USDT:USDT cho perp -> đổi về dạng chuẩn; perp nhận biết bằng market_type/venue).
-  * Không nội suy, không điền chỗ thiếu. Dòng bid/ask <= 0 hoặc ask < bid bị LOẠI và đếm trong manifest (không sửa giá).
+  * depth_truncated luôn là bool, không null: phiên thô cũ không có cột này (không đo được độ sâu) -> True theo quy ước collector;
+    số dòng được điền ghi trong manifest.json (depth_truncated_filled_true_rows). Các cột số khác thiếu thì để NaN.
+  * File parquet mang out.attrs["contract_version"] = "1.1" (đọc lại bằng pd.read_parquet(...).attrs).
+  * Không nội suy, không điền giá trị cho cột số. Dòng bid/ask <= 0 hoặc ask < bid bị LOẠI và đếm trong manifest (không sửa giá).
   * Loại phiên TEST; loại phiên đang chạy (file part mới sửa trong --idle-s giây) trừ khi --include-running.
   * Chạy lại bao nhiêu lần cũng được: luôn đọc lại toàn bộ data/raw/live và ghi lại cả bảng (kết quả xác định).
-
-
 
 
 Dùng:
@@ -37,8 +32,6 @@ Dùng:
 from __future__ import annotations
 
 
-
-
 import argparse
 import json
 import sys
@@ -47,14 +40,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-
-
 HERE = Path(__file__).resolve().parent
 UTC = timezone.utc
-
-
-
-
 
 
 
@@ -64,10 +51,6 @@ def _find_project_root() -> Path:
         if any((p / m).exists() for m in (".git", "config", "data", ".venv")):
             return p
     return Path.cwd()
-
-
-
-
 
 
 
@@ -86,16 +69,8 @@ CANONICAL_SYMBOL = "BTC/USDT"
 
 
 
-
-
-
-
 def session_of(path: Path) -> str:
     return path.parent.name.replace("session=", "")
-
-
-
-
 
 
 
@@ -121,10 +96,6 @@ def discover(raw_dir: Path, idle_s: float, include_running: bool, exclude: set[s
 
 
 
-
-
-
-
 def read_part(f: Path):
     import pandas as pd
     df = pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f)
@@ -132,10 +103,6 @@ def read_part(f: Path):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], utc=True)
     return df
-
-
-
-
 
 
 
@@ -190,6 +157,9 @@ def build(raw_dir: Path, exchanges: list[str] | None, idle_s: float, include_run
     for c in TIME_COLS:
         df[c] = df[c].astype("datetime64[ns, UTC]")
     df = df.sort_values(["ts_recv_utc", "venue"]).reset_index(drop=True)
+    # Phiên thô cũ không đo depth -> cờ cắt = True theo quy ước collector; hợp đồng D2 v1.1 cần bool không null
+    n_trunc_filled = int(df["depth_truncated"].isna().sum())
+    df["depth_truncated"] = df["depth_truncated"].fillna(True).astype(bool)
     out = df[D2_COLS + EXTRA_COLS]
     # manifest theo phiên x venue
     g = df.assign(lag_ms=(df["ts_recv_utc"] - df["ts_event_utc"]).dt.total_seconds() * 1000)
@@ -207,14 +177,10 @@ def build(raw_dir: Path, exchanges: list[str] | None, idle_s: float, include_run
         ["session_id", "exchange", "market_type", "rows_in", "dup_removed", "invalid_removed", "rows_out", "first_recv_utc",
          "last_recv_utc", "median_spread_bps", "pct_event_ts_missing", "median_recv_minus_event_ms", "pct_depth_10bps_missing"]]
     info = {"created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"), "sessions_included": sorted(use),
-            "sessions_skipped": skipped, "size_fixes": size_fixes, "exchanges_filtered_out": skipped_ex, "rows_total": int(len(out)),
+            "sessions_skipped": skipped, "size_fixes": size_fixes, "depth_truncated_filled_true_rows": n_trunc_filled, "exchanges_filtered_out": skipped_ex, "rows_total": int(len(out)),
             "rows_by_venue": out.groupby("venue").size().astype(int).to_dict(),
             "first_ts_recv_utc": str(out["ts_recv_utc"].min()), "last_ts_recv_utc": str(out["ts_recv_utc"].max())}
     return out, man, info
-
-
-
-
 
 
 
@@ -235,6 +201,7 @@ def main(argv=None):
     a.out.parent.mkdir(parents=True, exist_ok=True)
     out_path = a.out if a.format == "parquet" else a.out.with_suffix(".csv")
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    out.attrs["contract_version"] = "1.1"          # parquet lưu kèm phiên bản hợp đồng dữ liệu (D2 v1.1)
     (out.to_parquet(tmp, index=False) if a.format == "parquet" else out.to_csv(tmp, index=False))
     tmp.replace(out_path)
     man.to_csv(a.out.with_name(a.out.stem + "_manifest.csv"), index=False)
@@ -250,10 +217,5 @@ def main(argv=None):
 
 
 
-
-
-
-
 if __name__ == "__main__":
     sys.exit(main())
-
