@@ -1,13 +1,10 @@
 # DATA DICTIONARY
 
-Tài liệu mô tả tên cột, kiểu dữ liệu, đơn vị và ý nghĩa của các dataset
-D1–D9 theo `DATA_CONTRACT.md`.
+Tài liệu mô tả tên cột, kiểu dữ liệu, đơn vị và ý nghĩa của các dataset D1–D9 theo `DATA_CONTRACT.md`.
 
 **Nguồn:** Data Contract v1.0 (D2 mở rộng v1.1).
 
-**Trạng thái đối chiếu:** Tại ngày 20/10/2026, D1 đã có dữ liệu thực tế
-và được đối chiếu. D2–D9 chưa có output thực tế nên hiện được mô tả theo
-Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn giao.
+**Trạng thái đối chiếu:** D1, D3 và D4 đã có dữ liệu/bản bàn giao thực tế và đã được đối chiếu. D2, D3b và D5–D9 tiếp tục được mô tả theo Data Contract cho đến khi hoàn tất đối chiếu output tương ứng.
 
 ## Quy ước chung
 
@@ -43,7 +40,8 @@ Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn g
 | `volume_quote` | float64 | USDT | Khối lượng theo tài sản định giá |
 | `data_kind` | string | — | Loại dữ liệu |
 
-**Đối chiếu dữ liệu thật:** 
+**Đối chiếu dữ liệu thật:**
+
 Đã đối chiếu với file `ohlcv_1m_long.parquet` hiện có.
 
 - Kích thước thực tế: 3.006.714 dòng × 11 cột.
@@ -108,7 +106,17 @@ Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn g
 | `volume_base__{venue}` | float64 | BTC | Khối lượng theo venue |
 | `missing__{venue}` | bool | — | Cờ dữ liệu thiếu của venue |
 
-**Đối chiếu:** Chưa có output thực tế.
+**Đối chiếu dữ liệu thật:**
+
+Đã đối chiếu với `data/processed/panel_1m_wide.parquet` do TV4 bàn giao.
+
+- Kích thước thực tế: 501.119 dòng × 24 cột.
+- Index `ts_available` là thời gian UTC, tăng dần và không trùng.
+- Có đủ 6 venue: `binance_spot`, `binance_perp`, `bybit_spot`, `bybit_perp`, `okx_spot`, `okx_perp`.
+- Mỗi venue có 4 trường: `close__{venue}`, `log_close__{venue}`, `volume_base__{venue}` và `missing__{venue}`.
+- Các cột giá, log-price và volume có kiểu `float64`; các cột `missing__{venue}` có kiểu `bool`.
+- Bản bàn giao TV4 không ghi nhận dòng thiếu trên panel.
+- Khoảng thời gian quan sát: từ `2025-10-18 00:01:00+00:00` đến `2026-09-30 23:59:00+00:00`.
 
 ## D3b — Features 1 phút
 
@@ -130,12 +138,41 @@ Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn g
 
 | Trường | Kiểu | Đơn vị | Ý nghĩa |
 | --- | --- | --- | --- |
+| `contract_version` | string | — | Phiên bản Data Contract áp dụng cho split manifest |
+| `data_kind` | string | — | Loại dữ liệu được chia mẫu; bản bàn giao hiện tại là `historical` |
+| `fingerprint` | string | — | Fingerprint dùng để nhận diện đúng dữ liệu và schema đầu vào của phép chia mẫu |
+| `fingerprint_method` | string | — | Phương pháp tạo fingerprint |
+| `n_obs` | integer | số quan sát | Tổng số quan sát của panel được chia mẫu |
+| `ratios` | array[float] | tỷ lệ | Tỷ lệ chia theo thứ tự development, validation và final test |
+| `counts` | object | số quan sát | Số dòng thực tế của từng tập `dev`, `val`, `test` |
+| `test_policy` | string | — | Chính sách sử dụng final test |
+| `test_consumed` | bool | — | Cho biết final test đã được sử dụng cho lần đánh giá cuối hay chưa |
 | `dev_start`, `dev_end` | timestamp UTC | UTC | Bắt đầu và kết thúc development sample |
 | `val_start`, `val_end` | timestamp UTC | UTC | Bắt đầu và kết thúc validation sample |
 | `test_start`, `test_end` | timestamp UTC | UTC | Bắt đầu và kết thúc final test |
-| `fingerprint` | string | — | SHA-256 fingerprint của dữ liệu/schema |
 
-**Đối chiếu:** Chưa có output thực tế.
+### Khóa `.test.lock`
+
+`.test.lock` là khóa bảo vệ quy trình final test. Khóa này được sử dụng cùng với `test_policy` và `test_consumed` nhằm hạn chế việc final test bị chạy lặp lại hoặc được sử dụng trong quá trình lựa chọn tham số.
+
+Development và validation được sử dụng trong quá trình xây dựng, điều chỉnh và lựa chọn mô hình. Final test chỉ được sử dụng cho lần đánh giá cuối theo chính sách của pipeline. Vì vậy, không chỉnh tay hoặc xóa `.test.lock` để vượt qua cơ chế bảo vệ final test.
+
+**Đối chiếu dữ liệu thật:**
+
+Đã đối chiếu với split manifest do TV4 bàn giao:
+
+- `contract_version = "1.0"`.
+- `data_kind = "historical"`.
+- `n_obs = 501119`.
+- `ratios = [0.6, 0.2, 0.2]`.
+- `counts = {dev: 300671, val: 100223, test: 100225}`.
+- Development: `2025-10-18T00:01:00+00:00` đến `2026-05-14T19:11:00+00:00`.
+- Validation: `2026-05-14T19:12:00+00:00` đến `2026-07-23T09:34:00+00:00`.
+- Final test: `2026-07-23T09:35:00+00:00` đến `2026-09-30T23:59:00+00:00`.
+- `fingerprint = 9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4`.
+- `fingerprint_method = "sha256:pandas_hash_values+schema+index+attrs"`.
+- `test_policy = "single_final_evaluation"`.
+- `test_consumed = false`: tại thời điểm bàn giao, final test chưa được sử dụng cho đánh giá cuối.
 
 ## D5 — Regime Flags
 
@@ -178,7 +215,7 @@ Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn g
 
 | Cột | Kiểu | Đơn vị | Ý nghĩa |
 | --- | --- | --- | --- |
-| `event_id` | string/int | — | ID sự kiện |
+| `event_id` | string | — | ID sự kiện; validator chỉ chấp nhận kiểu chuỗi |
 | `ts_start` | datetime64[ns, UTC] | UTC | Bắt đầu sự kiện |
 | `ts_end` | datetime64[ns, UTC] | UTC | Kết thúc sự kiện |
 | `duration_s` | numeric | giây | Thời lượng sự kiện |
@@ -197,7 +234,7 @@ Data Contract và sẽ được cập nhật sau khi dữ liệu được bàn g
 
 | Cột | Kiểu | Đơn vị | Ý nghĩa |
 | --- | --- | --- | --- |
-| `signal_id` | string/int | — | ID tín hiệu |
+| `signal_id` | string | — | ID tín hiệu; validator chỉ chấp nhận kiểu chuỗi |
 | `ts_decision` | datetime64[ns, UTC] | UTC | Thời điểm ra quyết định |
 | `ts_fill` | datetime64[ns, UTC], nullable | UTC | Thời điểm khớp lệnh |
 | `market_type` | string | — | `spot` hoặc `perp` |
