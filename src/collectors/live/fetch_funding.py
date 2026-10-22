@@ -1,13 +1,10 @@
 """C3.09 (BẮT BUỘC) — Funding rate + Open interest của hợp đồng perpetual (BTC/USDT:USDT) qua CCXT, phục vụ RQ3 (spot hay perp dẫn giá), bảng T1 và C5.09.
 
-
 Funding và OI là BIẾN MÔ TẢ. KHÔNG đưa funding vào net_gap_bps (cash-and-carry nằm ngoài phạm vi bài).
-
 
 Funding chỉ chốt mỗi kỳ (thường 8 giờ: 00:00, 08:00, 16:00 UTC) nên KHÔNG cần thu mỗi 5 giây: tải LỊCH SỬ các kỳ đã chốt bằng
 fetch_funding_rate_history. Open interest tải bằng fetch_open_interest_history (mặc định nến 1 giờ, 29 ngày gần nhất vì Binance
 chỉ giữ ~30 ngày). Mỗi venue perp ghi:
-
 
     data/raw/live/funding/{venue}_funding.parquet      (venue = binance_perp, okx_perp, bybit_perp)
     data/raw/live/funding/{venue}_oi.parquet
@@ -15,7 +12,6 @@ chỉ giữ ~30 ngày). Mỗi venue perp ghi:
     data/raw/live/funding/oi_report.csv                (số nến, khoảng thiếu, median OI, giá ngầm định = USDT/BTC để soát đơn vị)
     data/raw/live/funding/funding_snapshots.csv        (chỉ khi dùng --snapshot: funding tạm tính + OI hiện tại, mark/index price)
     data/processed/funding_oi.parquet                  (BẢNG GỘP, lưới 1 giờ mỗi venue: cái người dùng phân tích cần)
-
 
 Cột file funding: ts_funding_utc, ts_available, exchange, market_type, symbol, funding_rate, funding_rate_bps, funding_interval_h,
           data_kind, source.
@@ -26,7 +22,6 @@ Cột file funding: ts_funding_utc, ts_available, exchange, market_type, symbol,
   * data_kind = "live" nếu kỳ chốt từ ngày bắt đầu thu live (live_sessions.yaml: start_date) trở đi, ngược lại "historical".
   * Không nội suy, không lấp kỳ thiếu: kỳ thiếu được đếm trong funding_report.csv.
 
-
 Cột file OI: ts_oi_utc, ts_available, exchange, market_type, symbol, timeframe, open_interest_base (BTC), open_interest_usdt,
           data_kind, source.
   * ts_oi_utc = mốc sàn gán cho điểm OI; để KHÔNG look-ahead (sàn không nói rõ mốc là đầu hay cuối nến) lấy bảo thủ
@@ -34,17 +29,19 @@ Cột file OI: ts_oi_utc, ts_available, exchange, market_type, symbol, timeframe
   * open_interest_base phải tính theo BTC. Nếu sàn trả theo hợp đồng (vd OKX), dùng --oi-mult okx_perp=0.01 (1 hợp đồng = 0.01 BTC).
     Cách soát: cột implied_price_median trong oi_report.csv (= USDT / BTC) phải xấp xỉ giá BTC (~chục nghìn USDT), không phải 100 hay 1e6.
 
-
-BẢNG GỘP data/processed/funding_oi.parquet (lưới 1 giờ, mỗi hàng chỉ dùng thông tin có ts_available <= ts_utc):
+BẢNG GỘP data/processed/funding_oi.parquet — MẶC ĐỊNH MỘT DÒNG MỖI QUAN SÁT, KHÔNG LẶP, KHÔNG LẤP:
+  * dòng funding nằm tại giờ chốt kỳ (funding_* có giá trị, OI trống nếu không trùng giờ nến OI);
+  * dòng OI nằm tại ts_available của nến (OI có giá trị, funding_* trống); nếu trùng giờ thì gộp một dòng;
+  * ts_utc = ts_available. Muốn đếm số kỳ funding: dòng có funding_rate không trống (= số dòng của file *_funding).
+  * Muốn lưới 1 giờ để ghép chuỗi giờ: chạy với --hourly (khi đó funding bị chép lại 8 hàng/kỳ), cấu trúc như dưới:
+  Lưới 1 giờ (--hourly), mỗi hàng chỉ dùng thông tin có ts_available <= ts_utc:
     ts_utc, ts_available (= ts_utc), exchange, market_type, venue, symbol,
     funding_rate, funding_rate_bps, funding_interval_h, funding_ts_utc   (kỳ funding đã chốt GẦN NHẤT, không quá 2 kỳ),
     open_interest_base, open_interest_usdt, oi_ts_utc                     (nến OI đã khép GẦN NHẤT, không quá 2 nến; ngoài đó để NaN),
     data_kind
   * Không nội suy, không lấp: ô nào không có thông tin hợp lệ thì để NaN.
 
-
 Mặc định tải funding từ sample.start (config.yaml) đến hiện tại; chạy lại bao nhiêu lần cũng được (ghi lại cả file, kết quả xác định).
-
 
 Dùng:
     python src\\collectors\\live\\fetch_funding.py --probe       # thử, KHÔNG ghi file: sàn trả được từ khi nào, bao nhiêu kỳ/nến
@@ -56,7 +53,6 @@ Dùng:
 """
 from __future__ import annotations
 
-
 import argparse
 import random
 import sys
@@ -64,9 +60,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 import yaml
-
 
 HERE = Path(__file__).resolve().parent
 UTC = timezone.utc
@@ -74,15 +68,11 @@ H_MS = 3_600_000
 TF_MS = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
 
 
-
-
 def _find_project_root() -> Path:
     for p in [HERE, *HERE.parents]:
         if any((p / m).exists() for m in (".git", "config", "data", ".venv")):
             return p
     return Path.cwd()
-
-
 
 
 ROOT = _find_project_root()
@@ -103,12 +93,8 @@ PROCESSED_COLS = ["ts_utc", "ts_available", "exchange", "market_type", "venue", 
                   "funding_interval_h", "funding_ts_utc", "open_interest_base", "open_interest_usdt", "oi_ts_utc", "data_kind"]
 
 
-
-
 def tf_ms(tf: str) -> int:
     return int(tf[:-1]) * TF_MS[tf[-1].lower()]
-
-
 
 
 def parse_mults(items) -> dict:
@@ -119,8 +105,6 @@ def parse_mults(items) -> dict:
                 k, _, x = part.partition("=")
                 out[k.strip()] = float(x)
     return out
-
-
 
 
 # ----------------------------------------------------------------------------- cấu hình
@@ -135,8 +119,6 @@ def parse_ts(s) -> datetime:
             return datetime.fromisoformat(s).replace(tzinfo=UTC)
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-
-
 
 
 def load_cfg(config_dir: Path):
@@ -155,8 +137,6 @@ def load_cfg(config_dir: Path):
     return cfg, venues
 
 
-
-
 def live_start(config_dir: Path) -> datetime:
     """Ngày bắt đầu thu live (live_sessions.yaml: start_date 00:00 giờ VN); không có file thì 2026-10-17 00:00 +07."""
     p = config_dir / "live_sessions.yaml"
@@ -169,14 +149,10 @@ def live_start(config_dir: Path) -> datetime:
         return datetime(2026, 10, 16, 17, 0, tzinfo=UTC)
 
 
-
-
 # ----------------------------------------------------------------------------- sàn + retry
 def make_exchange(ccxt_id: str):
     import ccxt
     return getattr(ccxt, ccxt_id)({"enableRateLimit": True, "timeout": 15000})
-
-
 
 
 def is_transient(e: Exception) -> bool:
@@ -184,8 +160,6 @@ def is_transient(e: Exception) -> bool:
     return (isinstance(e, (TimeoutError, ConnectionError))
             or any(k in n for k in ("timeout", "network", "notavailable", "unavailable", "ddos", "ratelimit", "connection"))
             or "too many" in msg or "429" in msg or "503" in msg or "502" in msg)
-
-
 
 
 def with_retry(fn, tries: int = 7, label: str = ""):
@@ -200,8 +174,6 @@ def with_retry(fn, tries: int = 7, label: str = ""):
             time.sleep(wait)
 
 
-
-
 def fetch_window(ex, symbol, s_ms, e_ms, limit):
     """Các kỳ chốt trong [s, e): gửi cả since và until để sàn trả đúng cửa sổ (Binance endTime, OKX after, Bybit endTime)."""
     rows = ex.fetch_funding_rate_history(symbol, s_ms, limit, {"until": e_ms})
@@ -213,8 +185,6 @@ def fetch_window(ex, symbol, s_ms, e_ms, limit):
     return keep
 
 
-
-
 def fetch_window_oi(ex, symbol, s_ms, e_ms, limit, tf="1h"):
     """Các nến OI có mốc trong [s, e): {ts_ms: (open_interest_base, open_interest_usdt)}."""
     rows = ex.fetch_open_interest_history(symbol, tf, s_ms, limit, {"until": e_ms})
@@ -224,8 +194,6 @@ def fetch_window_oi(ex, symbol, s_ms, e_ms, limit, tf="1h"):
         if t is not None and s_ms <= int(t) < e_ms and (amt is not None or val is not None):
             keep[int(t)] = (None if amt is None else float(amt), None if val is None else float(val))
     return keep
-
-
 
 
 def fetch_span(ex, symbol, s_ms, e_ms, limit, label, stats, depth=0, win=None, soft=False):
@@ -249,8 +217,6 @@ def fetch_span(ex, symbol, s_ms, e_ms, limit, label, stats, depth=0, win=None, s
     return got
 
 
-
-
 def fetch_all(ex, symbol, s_ms, e_ms, limit, label, stats, win=None, soft=False, step_days=WINDOW_DAYS):
     out, cur = {}, s_ms
     step = step_days * 24 * H_MS
@@ -259,8 +225,6 @@ def fetch_all(ex, symbol, s_ms, e_ms, limit, label, stats, win=None, soft=False,
         out.update(fetch_span(ex, symbol, cur, nxt, limit, label, stats, 0, win, soft))
         cur = nxt
     return out
-
-
 
 
 # ----------------------------------------------------------------------------- bảng + báo cáo
@@ -281,8 +245,6 @@ def to_frame(rec: dict, v: dict, live0: datetime):
                "funding_interval_h", "data_kind", "source"]]
 
 
-
-
 def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None):
     import pandas as pd
     df = pd.DataFrame([(t, a, b) for t, (a, b) in sorted(rec.items())], columns=["ts", "open_interest_base", "open_interest_usdt"])
@@ -301,8 +263,6 @@ def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None
                "open_interest_usdt", "data_kind", "source"]]
 
 
-
-
 def make_oi_report(df, v, tf, since_ms, until_ms, stats, mult) -> dict:
     step = tf_ms(tf)
     gaps = df["ts_oi_utc"].diff().dropna().dt.total_seconds() * 1000
@@ -315,8 +275,6 @@ def make_oi_report(df, v, tf, since_ms, until_ms, stats, mult) -> dict:
             "implied_price_median": float(implied), "pct_usdt_missing": float(df["open_interest_usdt"].isna().mean() * 100),
             "oi_mult": mult if mult else 1.0, "n_windows": stats["windows"], "n_failed_windows": stats["failed"],
             "fetched_at_utc": datetime.now(UTC).isoformat(timespec="seconds")}
-
-
 
 
 def make_report(df, v, since_ms, until_ms, stats) -> dict:
@@ -335,15 +293,11 @@ def make_report(df, v, since_ms, until_ms, stats) -> dict:
             "n_failed_windows": stats["failed"], "fetched_at_utc": datetime.now(UTC).isoformat(timespec="seconds")}
 
 
-
-
 def write_frame(df, path: Path, fmt: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     (df.to_parquet(tmp, index=False) if fmt == "parquet" else df.to_csv(tmp, index=False))
     tmp.replace(path)
-
-
 
 
 def save_report(out_dir: Path, rows, name="funding_report.csv", cols=None):
@@ -354,8 +308,6 @@ def save_report(out_dir: Path, rows, name="funding_report.csv", cols=None):
         old = pd.read_csv(path)
         new = pd.concat([old[~old["venue"].isin(new["venue"])], new], ignore_index=True)
     new.sort_values("venue").to_csv(path, index=False)
-
-
 
 
 # ----------------------------------------------------------------------------- thao tác
@@ -381,12 +333,8 @@ def run_venue(v, a, since_ms, until_ms, live0, make_ex=None):
     return rep
 
 
-
-
 def oi_since_ms(a, since_ms, until_ms):
     return max(since_ms, until_ms - int(a.oi_days * 24 * H_MS))
-
-
 
 
 def run_oi(v, a, since_ms, until_ms, live0, mults, make_ex=None):
@@ -419,8 +367,6 @@ def run_oi(v, a, since_ms, until_ms, live0, mults, make_ex=None):
     return rep
 
 
-
-
 def probe_oi(v, a, since_ms, until_ms, make_ex=None):
     ex = (make_ex or make_exchange)(v["ccxt_id"])
     tf = a.oi_timeframe
@@ -441,8 +387,6 @@ def probe_oi(v, a, since_ms, until_ms, make_ex=None):
               f"{b[len(b)//2] if b else float('nan'):,.1f}, usdt median {u[len(u)//2] if u else float('nan'):,.0f}")
 
 
-
-
 def _read(path: Path, cols):
     import pandas as pd
     df = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
@@ -451,6 +395,23 @@ def _read(path: Path, cols):
     return df.sort_values(cols[0]).reset_index(drop=True)
 
 
+def _events(v, fu, oi, live0):
+    """Dạng sự kiện: dòng funding (tại giờ chốt kỳ) và dòng OI (tại ts_available) xếp chung một bảng; trùng giờ thì gộp một dòng."""
+    import pandas as pd
+    fcols = ["ts_available", "ts_funding_utc", "funding_rate", "funding_rate_bps", "funding_interval_h"]
+    ocols = ["ts_available", "ts_oi_utc", "open_interest_base", "open_interest_usdt"]
+    f2 = fu[fcols] if fu is not None else pd.DataFrame({c: [] for c in fcols})
+    o2 = oi[ocols] if oi is not None else pd.DataFrame({c: [] for c in ocols})
+    for d in (f2, o2):
+        d["ts_available"] = d["ts_available"].astype("datetime64[ns, UTC]")
+    g = pd.merge(f2, o2, on="ts_available", how="outer").sort_values("ts_available").reset_index(drop=True)
+    g = g.rename(columns={"ts_funding_utc": "funding_ts_utc", "ts_oi_utc": "oi_ts_utc"})
+    for c in ("funding_ts_utc", "oi_ts_utc"):
+        g[c] = pd.to_datetime(g[c], utc=True).astype("datetime64[ns, UTC]")
+    g["ts_utc"] = g["ts_available"]
+    g["exchange"], g["market_type"], g["venue"], g["symbol"] = v["exchange"], "perp", v["venue"], "BTC/USDT"
+    g["data_kind"] = ["live" if t >= pd.Timestamp(live0) else "historical" for t in g["ts_utc"]]
+    return g[PROCESSED_COLS]
 
 
 def build_processed(a, venues, live0):
@@ -463,6 +424,9 @@ def build_processed(a, venues, live0):
         fu = _read(fp, ["ts_funding_utc", "ts_available"]) if fp.exists() else None
         oi = _read(op, ["ts_oi_utc", "ts_available"]) if op.exists() else None
         if fu is None and oi is None:
+            continue
+        if not a.hourly:                                   # mặc định: MỖI QUAN SÁT MỘT DÒNG, không lặp, không lấp
+            parts.append(_events(v, fu, oi, live0))
             continue
         starts, ends = [], []
         if fu is not None:
@@ -511,8 +475,6 @@ def build_processed(a, venues, live0):
     return out
 
 
-
-
 def probe(v, since_ms, until_ms, limit, make_ex=None):
     ex = (make_ex or make_exchange)(v["ccxt_id"])
     limit = limit or LIMITS.get(v["ccxt_id"], DEFAULT_LIMIT)
@@ -530,8 +492,6 @@ def probe(v, since_ms, until_ms, limit, make_ex=None):
         print(f"    {name}: {len(ts)} kỳ, {datetime.fromtimestamp(ts[0]/1000, UTC):%Y-%m-%d %H:%M} -> "
               f"{datetime.fromtimestamp(ts[-1]/1000, UTC):%Y-%m-%d %H:%M}, funding {min(got.values())*1e4:.3f} .. "
               f"{max(got.values())*1e4:.3f} bps/kỳ")
-
-
 
 
 def snapshot(v, a, make_ex=None, mults=None):
@@ -557,8 +517,6 @@ def snapshot(v, a, make_ex=None, mults=None):
           f"oi={row['open_interest_base']}")
 
 
-
-
 def main(argv=None, make_ex=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--venues", help="danh sách venue perp, cách nhau dấu phẩy (mặc định: mọi perp trong config.yaml)")
@@ -574,6 +532,8 @@ def main(argv=None, make_ex=None):
     ap.add_argument("--oi-mult", action="append", help="nhân open_interest_base, vd okx_perp=0.01 (sàn trả theo hợp đồng)")
     ap.add_argument("--no-oi", action="store_true", help="bỏ qua open interest (chỉ funding)")
     ap.add_argument("--processed", type=Path, default=DEFAULT_PROCESSED, help="đường dẫn funding_oi.parquet")
+    ap.add_argument("--hourly", action="store_true",
+                    help="funding_oi dạng lưới 1 giờ (funding lặp lại 8 lần/kỳ; chỉ để ghép chuỗi giờ). Mặc định: 1 dòng mỗi quan sát")
     ap.add_argument("--build-only", action="store_true", help="chỉ dựng lại funding_oi từ các file đã tải, không gọi sàn")
     ap.add_argument("--probe", action="store_true", help="chỉ thử, không ghi file")
     ap.add_argument("--snapshot", action="store_true", help="thêm funding tạm tính hiện tại vào funding_snapshots.csv")
@@ -634,8 +594,5 @@ def main(argv=None, make_ex=None):
         build_processed(a, all_venues, live0)
 
 
-
-
 if __name__ == "__main__":
     sys.exit(main())
-
