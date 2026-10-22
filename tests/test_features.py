@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 import pytest
+from scripts import build_features_1m as feature_runner
 from src.features.features_1m import build_features_1m
+from src.utils.io_utils import read_parquet, write_parquet
 from src.utils.schema import validate_frame
 
 
@@ -81,10 +83,12 @@ def test_dispersion_matches_dashboard_formula_and_requires_all_prices(panel):
     expected_spot = (102 - 100) / ((102 + 100) / 2) * 10_000
     assert features["dispersion_bps_spot"].iloc[0] == pytest.approx(expected_spot)
 
-    panel.loc[panel.index[0], "close__okx_spot"] = np.nan
+    timestamp = panel.index[0]
+    panel.loc[timestamp, ["close__okx_spot", "log_close__okx_spot", "volume_base__okx_spot"]] = np.nan
+    panel.loc[timestamp, "missing__okx_spot"] = True
     features = build_features_1m(panel)
-    assert np.isnan(features["dispersion_bps_spot"].iloc[0])
-    assert np.isfinite(features["dispersion_bps_perp"].iloc[0])
+    assert np.isnan(features.loc[timestamp, "dispersion_bps_spot"])
+    assert np.isfinite(features.loc[timestamp, "dispersion_bps_perp"])
 
 
 def test_features_keep_panel_provenance(panel):
@@ -92,3 +96,48 @@ def test_features_keep_panel_provenance(panel):
 
     assert features.attrs["data_kind"] == "synthetic"
     assert features.attrs["contract_version"] == "1.0"
+
+
+def test_rejects_missing_minute_from_panel_grid(panel):
+    broken_panel = panel.drop(index=panel.index[2])
+
+    with pytest.raises(ValueError, match="continuous one-minute grid"):
+        build_features_1m(broken_panel)
+
+
+def test_rejects_timestamp_off_minute_grid(panel):
+    broken_panel = panel.copy()
+    broken_panel.index = broken_panel.index.where(
+        broken_panel.index != broken_panel.index[2],
+        broken_panel.index[2] + pd.Timedelta(seconds=30),
+    )
+
+    with pytest.raises(ValueError, match="align to whole minutes"):
+        build_features_1m(broken_panel)
+
+
+def test_synthetic_cli_defaults_to_synthetic_output(panel, tmp_path, monkeypatch):
+    panel_path = tmp_path / "panel.parquet"
+    write_parquet(panel, panel_path, "D3")
+    monkeypatch.setattr(feature_runner, "ROOT", tmp_path)
+
+    feature_runner.main(["--panel", str(panel_path)])
+
+    output_path = tmp_path / "outputs/synthetic/features_1m.parquet"
+    features = read_parquet(output_path, "D3b")
+    assert features.attrs["data_kind"] == "synthetic"
+    assert not (tmp_path / "data/processed/features_1m.parquet").exists()
+
+
+def test_synthetic_cli_cannot_overwrite_research_output(panel, tmp_path, monkeypatch):
+    panel_path = tmp_path / "panel.parquet"
+    output_path = tmp_path / "data/processed/features_1m.parquet"
+    write_parquet(panel, panel_path, "D3")
+    output_path.parent.mkdir(parents=True)
+    output_path.write_bytes(b"preserve historical output")
+    monkeypatch.setattr(feature_runner, "ROOT", tmp_path)
+
+    with pytest.raises(ValueError, match="Synthetic output must not overlap research data"):
+        feature_runner.main(["--panel", str(panel_path), "--out", str(output_path)])
+
+    assert output_path.read_bytes() == b"preserve historical output"

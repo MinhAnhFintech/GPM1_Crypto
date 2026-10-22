@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+from src.utils.schema import validate_frame
+
 
 def build_features_1m(panel: pd.DataFrame, rv_window: int = 60,
                       rv_min_periods: int = 60) -> pd.DataFrame:
@@ -8,9 +10,16 @@ def build_features_1m(panel: pd.DataFrame, rv_window: int = 60,
 
     Đơn vị: ret_1m, rv_60m = log return/phút (không nhân bps);
     vol_share = tỷ lệ [0,1] trong cùng market_type; dispersion_bps_* = bps.
-    Thời gian: tại t chỉ dùng dữ liệu có ts_available <= t (cửa sổ trượt quá khứ).
+    Thời gian: yêu cầu D3 có lưới UTC liên tục 1 phút; tại t chỉ dùng dữ liệu đến t.
     Thiếu dữ liệu: giữ NaN, không nội suy/ffill.
     """
+    validate_frame(panel, "D3")
+    index = panel.index
+    if not index.equals(index.floor("min")):
+        raise ValueError("D3 index timestamps must align to whole minutes")
+    if len(index) > 1 and ((index[1:] - index[:-1]) != pd.Timedelta(minutes=1)).any():
+        raise ValueError("D3 index must be a continuous one-minute grid")
+
     venues = [c.split("__", 1)[1] for c in panel.columns if c.startswith("close__")]
     if not venues:
         raise ValueError("panel must contain close__{venue} columns")
