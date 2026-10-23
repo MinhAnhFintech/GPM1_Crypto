@@ -4,8 +4,7 @@ Tài liệu mô tả tên cột, kiểu dữ liệu, đơn vị và ý nghĩa c�
 
 **Nguồn:** Data Contract v1.0 (D2 mở rộng v1.1).
 
-**Trạng thái đối chiếu:** D1, D3 và D4 đã có dữ liệu/bản bàn giao thực tế và đã được đối chiếu. D2, D3b và D5–D9 tiếp tục được mô tả theo Data Contract cho đến khi hoàn tất đối chiếu output tương ứng.
-
+**Trạng thái đối chiếu:** D1, D3, D3b, D4 và D5 đã có dữ liệu/bản bàn giao thực tế và đã được đối chiếu. D2 và D6–D9 tiếp tục được mô tả theo Data Contract cho đến khi hoàn tất đối chiếu output tương ứng.
 ## Quy ước chung
 
 | Nội dung | Quy ước |
@@ -130,7 +129,15 @@ Tài liệu mô tả tên cột, kiểu dữ liệu, đơn vị và ý nghĩa c�
 | `dispersion_bps_spot` | float64 | bps | Độ phân tán giá giữa các venue spot |
 | `dispersion_bps_perp` | float64 | bps | Độ phân tán giá giữa các venue perp |
 
-**Đối chiếu:** Chưa có output thực tế.
+**Đối chiếu dữ liệu thật:**
+
+Đã đối chiếu với file `features_1m.parquet` hiện có.
+
+- Kích thước thực tế: 501.119 dòng × 20 cột.
+- Index `ts_available` là thời gian UTC.
+- Khoảng thời gian quan sát: từ `2025-10-18 00:01:00+00:00` đến `2026-09-30 23:59:00+00:00`.
+- Số quan sát và phạm vi thời gian khớp với panel D3 đã được bàn giao.
+- File chứa các nhóm biến đặc trưng được quy định cho D3b, gồm lợi suất 1 phút, tỷ trọng volume, realized volatility 60 phút và độ phân tán giá giữa các venue.
 
 ## D4 — Split Manifest
 
@@ -186,7 +193,19 @@ Development và validation được sử dụng trong quá trình xây dựng, �
 | `flag_event` | bool | — | Cờ cửa sổ sự kiện |
 | `regime_bull_bear` | string | — | Nhãn chế độ bull/bear |
 
-**Đối chiếu:** Chưa có output thực tế.
+**Đối chiếu dữ liệu thật:**
+
+Đã đối chiếu với file `regime_flags.parquet` được tạo từ pipeline C1.06.
+
+- Kích thước thực tế: 501.119 dòng × 5 cột.
+- Có đủ 5 trường: `ts_available`, `flag_high_vol`, `flag_weekend`, `flag_event` và `regime_bull_bear`.
+- Khoảng thời gian quan sát: từ `2025-10-18 00:01:00+00:00` đến `2026-09-30 23:59:00+00:00`, khớp với D3b.
+- `flag_high_vol = true`: 40.635 quan sát.
+- `flag_weekend = true`: 143.999 quan sát.
+- `flag_event = true`: 28.800 quan sát.
+- `regime_bull_bear`: 218.496 quan sát `bull`, 239.424 quan sát `bear` và 43.199 quan sát chưa có nhãn do giai đoạn warm-up hoặc thiếu giá.
+- Tổng số quan sát của các trạng thái `regime_bull_bear` bằng 501.119, khớp với tổng số dòng của D5.
+- D5 có cùng số quan sát và cùng phạm vi timestamp với D3b.
 
 ## D6 — Rolling Information Share
 
