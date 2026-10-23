@@ -430,6 +430,15 @@ def run(cfg, out_dir: Path, fmt: str, test_minutes: float | None, min_remaining:
     LOG.info("Hết lịch thu thập.")
 
 
+def _cover_stats(group) -> dict:
+    """Độ phủ của sổ lấy về (depth_cover_bps = phía hẹp hơn, tính bps từ mid). Vùng b bps chỉ đáng tin khi cover >= b.
+    Phiên cũ không có cột này -> không thêm khóa (NaN sau khi gộp), không bịa giá trị."""
+    if "depth_cover_bps" not in group or not group.depth_cover_bps.notna().any():
+        return {}
+    cover = group.depth_cover_bps
+    return {"median_cover_bps": round(float(cover.median()), 2), "pct_cover_ge_5bps": round(100 * float((cover >= 5).mean()), 1)}
+
+
 # ----------------------------------------------------------------------------- coverage (C3.05 / T0b)
 def coverage(out_dir: Path, interval_s: int, cfg=None, as_of=None):
     """Coverage against elapsed scheduled ticks, including zero-observation venues.
@@ -509,7 +518,8 @@ def coverage(out_dir: Path, interval_s: int, cfg=None, as_of=None):
             depth_rows.append({"session_id": sid, "exchange": ex, "market_type": mt,
                                "depth_censored_pct": 100*group[flag].mean() if flag in group else float("nan"),
                                "median_depth_bid_usdt": group.depth_bid_10bps_usdt.median() if group.depth_bid_10bps_usdt.notna().any() else float("nan"),
-                               "median_depth_ask_usdt": group.depth_ask_10bps_usdt.median() if group.depth_ask_10bps_usdt.notna().any() else float("nan")})
+                               "median_depth_ask_usdt": group.depth_ask_10bps_usdt.median() if group.depth_ask_10bps_usdt.notna().any() else float("nan")}
+                              | _cover_stats(group))
         res = res.merge(pd.DataFrame(depth_rows), how="left", on=["session_id", "exchange", "market_type"])
     error_frames = [pd.read_csv(path).assign(session_id=path.parent.name.removeprefix("session="))
                     for path in out_dir.rglob("errors.csv")]
@@ -563,3 +573,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+

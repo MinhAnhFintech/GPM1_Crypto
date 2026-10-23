@@ -18,10 +18,16 @@ Don vi: gia = USDT; volume_base = BTC theo unified OHLCV cua CCXT cho cac
 thi truong BTC/USDT spot/linear da chot; khong nhan contractSize lan hai.
 CCXT OKX dung truong base volume (index 6) cho perp, khac order-book contracts.
 
+volume_quote (tuy chon, --with-quote): mac dinh de NaN. Voi --with-quote script goi them endpoint nen tho cua san va lay
+SO SAN BAO (OKX volCcyQuote, Bybit turnover, Binance quoteVolume), khong uoc luong bang volume x gia; kiem tra cheo
+volume_quote / volume_base phai nam trong [low, high] (ghi vao fetch_log). Chi them cot volume_quote; cac cot khac khong doi.
+Ket qua tung thang duoc cache trong _parts/{venue}/quote_*.parquet de chay lai khong goi lai san.
+
 Cach chay (tu thu muc goc repo):
     python -m src.collectors.historical.ccxt_ohlcv --smoke-hours 2      # chay thu
     python -m src.collectors.historical.ccxt_ohlcv                      # tai day du
     python -m src.collectors.historical.ccxt_ohlcv --venues okx_spot    # mot venue
+    python -m src.collectors.historical.ccxt_ohlcv --with-quote         # them volume_quote that tu san
 """
 from __future__ import annotations
 
@@ -333,6 +339,123 @@ def crosscheck_close(frames: dict[str, pd.DataFrame]) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------
+# volume_quote that tu endpoint nen tho cua san (tuy chon, --with-quote)
+# --------------------------------------------------------------------------
+# So nen toi da moi lan goi cua endpoint THO (bao thu; OKX history-candles toi da 100).
+RAW_QUOTE_LIMIT = {"okx": 100, "bybit": 1000, "binance": 1000, "binanceusdm": 1000}
+
+
+def _raw_okx(ex, symbol, since, limit, until):
+    """OKX history-candles: [ts,o,h,l,c,vol,volCcy,volCcyQuote,confirm], MOI nhat truoc; `after` = nen cu hon ts.
+    Tra ve [ts, base, quote]. SPOT: base = vol (BTC); SWAP: base = volCcy (BTC; vol la so hop dong). Bo nen chua dong."""
+    base_idx = 6 if ex.market(symbol).get("contract") else 5
+    res = ex.publicGetMarketHistoryCandles({"instId": ex.market(symbol)["id"], "bar": "1m",
+                                            "after": str(until + 1), "limit": str(limit)})
+    return [[int(r[0]), r[base_idx], r[7]] for r in (res.get("data") or []) if str(r[8]) != "0"]
+
+
+def _raw_bybit(ex, symbol, since, limit, until):
+    """Bybit v5 kline: [start,o,h,l,c,volume,turnover]; volume theo BTC, turnover theo USDT."""
+    m = ex.market(symbol)
+    res = ex.publicGetV5MarketKline({"category": "spot" if m.get("spot") else "linear", "symbol": m["id"],
+                                     "interval": "1", "start": since, "end": until, "limit": limit})
+    return [[int(r[0]), r[5], r[6]] for r in ((res.get("result") or {}).get("list") or [])]
+
+
+def _raw_binance(ex, symbol, since, limit, until):
+    """Binance spot klines: [openTime,o,h,l,c,volume,closeTime,quoteVolume,...]."""
+    res = ex.publicGetKlines({"symbol": ex.market(symbol)["id"], "interval": "1m", "startTime": since,
+                              "endTime": until, "limit": min(limit, 1000)})
+    return [[int(r[0]), r[5], r[7]] for r in res]
+
+
+def _raw_binanceusdm(ex, symbol, since, limit, until):
+    """Binance USD-M futures klines (cung bo cuc voi spot)."""
+    res = ex.fapiPublicGetKlines({"symbol": ex.market(symbol)["id"], "interval": "1m", "startTime": since,
+                                  "endTime": until, "limit": min(limit, 1000)})
+    return [[int(r[0]), r[5], r[7]] for r in res]
+
+
+RAW_QUOTE_PAGE = {"okx": _raw_okx, "bybit": _raw_bybit, "binance": _raw_binance, "binanceusdm": _raw_binanceusdm}
+
+
+def fetch_quote_range(ex, ccxt_id: str, symbol: str, since_ms: int, until_ms: int, *,
+                      max_retries: int = 5, base_delay_s: float = 1.0, retry_exceptions: tuple = (),
+                      sleep: Callable[[float], None] = time.sleep) -> dict[int, float]:
+    """{ts_open_ms: volume_quote} cho nen co gio mo trong [since_ms, until_ms). Cua so lien tiep, moi cua so dung `limit` phut,
+    nen khong phu thuoc san tra nen cu nhat hay moi nhat truoc. Nen thieu thi khong co khoa (NaN sau khi ghep), khong noi suy."""
+    page = RAW_QUOTE_PAGE[ccxt_id]
+    limit = RAW_QUOTE_LIMIT[ccxt_id]
+    out: dict[int, float] = {}
+    cursor = since_ms
+    while cursor < until_ms:
+        hi = min(cursor + limit * MINUTE_MS, until_ms)
+        batch = _call_with_retry(lambda: page(ex, symbol, cursor, limit, hi - 1),
+                                 max_retries=max_retries, base_delay_s=base_delay_s,
+                                 retry_exceptions=retry_exceptions, sleep=sleep)
+        for r in batch or []:
+            ts = int(r[0])
+            if cursor <= ts < hi and r[2] is not None:
+                out[ts] = float(r[2])
+        cursor = hi
+    return out
+
+
+def _open_ms(series: pd.Series) -> pd.Series:
+    """ts_open_utc (datetime64[ns, UTC]) -> so nguyen ms UTC."""
+    return ((pd.to_datetime(series, utc=True) - pd.Timestamp("1970-01-01", tz="UTC"))
+            // pd.Timedelta(milliseconds=1)).astype("int64")
+
+
+def attach_volume_quote(df: pd.DataFrame, quote: dict[int, float]) -> pd.DataFrame:
+    """Them volume_quote (float64) theo ts_open_utc. Nen khong co trong `quote` -> NaN. Khong dong vao cot khac."""
+    out = df.copy()
+    out["volume_quote"] = _open_ms(out["ts_open_utc"]).map(quote).astype("float64")
+    return out
+
+
+def quote_check(df: pd.DataFrame) -> dict:
+    """volume_quote / volume_base la gia binh quan cua phut do -> phai nam trong [low, high] (+-0,1%).
+    Lech hang loat nghia la volume_base dang tinh theo hop dong (perp) hoac sai don vi."""
+    base = df["volume_base"].where(df["volume_base"] > 0)
+    ratio = df["volume_quote"] / base
+    outside = ratio.notna() & ((ratio < df["low"] * (1 - 1e-3)) | (ratio > df["high"] * (1 + 1e-3)))
+    return {"n_quote_missing": int(df["volume_quote"].isna().sum()), "n_quote_vwap_outside_hl": int(outside.sum())}
+
+
+def collect_quote(ex, v: "Venue", df: pd.DataFrame, since_ms: int, until_ms: int, now_ms: int, parts_dir: Path, *,
+                  retry_exceptions: tuple, sleep, max_retries: int) -> tuple[pd.DataFrame, dict]:
+    """Lay volume_quote that cho df. Cache theo thang trong parts_dir/quote_{lo}_{hi}.parquet (chay lai khong goi lai san)."""
+    if v.ccxt_id not in RAW_QUOTE_PAGE:
+        logger.warning("[%s] chua co bo doc endpoint tho cho ccxt_id=%s: volume_quote giu NaN", v.venue_id, v.ccxt_id)
+        return df, {"volume_quote_source": "khong co (NaN)"}
+    quote: dict[int, float] = {}
+    for lo, requested_hi in month_chunks(since_ms, until_ms):
+        hi = min(requested_hi, (now_ms // MINUTE_MS) * MINUTE_MS)
+        if hi <= lo:
+            continue
+        cache = parts_dir / f"quote_{lo}_{hi}.parquet"
+        if cache.exists():
+            c = pd.read_parquet(cache)
+            quote.update(dict(zip(c["ts"].astype("int64"), c["volume_quote"].astype("float64"))))
+            logger.info("[%s] volume_quote %s: dung lai cache (%d nen)", v.venue_id,
+                        pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m"), len(c))
+            continue
+        got = fetch_quote_range(ex, v.ccxt_id, v.symbol, lo, hi, max_retries=max_retries,
+                                retry_exceptions=retry_exceptions, sleep=sleep)
+        write_parquet_atomic(pd.DataFrame({"ts": pd.Series(list(got), dtype="int64"),
+                                           "volume_quote": pd.Series(list(got.values()), dtype="float64")}), cache)
+        quote.update(got)
+        logger.info("[%s] volume_quote %s: %d nen", v.venue_id, pd.Timestamp(lo, unit="ms", tz="UTC").strftime("%Y-%m"), len(got))
+    out = attach_volume_quote(df, quote)
+    chk = quote_check(out)
+    if chk["n_quote_missing"] or chk["n_quote_vwap_outside_hl"] > 0.001 * len(out):
+        logger.warning("[%s] volume_quote: %d dong thieu, %d dong co quote/base ngoai [low, high] (>0,1%%) -> kiem tra don vi "
+                       "volume_base truoc khi ban giao.", v.venue_id, chk["n_quote_missing"], chk["n_quote_vwap_outside_hl"])
+    return out, {"volume_quote_source": "endpoint tho cua san", **chk}
+
+
+# --------------------------------------------------------------------------
 # IO
 # --------------------------------------------------------------------------
 def write_parquet_atomic(df: pd.DataFrame, path: Path) -> None:
@@ -366,7 +489,7 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
                   limit: int | None = None, ex=None, now_ms: int | None = None,
                   retry_exceptions: tuple | None = None,
                   sleep: Callable[[float], None] = time.sleep,
-                  max_retries: int = 5, max_empty_pages: int = 100) -> dict:
+                  max_retries: int = 5, max_empty_pages: int = 100, with_quote: bool = False) -> dict:
     """Tai [since_ms, until_ms) (gio mo nen) cho mot venue, ghi parquet + fetch_log.
 
     Resume: moi thang ghi mot file part (ten gom cua so ms). Part da co thi bo qua.
@@ -455,6 +578,11 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
     if df.empty:
         raise RuntimeError(f"[{v.venue_id}] no closed candles in the requested interval")
 
+    quote_info: dict = {}
+    if with_quote:
+        df, quote_info = collect_quote(get_ex(), v, df, since_ms, until_ms, now_ms, parts_dir,
+                                       retry_exceptions=retry_exceptions, sleep=sleep, max_retries=max_retries)
+
     report = continuity_report(df, since_ms, until_ms)
     final = (out_dir if report["missing"] == 0 else out_dir/"_incomplete") / v.file_name
     write_parquet_atomic(df, final)
@@ -470,7 +598,7 @@ def collect_venue(v: Venue, since_ms: int, until_ms: int, out_dir: Path, *,
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
         "candle_open_window_utc": [lo_ts.isoformat(), hi_ts.isoformat()],
         "limit_per_call": limit, "contract_size": contract_size,
-        "volume_unit": "BTC", "duplicate_rows": fetch_stats["duplicate_rows"],
+        "volume_unit": "BTC", "duplicate_rows": fetch_stats["duplicate_rows"], **quote_info,
         "status": "complete" if report["missing"] == 0 else "incomplete",
         "first_open_utc": df["ts_open_utc"].iloc[0].isoformat() if len(df) else None,
         "last_open_utc": df["ts_open_utc"].iloc[-1].isoformat() if len(df) else None,
@@ -501,6 +629,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None, help="so nen moi lan goi (ghi de mac dinh theo san)")
     p.add_argument("--smoke-hours", type=float, default=None,
                    help="chay thu: chi tai N gio dau cua mau, ghi vao <out-dir>/_smoke")
+    p.add_argument("--with-quote", action="store_true",
+                   help="them volume_quote THAT tu endpoint nen tho cua san (mac dinh: NaN). Goi them API, cham hon")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -532,7 +662,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     frames, failed = {}, []
     for v in venues:
         try:
-            res = collect_venue(v, since_ms, until_ms, out_dir, limit=args.limit)
+            res = collect_venue(v, since_ms, until_ms, out_dir, limit=args.limit, with_quote=args.with_quote)
             frames[v.venue_id] = res["_frame"]
             if res["status"] != "complete":
                 failed.append(v.venue_id)
@@ -551,3 +681,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
