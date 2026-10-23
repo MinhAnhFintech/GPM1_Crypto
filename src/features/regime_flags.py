@@ -13,6 +13,11 @@ from src.synchronization.split import validate_panel_split
 from src.utils.io_utils import read_parquet, write_parquet
 
 
+CANONICAL_D5 = Path("data/processed/regime_flags.parquet")
+CANONICAL_RECEIPT = Path("data/processed/regime_flags_receipt.json")
+ALLOWED_DATA_KINDS = {"historical", "synthetic", "live"}
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -39,6 +44,80 @@ def load_events(path: Path) -> tuple[dict, list[dict]]:
     return payload, events
 
 
+
+def data_kind_of(df: pd.DataFrame, label: str) -> str:
+    """Return one unambiguous provenance label from a column or dataframe attrs."""
+    if "data_kind" in df.columns:
+        values = sorted({str(v).strip().lower() for v in df["data_kind"].dropna().unique()})
+        if len(values) != 1:
+            raise ValueError(f"{label}: expected exactly one data_kind, found {values}")
+        kind = values[0]
+    else:
+        raw = df.attrs.get("data_kind")
+        if raw is None:
+            raise ValueError(f"{label}: missing data_kind provenance")
+        kind = str(raw).strip().lower()
+
+    if kind not in ALLOWED_DATA_KINDS:
+        raise ValueError(f"{label}: invalid data_kind={kind!r}")
+    return kind
+
+
+def venue_set(df: pd.DataFrame, prefix: str) -> set[str]:
+    return {str(c)[len(prefix):] for c in df.columns if str(c).startswith(prefix)}
+
+
+def validate_provenance(panel: pd.DataFrame, features: pd.DataFrame, manifest: dict) -> str:
+    """Reject mixed data sources and incompatible D3/D3b venue universes."""
+    panel_kind = data_kind_of(panel, "D3")
+    features_kind = data_kind_of(features, "D3b")
+    manifest_kind = str(manifest.get("data_kind", "")).strip().lower()
+
+    if manifest_kind not in ALLOWED_DATA_KINDS:
+        raise ValueError("D4: missing or invalid data_kind provenance")
+    if len({panel_kind, features_kind, manifest_kind}) != 1:
+        raise ValueError(
+            "Provenance mismatch: "
+            f"D3={panel_kind!r}, D3b={features_kind!r}, D4={manifest_kind!r}"
+        )
+
+    panel_venues = venue_set(panel, "close__")
+    feature_venues = venue_set(features, "rv_60m__")
+    if panel_venues != feature_venues:
+        raise ValueError(
+            "Venue mismatch between D3 and D3b: "
+            f"D3_only={sorted(panel_venues - feature_venues)}, "
+            f"D3b_only={sorted(feature_venues - panel_venues)}"
+        )
+    return panel_kind
+
+
+def guard_output_paths(data_kind: str, output: Path, receipt: Path) -> None:
+    """Synthetic/live runs must never overwrite canonical historical D5 artifacts."""
+    if data_kind == "historical":
+        return
+    if data_kind not in output.stem:
+        raise ValueError(
+            f"Output của data_kind={data_kind!r} phải có '{data_kind}' trong tên file, "
+            f"ví dụ regime_flags_{data_kind}.parquet"
+        )
+    if data_kind not in receipt.stem:
+        raise ValueError(
+            f"Receipt của data_kind={data_kind!r} phải có '{data_kind}' trong tên file, "
+            f"ví dụ regime_flags_{data_kind}_receipt.json"
+            )
+    if output.resolve() == CANONICAL_D5.resolve():
+        raise ValueError(
+            f"Refusing to write data_kind={data_kind!r} to canonical historical D5 path "
+            f"{CANONICAL_D5}. Pass a separate --output path."
+        )
+    if receipt.resolve() == CANONICAL_RECEIPT.resolve():
+        raise ValueError(
+            f"Refusing to write data_kind={data_kind!r} to canonical historical receipt path "
+            f"{CANONICAL_RECEIPT}. Pass a separate --receipt path."
+        )
+
+
 def build(panel: pd.DataFrame, features: pd.DataFrame, manifest: dict, events: list[dict],
           quantile: float = 0.90, ma_days: int = 30) -> tuple[pd.DataFrame, float]:
     pidx = utc_index(panel, "D3")
@@ -49,6 +128,7 @@ def build(panel: pd.DataFrame, features: pd.DataFrame, manifest: dict, events: l
     # IMPORTANT: bind C1.06 to the official D4 manifest, including fingerprint,
     # row counts and dev/val/test boundaries. Do not infer the split from N.
     manifest = validate_panel_split(panel, manifest)
+    data_kind = validate_provenance(panel, features, manifest)
 
     rv_cols = sorted(c for c in features.columns if str(c).startswith("rv_60m__"))
     if len(rv_cols) != 6:
@@ -94,6 +174,11 @@ def build(panel: pd.DataFrame, features: pd.DataFrame, manifest: dict, events: l
     regime.loc[valid & price.le(ma30)] = "bear"
     out["regime_bull_bear"] = regime.to_numpy()
 
+    # Keep the D5 five-column contract unchanged; provenance travels as parquet metadata.
+    out.attrs["data_kind"] = data_kind
+    out.attrs["source_dataset"] = "D3/D3b"
+    out.attrs["task"] = "C1.06"
+
     return out, threshold
 
 
@@ -115,11 +200,20 @@ def main(argv=None) -> int:
     events_payload, events = load_events(args.events)
 
     out, threshold = build(panel, features, manifest, events, args.quantile, args.ma_days)
+    data_kind = str(out.attrs["data_kind"])
+    guard_output_paths(data_kind, args.output, args.receipt)
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_parquet(out, args.output, "D5")
 
+    # Fail closed if the writer dropped provenance metadata.
+    written = read_parquet(args.output)
+    if str(written.attrs.get("data_kind", "")).lower() != data_kind:
+        raise ValueError("D5 writer did not preserve data_kind metadata")
+
     receipt = {
         "task": "C1.06",
+        "data_kind": data_kind,
         "rules": {
             "flag_high_vol": "median of 6 rv_60m venue columns > dev-only P90; NaN -> False",
             "flag_weekend": "Saturday/Sunday in UTC",
