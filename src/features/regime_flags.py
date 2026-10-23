@@ -11,10 +11,12 @@ import yaml
 
 from src.synchronization.split import validate_panel_split
 from src.utils.io_utils import read_parquet, write_parquet
+from src.utils.pipeline_stages import validate_output_location
 
 
-CANONICAL_D5 = Path("data/processed/regime_flags.parquet")
-CANONICAL_RECEIPT = Path("data/processed/regime_flags_receipt.json")
+ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_D5 = ROOT / "data/processed/regime_flags.parquet"
+CANONICAL_RECEIPT = ROOT / "data/processed/regime_flags_receipt.json"
 ALLOWED_DATA_KINDS = {"historical", "synthetic", "live"}
 
 
@@ -46,22 +48,31 @@ def load_events(path: Path) -> tuple[dict, list[dict]]:
 
 
 def data_kind_of(df: pd.DataFrame, label: str) -> str:
-    """Return one unambiguous provenance label from a column or dataframe attrs."""
+    """Return one unambiguous provenance label and reject column/metadata conflicts."""
+    column_kind = None
     if "data_kind" in df.columns:
         values = sorted({str(v).strip().lower() for v in df["data_kind"].dropna().unique()})
         if len(values) != 1:
             raise ValueError(f"{label}: expected exactly one data_kind, found {values}")
-        kind = values[0]
-    else:
-        raw = df.attrs.get("data_kind")
-        if raw is None:
-            raise ValueError(f"{label}: missing data_kind provenance")
-        kind = str(raw).strip().lower()
+        column_kind = values[0]
 
-    if kind not in ALLOWED_DATA_KINDS:
-        raise ValueError(f"{label}: invalid data_kind={kind!r}")
-    return kind
+    raw_attr = df.attrs.get("data_kind")
+    attr_kind = None if raw_attr is None else str(raw_attr).strip().lower()
 
+    if column_kind is None and attr_kind is None:
+        raise ValueError(f"{label}: missing data_kind provenance")
+
+    for source, kind in (("column", column_kind), ("metadata", attr_kind)):
+        if kind is not None and kind not in ALLOWED_DATA_KINDS:
+            raise ValueError(f"{label}: invalid {source} data_kind={kind!r}")
+
+    if column_kind is not None and attr_kind is not None and column_kind != attr_kind:
+        raise ValueError(
+            f"{label}: conflicting data_kind provenance: "
+            f"column={column_kind!r}, metadata={attr_kind!r}"
+        )
+
+    return column_kind if column_kind is not None else attr_kind
 
 def venue_set(df: pd.DataFrame, prefix: str) -> set[str]:
     return {str(c)[len(prefix):] for c in df.columns if str(c).startswith(prefix)}
@@ -93,9 +104,14 @@ def validate_provenance(panel: pd.DataFrame, features: pd.DataFrame, manifest: d
 
 
 def guard_output_paths(data_kind: str, output: Path, receipt: Path) -> None:
-    """Synthetic/live runs must never overwrite canonical historical D5 artifacts."""
+    """Validate output locations and keep non-historical artifacts away from canonical D5."""
+    # Apply the repository-wide output-location policy to BOTH artifacts.
+    validate_output_location(output, root=ROOT, mode=data_kind)
+    validate_output_location(receipt, root=ROOT, mode=data_kind)
+
     if data_kind == "historical":
         return
+
     if data_kind not in output.stem:
         raise ValueError(
             f"Output của data_kind={data_kind!r} phải có '{data_kind}' trong tên file, "
@@ -105,7 +121,7 @@ def guard_output_paths(data_kind: str, output: Path, receipt: Path) -> None:
         raise ValueError(
             f"Receipt của data_kind={data_kind!r} phải có '{data_kind}' trong tên file, "
             f"ví dụ regime_flags_{data_kind}_receipt.json"
-            )
+        )
     if output.resolve() == CANONICAL_D5.resolve():
         raise ValueError(
             f"Refusing to write data_kind={data_kind!r} to canonical historical D5 path "
@@ -116,7 +132,6 @@ def guard_output_paths(data_kind: str, output: Path, receipt: Path) -> None:
             f"Refusing to write data_kind={data_kind!r} to canonical historical receipt path "
             f"{CANONICAL_RECEIPT}. Pass a separate --receipt path."
         )
-
 
 def build(panel: pd.DataFrame, features: pd.DataFrame, manifest: dict, events: list[dict],
           quantile: float = 0.90, ma_days: int = 30) -> tuple[pd.DataFrame, float]:
@@ -204,6 +219,7 @@ def main(argv=None) -> int:
     guard_output_paths(data_kind, args.output, args.receipt)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.receipt.parent.mkdir(parents=True, exist_ok=True)
     write_parquet(out, args.output, "D5")
 
     # Fail closed if the writer dropped provenance metadata.
