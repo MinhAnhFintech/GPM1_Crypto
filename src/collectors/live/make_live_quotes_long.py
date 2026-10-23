@@ -111,6 +111,11 @@ def discover(raw_dir: Path, idle_s: float, include_running: bool, exclude: set[s
 def read_part(f: Path):
     import pandas as pd
     df = pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f)
+    # Nhãn nguồn nằm trong CHÍNH file này: cột data_kind và/hoặc metadata parquet (attrs). Giữ lại theo từng file để
+    # kiểm nguồn ở build(); pd.concat bỏ attrs nên phải lưu thành cột nội bộ ngay tại đây.
+    attr_kind = df.attrs.get("data_kind")
+    df["_attr_kind"] = pd.Series([attr_kind] * len(df), index=df.index, dtype="string")
+    df["_file"] = str(f)
     for c in TIME_COLS:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], utc=True)
@@ -154,13 +159,22 @@ def build(raw_dir: Path, exchanges: list[str] | None, idle_s: float, include_run
     frames = [read_part(f) for fl in use.values() for f in fl]
     df = pd.concat(frames, ignore_index=True)
 
-    # ---- KIỂM NGUỒN (trước khi điền cột thiếu): chỉ data_kind == "live" được vào D2 ----
-    kind = (df["data_kind"].astype("string").str.strip().str.lower() if "data_kind" in df.columns
-            else pd.Series(pd.NA, index=df.index, dtype="string"))
-    has_kind = kind.notna().groupby(df["session_id"]).transform("any").astype(bool)   # phiên có ghi nhãn nguồn
+    # ---- KIỂM NGUỒN TỪNG FILE (trước khi điền cột thiếu): chỉ data_kind == "live" được vào D2 ----
+    # Nhãn của một dòng = cột data_kind của file đó; dòng không có nhãn riêng lấy nhãn metadata (attrs) của file đó.
+    # Cột và metadata KHÁC nhau (vd cột live, metadata synthetic) = xung đột = không phải live. Không dòng nào được đổi nhãn.
+    col_kind = (df["data_kind"].astype("string").str.strip().str.lower() if "data_kind" in df.columns
+                else pd.Series(pd.NA, index=df.index, dtype="string"))
+    attr_kind = df["_attr_kind"].astype("string").str.strip().str.lower()
+    conflict = (col_kind.notna() & attr_kind.notna() & (col_kind != attr_kind)).fillna(False).astype(bool)
+    kind = col_kind.fillna(attr_kind).mask(conflict, "conflict")
+    # Chỉ phiên KHÔNG có bất kỳ nhãn nào (cột hay metadata, ở mọi file của phiên) mới là phiên cũ (collector đời đầu chỉ thu
+    # live): coi là live và ghi vào manifest. File không nhãn nằm trong phiên đã có nhãn là đáng ngờ -> bị loại, không đoán.
+    has_kind = kind.notna().groupby(df["session_id"]).transform("any").astype(bool)
     is_live = (kind == "live").fillna(False).astype(bool)
-    df["_is_live"] = (~has_kind) | is_live          # phiên cũ không có nhãn: coi là live (collector đời đầu), có ghi vào manifest
+    df["_is_live"] = (~has_kind) | is_live
     legacy = {s: int(n) for s, n in df.loc[~has_kind].groupby("session_id").size().items()}
+    non_live_files = {Path(f).relative_to(raw_dir).as_posix(): int(n)           # file nào bị loại và bao nhiêu dòng (vào manifest)
+                      for f, n in df.loc[~df["_is_live"]].groupby("_file").size().items()}
 
     if "market_type" not in df.columns:           # file thô đời đầu (trước khi thu perp) chỉ có spot
         df["market_type"] = "spot"
@@ -246,11 +260,40 @@ def build(raw_dir: Path, exchanges: list[str] | None, idle_s: float, include_run
     info = {"created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
             "sessions_included": sorted(set(use) - set(gone)),
             "sessions_skipped": skipped, "size_fixes": size_fixes, "depth_truncated_filled_true_rows": n_trunc_filled,
-            "non_live_removed_rows": n_non_live, "legacy_sessions_assumed_live": legacy,
+            "non_live_removed_rows": n_non_live, "non_live_files_removed_rows": non_live_files,
+            "legacy_sessions_assumed_live": legacy,
             "exchanges_filtered_out": skipped_ex, "rows_total": int(len(out)),
             "rows_by_venue": out.groupby("venue").size().astype(int).to_dict(),
             "first_ts_recv_utc": str(out["ts_recv_utc"].min()), "last_ts_recv_utc": str(out["ts_recv_utc"].max())}
     return out, man, info
+
+
+
+
+def validate_output(out) -> None:
+    """Kiểm đầy đủ hợp đồng D2 v1.1 trên bảng trong bộ nhớ (thứ tự cột, kiểu, UTC, giá, size/depth không âm, nguồn...).
+
+    Gọi TRƯỚC khi ghi file. Không đạt -> dừng bằng thông báo rõ, KHÔNG ghi gì, file đích và manifest cũ giữ nguyên.
+    Dòng sai không bị sửa hay xóa ngầm ở bước này; chỉ các lỗi giá đã được loại và đếm trong manifest ở build()."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from src.utils.schema import D2_COLUMNS, validate_frame
+    problems = []
+    missing = [c for c in D2_COLUMNS if c not in out.columns]
+    if missing:
+        problems.append(f"thiếu cột {missing}")
+    elif list(out.columns)[:len(D2_COLUMNS)] != list(D2_COLUMNS):
+        problems.append("thứ tự cột không đúng D2 v1.1")
+    negative = {c: int((out[c] < 0).sum()) for c in ("bid_size", "ask_size", "depth_bid_10bps_usdt", "depth_ask_10bps_usdt")
+                if c in out.columns and (out[c] < 0).any()}
+    if negative:
+        problems.append(f"giá trị âm (số dòng): {negative}")
+    try:
+        validate_frame(out, "D2")
+    except ValueError as exc:
+        problems.append(str(exc))
+    if problems:
+        sys.exit("D2 KHÔNG đạt hợp đồng, KHÔNG ghi file (file đích và manifest cũ giữ nguyên): " + "; ".join(problems))
 
 
 
@@ -268,12 +311,16 @@ def main(argv=None):
     exclude = {x.strip() for x in a.exclude_sessions.split(",") if x.strip()}
     exchanges = [x.strip() for x in a.exchanges.split(",")] if a.exchanges else None
     out, man, info = build(a.raw, exchanges, a.idle_s, a.include_running, exclude)
+    out.attrs["contract_version"] = "1.1"          # parquet lưu kèm phiên bản hợp đồng dữ liệu (D2 v1.1)
+    validate_output(out)                            # kiểm ĐẦY ĐỦ hợp đồng D2 TRƯỚC khi ghi bất kỳ file nào
     a.out.parent.mkdir(parents=True, exist_ok=True)
     out_path = a.out if a.format == "parquet" else a.out.with_suffix(".csv")
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-    out.attrs["contract_version"] = "1.1"          # parquet lưu kèm phiên bản hợp đồng dữ liệu (D2 v1.1)
-    (out.to_parquet(tmp, index=False) if a.format == "parquet" else out.to_csv(tmp, index=False))
-    tmp.replace(out_path)
+    try:
+        (out.to_parquet(tmp, index=False) if a.format == "parquet" else out.to_csv(tmp, index=False))
+        tmp.replace(out_path)                       # chỉ thay file đích khi đã kiểm xong và ghi tạm thành công
+    finally:
+        tmp.unlink(missing_ok=True)
     man.to_csv(a.out.with_name(a.out.stem + "_manifest.csv"), index=False)
     a.out.with_name(a.out.stem + "_manifest.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     import pandas as pd
