@@ -203,13 +203,6 @@ events:
       Fed tăng lãi suất 25 điểm cơ bản, đánh dấu lần tăng đầu tiên
       kể từ năm 2023. Đây là một cú sốc chính sách tiền tệ quan trọng
       đối với các tài sản rủi ro, trong đó có Bitcoin và thị trường crypto.
-    d1_check:
-      close_start: 78189
-      close_end: 80900
-      low: 75065
-      range_pct: 8.4
-      max_rv60_bps: 146
-      rv60_pctile: 99.30
     sources:
       - outlet: "The Block"
         date: "2026-09-16"
