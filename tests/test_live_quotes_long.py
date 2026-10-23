@@ -139,3 +139,83 @@ def test_running_session_is_skipped_unless_included(dirs):
     assert list(use) == ["20261018_S1"] and skipped == {}
     use, _ = c306.discover(raw, idle_s=0, include_running=False, exclude={"20261018_S1"})
     assert use == {}
+
+
+# --- Review fixes (TV4, PR #17) ----------------------------------------------------------------------------------------
+
+def test_file_metadata_synthetic_is_never_relabelled_live(dirs):
+    raw, out = dirs
+    synthetic = raw_rows("okx", "spot", n=3, with_kind=False, session_id="20261018_S1")   # no data_kind column
+    synthetic.attrs["data_kind"] = "synthetic"                                          # label only in file metadata
+    write_part(raw, synthetic, part=1)
+    write_part(raw, raw_rows("binance", "spot", n=4), part=2)
+    d, man, info = run(raw, out)
+    assert set(d.exchange) == {"binance"} and len(d) == 4 and (d.data_kind == "live").all()
+    assert info["non_live_removed_rows"] == 3
+    assert info["non_live_files_removed_rows"] == {"date=2026-10-18/session=20261018_S1/part-0001.parquet": 3}
+    assert int(man.non_live_removed.sum()) == 3
+
+
+def test_session_with_only_synthetic_metadata_is_removed_not_legacy(dirs):
+    raw, out = dirs
+    only_meta = raw_rows("okx", "spot", n=3, with_kind=False, session_id="20261018_S1")
+    only_meta.attrs["data_kind"] = "synthetic"
+    write_part(raw, only_meta, "20261018_S1")
+    write_part(raw, raw_rows("binance", "spot", n=2, session_id="20261018_S2"), "20261018_S2")
+    d, _, info = run(raw, out)
+    assert set(d.session_id) == {"20261018_S2"} and info["legacy_sessions_assumed_live"] == {}
+    assert "20261018_S1" in info["sessions_skipped"]
+
+
+def test_column_and_metadata_conflict_is_not_live(dirs):
+    raw, out = dirs
+    conflict = raw_rows("okx", "spot", n=3)                                              # column says live
+    conflict.attrs["data_kind"] = "synthetic"                                           # metadata says synthetic
+    write_part(raw, conflict, part=1)
+    write_part(raw, raw_rows("binance", "spot", n=2), part=2)
+    d, _, info = run(raw, out)
+    assert set(d.exchange) == {"binance"} and info["non_live_removed_rows"] == 3
+
+
+def test_matching_live_metadata_is_accepted(dirs):
+    raw, out = dirs
+    ok = raw_rows("okx", "spot", n=3, with_kind=False)
+    ok.attrs["data_kind"] = "live"
+    write_part(raw, ok)
+    d, _, info = run(raw, out)
+    assert len(d) == 3 and (d.data_kind == "live").all() and info["legacy_sessions_assumed_live"] == {}
+
+
+def test_unlabelled_file_inside_labelled_session_is_removed(dirs):
+    raw, out = dirs
+    write_part(raw, raw_rows("binance", "spot", n=4), part=1)                            # labelled live
+    write_part(raw, raw_rows("okx", "spot", n=2, with_kind=False), part=2)               # no label anywhere in this file
+    d, _, info = run(raw, out)
+    assert set(d.exchange) == {"binance"} and info["non_live_removed_rows"] == 2
+
+
+def test_invalid_d2_is_rejected_before_any_file_is_replaced(dirs):
+    raw, out = dirs
+    good = raw_rows("binance", "spot", n=4)
+    write_part(raw, good)
+    run(raw, out)                                                                        # a previous good output exists
+    names = ["live_quotes_long.parquet", "live_quotes_long_manifest.csv", "live_quotes_long_manifest.json"]
+    before = {n: hashlib.sha256((out/n).read_bytes()).hexdigest() for n in names}
+    bad = raw_rows("binance", "spot", n=4)
+    bad.loc[1, "bid_size"] = -1.0                                                        # negative size: D2 contract violation
+    write_part(raw, bad)
+    with pytest.raises(SystemExit, match="KHÔNG ghi file"):
+        c306.main(["--raw", str(raw), "--out", str(out/"live_quotes_long.parquet"), "--idle-s", "0"])
+    after = {n: hashlib.sha256((out/n).read_bytes()).hexdigest() for n in names}
+    assert after == before                                                               # nothing was replaced
+    assert not list(out.glob("*.tmp"))                                                   # no temp file left behind
+
+
+def test_invalid_d2_leaves_no_output_on_first_run(dirs):
+    raw, out = dirs
+    bad = raw_rows("binance", "spot", n=4)
+    bad.loc[0, "depth_bid_10bps_usdt"] = -5.0
+    write_part(raw, bad)
+    with pytest.raises(SystemExit, match="giá trị âm"):
+        c306.main(["--raw", str(raw), "--out", str(out/"live_quotes_long.parquet"), "--idle-s", "0"])
+    assert not out.exists() or not any(out.iterdir())
