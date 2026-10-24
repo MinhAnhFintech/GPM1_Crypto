@@ -1,0 +1,5 @@
+backtest,method,data_kind,market_type,latency,qty_btc,n_signals,n_filled,n_rejected,mean_mid_gap_bps,mean_fee_bps,mean_spread_bps,mean_slippage_bps,mean_latency_bps,mean_net_bps,n_positive_mid_gap,n_positive_after_fees,n_positive_after_spread,n_positive_after_slippage,n_positive_net,total_fees_usdt,total_pnl_usdt,rejected_by_reason
+A_proxy_close_1m_dev,proxy_close_1m,historical,spot,1min,0.1,2,2,0,28.09446918968436,20.0,0.006740418464781683,0.0,19.365584731751852,-11.277855960532271,2,2,2,2,0,33.351460379351195,-18.806669918684207,
+A_proxy_close_1m_dev,proxy_close_1m,historical,perp,1min,0.1,10,10,0,13.19819096786701,10.25,0.012242749091039683,0.0,11.531897972809412,-8.595949754033443,10,10,10,10,0,83.63568562908523,-70.48531933244203,
+B_live_bidask,live_bidask,live,spot,5s,0.1,0,0,0,,,,,,,0,0,0,0,0,0.0,0.0,
+B_live_bidask,live_bidask,live,perp,5s,0.1,2,2,0,12.340545445359542,10.25,0.011959425586550054,0.0,13.00854002148088,-10.929954001707888,2,2,2,2,0,17.184986000000002,-18.32498599999942,

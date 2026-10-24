@@ -1,0 +1,13 @@
+market_type,buy_venue,sell_venue,n_signals,n_filled,n_rejected,n_net_positive,share_net_positive,mean_net_bps,median_net_bps,total_pnl_usdt,total_fees_usdt,rejected_fill_beyond_sample,rejected_fill_after_session_end,rejected_missing_fill_quote,rejected_insufficient_top_size
+perp,binance_perp,bybit_perp,0,0,0,0,,,,0.0,0.0,0,0,0,0
+perp,binance_perp,okx_perp,1,1,0,0,0.0,-10.679954001707888,-10.679954001707888,-8.95291999999971,8.38292,0,0,0,0
+spot,binance_spot,bybit_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0
+spot,binance_spot,okx_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0
+perp,bybit_perp,binance_perp,0,0,0,0,,,,0.0,0.0,0,0,0,0
+perp,bybit_perp,okx_perp,1,1,0,0,0.0,-11.179954001707888,-11.179954001707888,-9.372065999999709,8.802066,0,0,0,0
+spot,bybit_spot,binance_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0
+spot,bybit_spot,okx_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0
+perp,okx_perp,binance_perp,0,0,0,0,,,,0.0,0.0,0,0,0,0
+perp,okx_perp,bybit_perp,0,0,0,0,,,,0.0,0.0,0,0,0,0
+spot,okx_spot,binance_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0
+spot,okx_spot,bybit_spot,0,0,0,0,,,,0.0,0.0,0,0,0,0

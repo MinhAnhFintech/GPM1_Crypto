@@ -1,0 +1,2 @@
+market_type,n_signals,n_filled,n_rejected,n_net_positive,mean_net_bps,total_pnl_usdt,total_fees_usdt,rejected_fill_beyond_sample,rejected_fill_after_session_end,rejected_missing_fill_quote,rejected_insufficient_top_size
+perp,2,2,0,0,-10.929954001707888,-18.32498599999942,17.184986000000002,0,0,0,0
