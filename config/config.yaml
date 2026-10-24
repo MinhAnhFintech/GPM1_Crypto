@@ -15,7 +15,7 @@ max_lag: 5                 # maximum lag (minutes) of the lead-lag cross-correla
 # ts_available of a 1-minute candle = candle open time + 1 minute, so start = first candle open 2025-10-18 00:00 + 1 min.
 # end: the Binance Vision collector downloads closed MONTHS only (it stops with an error for the current month),
 # so the sample ends at the month boundary. Last candle kept opens 2026-09-30 23:58 (ts_available 2026-09-30 23:59).
-# TODO: team to confirm the sample window (see docs/SOURCE_LOG.md); live quotes (from 2026-10-17) are a separate data_kind.
+# Confirmed by the team lead on 2026-10-24 (all of D1/D3/D4/D5 are built on it); live quotes (from 2026-10-17) are a separate data_kind.
 sample:
   start: '2025-10-18T00:01:00Z'
   end: '2026-10-01T00:00:00Z'
