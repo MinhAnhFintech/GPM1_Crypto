@@ -31,7 +31,7 @@ from .engine import FILLED, REJECTED, BacktestResult, _summary
 METHOD = "live_bidask"
 LEDGER_COLUMNS = ["signal_id", "ts_decision", "ts_fill", "market_type", "buy_exchange", "sell_exchange", "qty_btc",
                   "buy_px", "sell_px", "fees_usdt", "pnl_usdt", "status", "reject_reason",
-                  "buy_venue", "sell_venue", "session_id", "latency_s", "decision_gross_bps", "decision_net_bps", "gross_bps",
+                  "buy_venue", "sell_venue", "session_id", "latency_s", "decision_mid_gap_bps", "decision_gross_bps", "decision_net_bps", "gross_bps",
                   "net_bps", "fee_total_bps", "other_cost_usdt", "buy_top_size_btc", "sell_top_size_btc",
                   "buy_quote_age_s", "sell_quote_age_s", "method", "data_kind"]
 REASONS = ("fill_beyond_sample", "fill_after_session_end", "missing_fill_quote", "insufficient_top_size")
@@ -141,6 +141,9 @@ def run_backtest_live(wide: pd.DataFrame, cfg: LiveBacktestConfig, sessions: pd.
     for buy, sell in pairs:
         ask_buy, bid_sell = quote[buy]["ask"], quote[sell]["bid"]
         decision_gross = gross_gap_bps(bid_sell, ask_buy)
+        mid_buy = (quote[buy]["bid"] + quote[buy]["ask"]) / 2
+        mid_sell = (quote[sell]["bid"] + quote[sell]["ask"]) / 2
+        decision_mid = gross_gap_bps(mid_sell, mid_buy)          # mid-to-mid gap before crossing the spread
         decision_net = net_gap_bps(decision_gross, fee[buy], fee[sell], slippage, extra)
         candidates = np.flatnonzero(np.nan_to_num(decision_net, nan=-np.inf) > cfg.entry_threshold_bps)
         blocked_until = None
@@ -151,7 +154,7 @@ def run_backtest_live(wide: pd.DataFrame, cfg: LiveBacktestConfig, sessions: pd.
             t_fill = t + latency
             blocked_until = t_fill
             record = {"ts_decision": t, "buy_venue": buy, "sell_venue": sell, "session_id": session_id[i],
-                      "decision_gross_bps": float(decision_gross[i]), "decision_net_bps": float(decision_net[i])}
+                      "decision_mid_gap_bps": float(decision_mid[i]), "decision_gross_bps": float(decision_gross[i]), "decision_net_bps": float(decision_net[i])}
             j = position.get(t_fill)
             if t_fill > last_time:
                 record.update(status=REJECTED, reject_reason="fill_beyond_sample")
@@ -172,13 +175,13 @@ def run_backtest_live(wide: pd.DataFrame, cfg: LiveBacktestConfig, sessions: pd.
                                   net_bps=float(net_gap_bps(gross, fee[buy], fee[sell], slippage, extra)))
             records.append(record)
 
-    base = ["ts_decision", "buy_venue", "sell_venue", "session_id", "decision_gross_bps", "decision_net_bps", "status",
+    base = ["ts_decision", "buy_venue", "sell_venue", "session_id", "decision_mid_gap_bps", "decision_gross_bps", "decision_net_bps", "status",
             "reject_reason", "ts_fill", "buy_px", "sell_px", "gross_bps", "net_bps", "buy_top_size_btc", "sell_top_size_btc",
             "buy_quote_age_s", "sell_quote_age_s"]
     ledger = pd.DataFrame.from_records(records, columns=base)
     ledger["ts_decision"] = pd.to_datetime(ledger["ts_decision"], utc=True).astype("datetime64[ns, UTC]")
     ledger["ts_fill"] = pd.to_datetime(ledger["ts_fill"], utc=True).astype("datetime64[ns, UTC]")
-    for c in base[4:6] + base[9:]:
+    for c in base[4:7] + base[10:]:
         ledger[c] = ledger[c].astype("float64")
     for c in ("buy_venue", "sell_venue", "status"):
         ledger[c] = ledger[c].astype(str)
