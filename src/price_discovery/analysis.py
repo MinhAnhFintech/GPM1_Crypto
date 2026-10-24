@@ -8,6 +8,9 @@ where Johansen supports exactly one common trend, otherwise rows fail with a rea
 """
 from __future__ import annotations
 
+import os
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from itertools import combinations
 
 import numpy as np
@@ -220,29 +223,68 @@ def _window_rows(panel, spec, start, end, max_missing_frac):
                  "status": "failed", "reason": str(exc)} for v in venues]
 
 
+def _window_chunk(job):
+    panel, spec, starts, window_obs, max_missing_frac = job
+    rows = []
+    for start in starts:
+        rows += _window_rows(panel, spec, start, start + window_obs, max_missing_frac)
+    return rows
+
+
+@contextmanager
+def _single_thread_blas():
+    # Spawned workers inherit these; one BLAS thread each avoids oversubscription.
+    keys = ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"]
+    old = {k: os.environ.get(k) for k in keys}
+    os.environ.update({k: "1" for k in keys})
+    try:
+        yield
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def rolling_shares(panel: pd.DataFrame, spec: dict, window_obs: int, step_obs: int,
-                   max_missing_frac: float = 0.05) -> pd.DataFrame:
+                   max_missing_frac: float = 0.05, workers: int = 1) -> pd.DataFrame:
     """D6: refit the locked spec on each past window; failed windows keep a reason.
 
     `ils` is the mean of the venue's pairwise ILS inside the window. A window
     uses prices up to window_end. Availability also waits for dev specification
     selection; retrospective dev windows cannot masquerade as live signals.
+    With workers > 1, contiguous blocks of windows run in separate processes;
+    each window is still fitted independently, so results equal the serial run.
     """
     if window_obs < 2 or step_obs < 1:
         raise ValueError("window_obs must be >= 2 and step_obs >= 1")
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
     if len(panel) < window_obs:
         raise ValueError(f"sample has {len(panel)} rows, fewer than window_obs={window_obs}")
-    rows = []
-    for start in range(0, len(panel) - window_obs + 1, step_obs):
-        rows += _window_rows(panel, spec, start, start + window_obs, max_missing_frac)
+    data = panel[[f"log_close__{v}" for v in spec["venues"]]]
+    starts = list(range(0, len(panel) - window_obs + 1, step_obs))
+    if workers == 1 or len(starts) < 2:
+        rows = _window_chunk((data, spec, starts, window_obs, max_missing_frac))
+    else:
+        blocks = [b for b in np.array_split(np.asarray(starts), min(len(starts), workers * 4)) if len(b)]
+        jobs = [(data.iloc[b[0]:b[-1] + window_obs], spec, [int(s - b[0]) for s in b], window_obs, max_missing_frac)
+                for b in blocks]
+        with _single_thread_blas(), ProcessPoolExecutor(max_workers=workers) as pool:
+            rows = [row for part in pool.map(_window_chunk, jobs) for row in part]
     out = pd.DataFrame(rows)
     out["leader"] = out.leader.astype(object).where(out.leader.notna(), None)
     return out
 
 
 def sensitivity(panel: pd.DataFrame, spec: dict, window_obs: int, step_obs: int,
-                windows=None, steps=None, lags=None, max_missing_frac: float = 0.05) -> pd.DataFrame:
-    """T3b: change one of window/step/lag at a time around the locked baseline (rank stays locked)."""
+                windows=None, steps=None, lags=None, max_missing_frac: float = 0.05,
+                workers: int = 1, baseline: pd.DataFrame | None = None, progress=None) -> pd.DataFrame:
+    """T3b: change one of window/step/lag at a time around the locked baseline (rank stays locked).
+
+    `baseline` may pass the already computed D6 of the locked setting to avoid refitting it.
+    """
     windows = windows or [window_obs // 2, window_obs, window_obs * 2]
     steps = steps or [step_obs, step_obs * 2]
     lags = lags or [max(spec["k_ar_diff"] - 1, 0), spec["k_ar_diff"], spec["k_ar_diff"] + 1]
@@ -251,11 +293,16 @@ def sensitivity(panel: pd.DataFrame, spec: dict, window_obs: int, step_obs: int,
     runs |= {(window_obs, s, spec["k_ar_diff"]) for s in steps}
     runs |= {(window_obs, step_obs, k) for k in lags}
     rows = []
-    for w, s, k in sorted(runs):
-        setting = {"window_obs": w, "step_obs": s, "k_ar_diff": k,
-                   "is_baseline": (w, s, k) == (window_obs, step_obs, spec["k_ar_diff"])}
+    for i, (w, s, k) in enumerate(sorted(runs), 1):
+        is_baseline = (w, s, k) == (window_obs, step_obs, spec["k_ar_diff"])
+        setting = {"window_obs": w, "step_obs": s, "k_ar_diff": k, "is_baseline": is_baseline}
+        if progress:
+            progress(f"sensitivity {i}/{len(runs)}: window_obs={w}, step_obs={s}, k_ar_diff={k}")
         try:
-            rolled = rolling_shares(panel, {**spec, "k_ar_diff": k}, w, s, max_missing_frac)
+            if is_baseline and baseline is not None:
+                rolled = baseline
+            else:
+                rolled = rolling_shares(panel, {**spec, "k_ar_diff": k}, w, s, max_missing_frac, workers)
         except ValueError as exc:
             rows.append({**setting, "venue": None, "status": "failed", "reason": str(exc)})
             continue

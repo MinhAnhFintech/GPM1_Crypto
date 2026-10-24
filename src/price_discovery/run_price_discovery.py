@@ -2,8 +2,8 @@
 
 Synthetic, after `python run_all.py --mode synthetic` (small windows: 720-row fixture):
     python -m src.price_discovery.run_price_discovery --data-dir outputs/synthetic/multi/data --output-dir outputs/synthetic/multi --window-obs 240 --step-obs 60
-Real data (pipeline stage "price_discovery"):
-    python -m src.price_discovery.run_price_discovery --data-dir {data_dir} --output-dir {output_dir} --config config/config.yaml
+Real data (pipeline stage "price_discovery"); --workers runs windows in parallel:
+    python -m src.price_discovery.run_price_discovery --data-dir {data_dir} --output-dir {output_dir} --config config/config.yaml --workers 8
 
 The spec (lag by BIC, Johansen rank for the system and each pair) is chosen on
 dev only, written to T2_vecm_spec.json and reused on later runs (locked).
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -45,7 +46,14 @@ def locked_spec(path: Path, dev_logs: pd.DataFrame, manifest: dict, kind: str, p
     return spec
 
 
-def run(data_dir: Path, output_dir: Path, cfg: dict, window_obs=None, step_obs=None) -> dict:
+def _say(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def run(data_dir: Path, output_dir: Path, cfg: dict, window_obs=None, step_obs=None, workers: int = 1,
+        progress=None) -> dict:
+    say = progress or (lambda message: None)
+    say(f"reading D3/D4 from {data_dir}")
     panel = read_parquet(data_dir/"panel_1m_wide.parquet", "D3")
     manifest = validate_split_manifest(json.loads((data_dir/"split_manifest.json").read_text(encoding="utf-8")))
     kind = data_kind(panel)
@@ -61,10 +69,14 @@ def run(data_dir: Path, output_dir: Path, cfg: dict, window_obs=None, step_obs=N
 
     samples = {name: select_split(panel, manifest, name) for name in ("dev", "val")}
     logs = {name: A.log_prices(sample, max_missing_frac=frac) for name, sample in samples.items()}
+    say(f"dev {len(logs['dev'])} rows, val {len(logs['val'])} rows; selecting or loading the locked spec")
     spec = locked_spec(tables/"T2_vecm_spec.json", logs["dev"], manifest, kind, params)
+    say(f"spec: k_ar_diff={spec['k_ar_diff']}, johansen_rank={spec['coint_rank']}, "
+        f"system_supported={spec['system_supported']}")
 
     static, diagnostics, pairs, rq3 = [], [], [], []
     for name, sample_logs in logs.items():
+        say(f"{name}: stationarity, Johansen, static IS/CS, diagnostics, pairwise ILS, spot vs perp")
         A.stationarity_table(sample_logs).assign(split=name).to_csv(tables/f"T2_stationarity_{name}.csv", index=False)
         _, joh = A.johansen_table(sample_logs, spec["det_order"], spec["k_ar_diff"], spec["significance"])
         joh.assign(locked_rank=spec["coint_rank"], split=name).to_csv(tables/f"T2_johansen_{name}.csv", index=False)
@@ -81,11 +93,15 @@ def run(data_dir: Path, output_dir: Path, cfg: dict, window_obs=None, step_obs=N
     pd.concat(rq3).to_csv(tables/"T3c_spot_perp.csv", index=False)
 
     rolling_sample = pd.concat([samples["dev"], samples["val"]])
-    rolling = A.rolling_shares(rolling_sample, spec, window_obs, step_obs, frac)
+    n_windows = len(range(0, len(rolling_sample) - window_obs + 1, step_obs))
+    say(f"rolling: {n_windows} windows of {window_obs} rows, step {step_obs}, workers={workers}")
+    rolling = A.rolling_shares(rolling_sample, spec, window_obs, step_obs, frac, workers)
     rolling.attrs.update(data_kind=kind, window_obs=window_obs, step_obs=step_obs, k_ar_diff=spec["k_ar_diff"])
     write_parquet(rolling, tables/"rolling_is.parquet", "D6")
-    A.sensitivity(rolling_sample, spec, window_obs, step_obs, max_missing_frac=frac
-                  ).to_csv(tables/"T3b_sensitivity.csv", index=False)
+    say("rolling_is.parquet written; starting sensitivity (baseline reused)")
+    A.sensitivity(rolling_sample, spec, window_obs, step_obs, max_missing_frac=frac, workers=workers,
+                  baseline=rolling, progress=say).to_csv(tables/"T3b_sensitivity.csv", index=False)
+    say("T3b_sensitivity.csv written")
     return {"spec": spec, "n_windows": int(rolling.window_start.nunique()),
             "n_failed_windows": int(rolling[rolling.status.ne("ok")].window_start.nunique())}
 
@@ -97,8 +113,11 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=ROOT/"config/config.example.yaml")
     parser.add_argument("--window-obs", type=int, help="Override rolling.window_obs (grid rows)")
     parser.add_argument("--step-obs", type=int, help="Override rolling.step_obs (grid rows)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Processes for rolling/sensitivity windows; results equal the serial run")
     args = parser.parse_args(argv)
-    summary = run(args.data_dir, args.output_dir, load_config(args.config), args.window_obs, args.step_obs)
+    summary = run(args.data_dir, args.output_dir, load_config(args.config), args.window_obs, args.step_obs,
+                  args.workers, progress=_say)
     print(f"price discovery: k_ar_diff={summary['spec']['k_ar_diff']}, johansen_rank={summary['spec']['coint_rank']} "
           f"(system_supported={summary['spec']['system_supported']}), "
           f"{summary['n_windows']} windows ({summary['n_failed_windows']} failed) -> {args.output_dir/'tables'}")
