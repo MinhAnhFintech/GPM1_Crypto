@@ -1,10 +1,11 @@
 """C2.06 (TV2) - Hình F6: tương quan chéo lead-lag của ret_1m giữa các cặp venue.
 
 Chạy từ gốc repo:
-    python scripts/make_figure_f6.py                          # toàn bộ mẫu (chỉ để kiểm tra code)
-    python scripts/make_figure_f6.py --end 2026-03-01         # cắt mẫu: ts_available < end (UTC)
+    python scripts/make_figure_f6.py                          # mặc định chỉ dùng mẫu dev theo D4
+    python scripts/make_figure_f6.py --end 2026-03-01         # lọc thêm trong dev: ts_available < end (UTC)
 
 Đầu vào : data/processed/features_1m.parquet (D3b, cột ret_1m__{venue}); max_lag lấy từ config/config.yaml.
+           data/processed/panel_1m_wide.parquet (D3) và split_manifest.json (D4) để xác thực mẫu dev.
 Đầu ra  : outputs/figures/F6_leadlag_xcorr.png (historical) hoặc outputs/synthetic/figures/ (synthetic).
 
 Quy ước: corr(ret_A(t), ret_B(t+lag)), lag đo bằng phút (lưới 1 phút). Lag DƯƠNG nghĩa là venue A (tên đứng
@@ -15,11 +16,15 @@ Hình chỉ MÔ TẢ tương quan; ở lưới 1 phút tương quan cùng phút 
 """
 from pathlib import Path
 import argparse
+import json
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from src.synchronization.split import select_split
+from src.utils.pipeline_stages import validate_output_location
 
 import matplotlib
 matplotlib.use("Agg")
@@ -30,7 +35,7 @@ import yaml
 
 from src.price_discovery.leadlag import lead_lag_xcorr
 from src.utils.io_utils import read_parquet
-from src.utils.schema import data_kind
+from src.utils.schema import data_kind, validate_split_manifest
 
 PREFIX = "ret_1m__"
 MARKET_RANK = {"spot": 0, "perp": 1}
@@ -141,19 +146,36 @@ def _utc(value):
 def main(argv=None) -> Path:
     parser = argparse.ArgumentParser(description="C2.06 F6: lead-lag cross-correlation figure")
     parser.add_argument("--features", default=str(ROOT / "data/processed/features_1m.parquet"))
+    parser.add_argument("--panel", default=str(ROOT / "data/processed/panel_1m_wide.parquet"))
+    parser.add_argument("--split-manifest", default=str(ROOT / "data/processed/split_manifest.json"))
     parser.add_argument("--config", default=str(ROOT / "config/config.yaml"))
     parser.add_argument("--max-lag", type=int, default=None, help="mặc định lấy max_lag trong config")
-    parser.add_argument("--start", default=None, help="ts_available >= start (UTC, tùy chọn)")
-    parser.add_argument("--end", default=None, help="ts_available < end (UTC, tùy chọn)")
+    parser.add_argument("--start", default=None, help="lọc thêm trong mẫu dev: ts_available >= start (UTC)")
+    parser.add_argument("--end", default=None, help="lọc thêm trong mẫu dev: ts_available < end (UTC)")
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
 
     features = read_parquet(args.features, "D3b")
     kind = data_kind(features)
+    if kind not in {"synthetic", "historical"}:
+        raise ValueError(f"F6 supports synthetic or historical data, not {kind!r}")
+
+    default_out = ROOT / ("outputs/synthetic/figures" if kind == "synthetic" else "outputs/figures") / "F6_leadlag_xcorr.png"
+    output_path = Path(args.out) if args.out else default_out
+    validate_output_location(output_path, root=ROOT, mode="synthetic" if kind == "synthetic" else "historical")
+
+    panel = read_parquet(args.panel, "D3")
+    if data_kind(panel) != kind:
+        raise ValueError("D3b features and D3 panel must have the same data_kind")
+    if not features.index.equals(panel.index):
+        raise ValueError("D3b features index must exactly match the D3 panel index")
+    manifest = validate_split_manifest(json.loads(Path(args.split_manifest).read_text(encoding="utf-8")))
+    development = select_split(panel, manifest, "dev")
+    returns = features[[c for c in features.columns if c.startswith(PREFIX)]].loc[development.index]
+
     max_lag = args.max_lag
     if max_lag is None:
         max_lag = int(yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))["max_lag"])
-    returns = features[[c for c in features.columns if c.startswith(PREFIX)]]
     if returns.shape[1] < 2:
         raise ValueError("features must contain at least two ret_1m__{venue} columns")
     mask = np.ones(len(returns), dtype=bool)
@@ -163,16 +185,12 @@ def main(argv=None) -> Path:
         mask &= returns.index < _utc(args.end)
     returns = returns[mask]
     if returns.empty:
-        raise ValueError("No rows left after applying --start/--end")
-    if not (args.start or args.end):
-        print("WARNING: using the full sample. The final F6 should use the development sample (--end).")
+        raise ValueError("No development-sample rows left after applying --start/--end")
     xcorr = lead_lag_xcorr(returns, max_lag)
-    sample = f"Sample: {returns.index[0]:%Y-%m-%d %H:%M} to {returns.index[-1]:%Y-%m-%d %H:%M} UTC, {len(returns):,} minutes."
-    default_out = ROOT / ("outputs/figures" if kind == "historical" else "outputs/synthetic/figures") / "F6_leadlag_xcorr.png"
-    path = plot_lead_lag(xcorr, kind, sample, args.out or default_out)
+    sample = f"Development sample: {returns.index[0]:%Y-%m-%d %H:%M} to {returns.index[-1]:%Y-%m-%d %H:%M} UTC, {len(returns):,} minutes."
+    path = plot_lead_lag(xcorr, kind, sample, output_path)
     print(f"Wrote {path}")
     return path
-
 
 if __name__ == "__main__":
     main()
