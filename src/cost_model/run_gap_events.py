@@ -8,7 +8,8 @@ the largest venue value is applied to every leg; fees.yaml assumed_half_spread_b
     python -m src.cost_model.run_gap_events --panel data/processed/panel_1m_wide.parquet
 Live D2 quotes use gap_events.live_grid_step_s (5 s) and gap_events.live_max_age_s from config or
 --live-max-age-s in seconds, chosen for the actual receive cadence. Fixtures stay on the 1-minute grid.
-Synthetic output goes to outputs/synthetic/<case>/tables/, real output to outputs/tables/.
+Output: the live sample -> gap_events.parquet (D7 path), a historical panel -> gap_events_historical.parquet;
+synthetic output goes to outputs/synthetic/<case>/tables/, real output to outputs/tables/.
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from .gap_events import DEFAULT_GAP_EVENTS_PATH, ROOT, detect_gap_events, write_
 from .pairs import compute_gaps
 from src.synchronization.split import create_split_manifest, select_split
 
+HISTORICAL_NAME = "gap_events_historical.parquet"
 PAIRED_KIND = {"historical": "live", "synthetic": "synthetic"}   # panel data_kind -> D2 kind allowed to calibrate its half spread
 
 DEFAULT_FIXTURE_CASE = "multi"
@@ -126,8 +128,11 @@ def main(argv=None) -> pd.DataFrame:
         gaps = compute_gaps(wide, fees, mode="quotes")
     events = detect_gap_events(gaps, params["gap_threshold_bps"], grid_step_s)
     kind = events.attrs["data_kind"]
-    output = args.output or (ROOT/"outputs/synthetic"/args.fixture_case/"tables/gap_events.parquet" if kind == "synthetic"
-                             else ROOT/DEFAULT_GAP_EVENTS_PATH)
+    # One data_kind per file: the live sample (bid/ask) keeps the contract path gap_events.parquet, the historical
+    # close-proxy events go next to it as gap_events_historical.parquet so the two sources never overwrite each other.
+    name = HISTORICAL_NAME if args.panel else Path(DEFAULT_GAP_EVENTS_PATH).name
+    output = args.output or (ROOT/"outputs/synthetic"/args.fixture_case/"tables"/name if kind == "synthetic"
+                             else ROOT/"outputs/tables"/name)
     write_gap_events(events, output)
     print(f"{len(events)} gap events ({kind}) -> {output}")
     return events
