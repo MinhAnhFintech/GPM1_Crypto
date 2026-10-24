@@ -177,3 +177,29 @@ def test_oi_full_window_with_running_candle_reports_zero():
     df = ff.to_frame_oi(oi_rec(datetime(2026, 9, 23, 12, 0, tzinfo=UTC), 696), OKX, "1h", LIVE0, None)
     rep = ff.make_oi_report(df, OKX, "1h", s_ms, until_ms, STATS, None)
     assert rep["n_missing_est"] == 0 and rep["n_expected_est"] == 696
+
+def test_funding_window_end_is_exclusive_full_last_period_reports_zero_tail():
+    # until đúng 2026-10-23 00:00 (bộ tải loại trừ until): đã có 00:00, 08:00, 16:00 của 22/10 -> không thiếu kỳ 00:00 ngày sau
+    until = datetime(2026, 10, 23, 0, 0, tzinfo=UTC)
+    first = datetime(2026, 10, 21, 0, 0, tzinfo=UTC)
+    df = ff.to_frame(funding_rec(first, 6), OKX, LIVE0)                  # 21/10 00:00 ... 22/10 16:00
+    assert df["ts_funding_utc"].max() == pd.Timestamp("2026-10-22 16:00", tz="UTC")
+    rep = ff.make_report(df, OKX, ms(first), ms(until), STATS)
+    assert (rep["n_missing_head"], rep["n_missing_interior"], rep["n_missing_tail"], rep["n_missing_est"]) == (0, 0, 0, 0)
+    assert rep["n_expected_est"] == 6
+
+
+def test_funding_window_end_missing_last_period_still_reported():
+    until = datetime(2026, 10, 23, 0, 0, tzinfo=UTC)
+    first = datetime(2026, 10, 21, 0, 0, tzinfo=UTC)
+    df = ff.to_frame(funding_rec(first, 5), OKX, LIVE0)                  # thiếu 22/10 16:00
+    rep = ff.make_report(df, OKX, ms(first), ms(until), STATS)
+    assert rep["n_missing_tail"] == 1 and rep["n_missing_est"] == 1
+
+
+def test_count_missing_boundary_on_grid_is_exclusive():
+    h = 3_600_000
+    step = 8 * h
+    ts = [0, step, 2 * step]
+    assert ff.count_missing(ts, step, 0, 3 * step, until_inclusive=False)["tail"] == 0
+    assert ff.count_missing(ts, step, 0, 3 * step + 1, until_inclusive=False)["tail"] == 1   # mốc 3*step đã nằm trong cửa sổ

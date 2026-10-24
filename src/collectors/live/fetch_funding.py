@@ -344,7 +344,7 @@ def oi_unit_check(df, ref_price: float | None = None):
 def count_missing(ts_ms, step_ms: int, since_ms: int, until_ms: int, until_inclusive: bool) -> dict:
     """Đếm mốc lưới thiếu so với CỬA SỔ yêu cầu, tách đầu / giữa / cuối.
     Lưới neo tại mốc quan sát đầu tiên, bước step_ms. head = số mốc lưới nằm trong [since, first); tail = số mốc lưới
-    nằm sau mốc cuối tới `until` (gồm until nếu until_inclusive: funding; không gồm: nến OI đang chạy chưa tính);
+    nằm sau mốc cuối tới `until` (gồm until nếu until_inclusive; cả funding lẫn OI đều gọi với False vì bộ tải loại trừ until: mốc đúng tại until chưa nằm trong cửa sổ);
     interior = lỗ giữa các mốc quan sát. Không nội suy, chỉ đếm."""
     ts = sorted(int(t) for t in ts_ms)
     if not ts:
@@ -382,7 +382,7 @@ def make_oi_report(df, v, tf, since_ms, until_ms, stats, mult) -> dict:
 def make_report(df, v, since_ms, until_ms, stats) -> dict:
     iv = float(df["funding_interval_h"].median()) if len(df) > 1 else float("nan")
     step_h = iv if iv == iv and iv > 0 else 8.0
-    miss = count_missing(_ms(df["ts_funding_utc"]), int(round(step_h * H_MS)), since_ms, until_ms, until_inclusive=True)
+    miss = count_missing(_ms(df["ts_funding_utc"]), int(round(step_h * H_MS)), since_ms, until_ms, until_inclusive=False)
     first, last = df["ts_funding_utc"].min(), df["ts_funding_utc"].max()
     return {"venue": v["venue"], "n_rows": len(df), "first_utc": first, "last_utc": last,
             "requested_since_utc": datetime.fromtimestamp(since_ms / 1000, UTC).isoformat(timespec="seconds"),
