@@ -164,6 +164,26 @@ def test_sensitivity_changes_one_setting_at_a_time(multi_panel, spec):
     assert (settings.ne(pd.Series(dict(zip(["window_obs", "step_obs", "k_ar_diff"], baseline)))).sum(axis=1) <= 1).all()
 
 
+def test_parallel_rolling_equals_serial(multi_panel, spec):
+    panel, _ = multi_panel
+    sample = panel.iloc[:576]
+    serial = A.rolling_shares(sample, spec, 240, 60)
+    parallel = A.rolling_shares(sample, spec, 240, 60, workers=2)
+    pd.testing.assert_frame_equal(serial, parallel)
+    with pytest.raises(ValueError, match="workers"):
+        A.rolling_shares(sample, spec, 240, 60, workers=0)
+
+
+def test_sensitivity_reuses_baseline_without_changing_results(multi_panel, spec):
+    panel, _ = multi_panel
+    sample = panel.iloc[:576]
+    baseline = A.rolling_shares(sample, spec, 240, 120)
+    messages = []
+    reused = A.sensitivity(sample, spec, 240, 120, baseline=baseline, progress=messages.append)
+    pd.testing.assert_frame_equal(A.sensitivity(sample, spec, 240, 120), reused)
+    assert messages and messages[0].startswith("sensitivity 1/")
+
+
 def test_spot_vs_perp_pairs_only_same_exchange():
     assert A.spot_perp_pairs(["binance_spot", "binance_perp", "okx_spot", "bybit_perp"]) == [("binance_spot", "binance_perp")]
 
