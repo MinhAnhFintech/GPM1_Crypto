@@ -15,12 +15,12 @@ book_limit: 5                 # mặc định cho venue không khai báo book_li
 #   Giới hạn hợp lệ theo sàn: binance spot/perp 1000 (hợp lệ: 5,10,20,50,100,500,1000), okx books 400 (okx perp dùng
 #   books-full nên 1000), bybit spot 200 / perp 500, kraken 500, coinbase 500.
 #   Nếu sổ lấy về vẫn ngắn hơn 10 bps thì cột depth_truncated = True (depth bị đánh giá thấp).
-# size_multiplier = hệ số đổi khối lượng sổ lệnh sang BTC (mặc định 1). OKX perp báo khối lượng bằng "hợp đồng"
+# Size đổi sang BTC theo contractSize từ market metadata; size_multiplier khai báo chỉ để kiểm tra khớp metadata. OKX perp báo khối lượng bằng "hợp đồng"
 #   (1 hợp đồng = 0.01 BTC) nên okx:perp dùng size_multiplier: 0.01. Các venue khác để mặc định 1.
 # params = tham số thêm truyền cho fetch_order_book của CCXT (mặc định rỗng). Chỉ dùng cho lần lấy sổ sâu.
 #   okx perp: endpoint books chỉ trả 400 mức (phủ ~7 bps, thiếu); books-full trả 1000 mức (đo 18/10: phủ ~16 bps, đủ 10 bps).
-#   bybit perp: API linear giới hạn 500 mức (đo 18/10: phủ ~9,4/10,4 bps, sát ngưỡng) -> chấp nhận depth_truncated=True,
-#   vì perp thuộc phần Nâng cao (C3.09, C5.09).
+#   bybit perp: API linear giới hạn 500 mức (đo 18/10: phủ ~9,4/10,4 bps, sát ngưỡng) -> chấp nhận depth_truncated=True.
+#   Độ sâu bị cắt chỉ là cận dưới. Perpetual thuộc phạm vi bắt buộc của nhóm.
 venues:
   - {exchange: binance,  market_type: spot, ccxt_id: binance,     symbol: "BTC/USDT",       book_limit: 1000}
   - {exchange: binance,  market_type: perp, ccxt_id: binanceusdm, symbol: "BTC/USDT:USDT",  book_limit: 1000}
@@ -32,12 +32,6 @@ venues:
   - {exchange: coinbase, market_type: spot, ccxt_id: coinbase,    symbol: "BTC/USDT",       book_limit: 500}
 
 
-
-
-
-
-
-
 # Khung giờ phiên (giờ VN): S1 14:00–17:00 (châu Âu mở), S2 20:00–23:00 (Mỹ mở).
 sessions_weekend:             # Thứ Bảy, Chủ Nhật
   - {name: S1, start: "14:00", end: "17:00"}   # sàn châu Âu mở
@@ -45,18 +39,3 @@ sessions_weekend:             # Thứ Bảy, Chủ Nhật
 sessions_weekday:             # Thứ Hai → Thứ Sáu
   - {name: S1, start: "14:00", end: "17:00"}   # sàn châu Âu mở
   - {name: S2, start: "20:00", end: "23:00"}   # sàn Mỹ mở
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,13 +1,10 @@
 """C3.09 (BẮT BUỘC) — Funding rate + Open interest của hợp đồng perpetual (BTC/USDT:USDT) qua CCXT, phục vụ RQ3 (spot hay perp dẫn giá), bảng T1 và C5.09.
 
-
 Funding và OI là BIẾN MÔ TẢ. KHÔNG đưa funding vào net_gap_bps (cash-and-carry nằm ngoài phạm vi bài).
-
 
 Funding chỉ chốt mỗi kỳ (thường 8 giờ: 00:00, 08:00, 16:00 UTC) nên KHÔNG cần thu mỗi 5 giây: tải LỊCH SỬ các kỳ đã chốt bằng
 fetch_funding_rate_history. Open interest tải bằng fetch_open_interest_history (mặc định nến 1 giờ, 29 ngày gần nhất vì Binance
 chỉ giữ ~30 ngày). Mỗi venue perp ghi:
-
 
     data/raw/live/funding/{venue}_funding.parquet      (venue = binance_perp, okx_perp, bybit_perp)
     data/raw/live/funding/{venue}_oi.parquet
@@ -16,7 +13,6 @@ chỉ giữ ~30 ngày). Mỗi venue perp ghi:
     data/raw/live/funding/funding_snapshots.csv        (chỉ khi dùng --snapshot: funding tạm tính + OI hiện tại, mark/index price)
     data/processed/funding_oi.parquet                  (BẢNG GỘP: mỗi quan sát một dòng; --hourly cho lưới 1 giờ)
 
-
 GHI FILE KHÔNG LÀM MẤT DỮ LIỆU ĐÃ TẢI (gộp, không ghi đè):
   * Mỗi lần chạy, kết quả mới được GỘP với file cũ theo mốc giờ (trùng thì lấy bản mới tải). Dòng cũ nằm ngoài cửa sổ vừa tải
     (vd OI cũ hơn 29 ngày mà sàn không còn trả) được GIỮ NGUYÊN: đây là bộ đệm (buffer) tích lũy của OI.
@@ -24,6 +20,22 @@ GHI FILE KHÔNG LÀM MẤT DỮ LIỆU ĐÃ TẢI (gộp, không ghi đè):
   * File cũ không đọc được hoặc sai đơn vị OI không bị xóa: được sao lưu sang *.corrupt-* / *.stale-units* rồi mới ghi lại.
   * Ghi nguyên tử (file tạm rồi đổi tên).
 
+KIỂM ĐẦU VÀO TRƯỚC KHI DỰNG funding_oi.parquet (không bao giờ ghi đè bảng đủ 3 sàn bằng bảng thiếu):
+  * Mọi venue perp trong config.yaml phải có file funding (và file OI, trừ khi --no-oi). Thiếu bất kỳ venue nào -> KHÔNG ghi
+    funding_oi.parquet, file cũ giữ nguyên, báo LỖI, mã thoát 1.
+  * Kiểm nguồn từng file (check_source) theo CẢ HAI lớp: (1) cột data_kind; (2) METADATA của file (df.attrs / metadata parquet:
+    data_kind, source, origin, generator, synthetic). Chỉ nhận data_kind == "historical". Cột nói "historical" nhưng metadata nói
+    "synthetic" (hoặc metadata data_kind khác historical, hoặc source/origin/generator chứa synth/fake/mock/simulat/demo) -> TỪ CHỐI.
+    Nhãn "live" do bản script cũ ghi cho dòng trong cửa sổ live (source == "ccxt", vẫn là API lịch sử) được chuẩn hóa về historical.
+    Nhãn khác (synthetic, ...), thiếu cột data_kind hay source khác ccxt -> file bị từ chối, không ghi bảng gộp, LỖI, mã thoát 1.
+    Không dòng nào được "đổi nhãn" thành historical. File cũ KHÔNG có metadata vẫn được nhận (chỉ kiểm cột); CSV không mang được metadata.
+  * File do script này ghi mang metadata data_kind="historical", source="ccxt".
+  * Khi gộp với file cũ (merge_with_existing) cũng kiểm nguồn của file cũ: file cũ không hợp lệ bị sao lưu
+    sang *.bad-source* và KHÔNG được gộp.
+
+BÁO CÁO THIẾU KỲ/NẾN tính theo CỬA SỔ YÊU CẦU, không chỉ lỗ giữa các kỳ: n_missing_head (sàn bắt đầu muộn hơn đầu cửa sổ),
+n_missing_interior (lỗ giữa), n_missing_tail (dừng sớm hơn cuối cửa sổ); n_missing_est = tổng ba phần;
+n_expected_est = số mốc lưới kỳ trong cửa sổ (lưới neo tại kỳ đầu tiên quan sát được, bước = chu kỳ trung vị).
 
 ĐƠN VỊ OI (open_interest_base luôn là BTC):
   * Hệ số quy đổi theo thứ tự: --oi-mult  >  DEFAULT_OI_MULT (okx_perp = 0.01: 1 hợp đồng = 0.01 BTC)  >  không nhân.
@@ -33,7 +45,6 @@ GHI FILE KHÔNG LÀM MẤT DỮ LIỆU ĐÃ TẢI (gộp, không ghi đè):
     in lỗi, thoát mã 1. Sàn có contractSize khác 1 mà chưa có hệ số quy đổi -> cũng từ chối. Sàn không trả USDT thì không kiểm được:
     unit_check = "unverified" trong oi_report.csv.
   * Dựng funding_oi.parquet cũng kiểm lại file OI trên đĩa: file sai đơn vị bị loại khỏi bảng gộp (không đưa số hợp đồng vào cột BTC).
-
 
 Cột file funding: ts_funding_utc, ts_available, exchange, market_type, symbol, funding_rate, funding_rate_bps, funding_interval_h,
           data_kind, in_live_window, source.
@@ -45,12 +56,10 @@ Cột file funding: ts_funding_utc, ts_available, exchange, market_type, symbol,
     cột in_live_window (True nếu mốc >= ngày bắt đầu thu live trong live_sessions.yaml: start_date).
   * Không nội suy, không lấp kỳ thiếu: kỳ thiếu được đếm trong funding_report.csv.
 
-
 Cột file OI: ts_oi_utc, ts_available, exchange, market_type, symbol, timeframe, open_interest_base (BTC), open_interest_usdt,
           data_kind, in_live_window, source.
   * ts_oi_utc = mốc sàn gán cho điểm OI; để KHÔNG look-ahead (sàn không nói rõ mốc là đầu hay cuối nến) lấy bảo thủ
     ts_available = ts_oi_utc + độ dài nến.
-
 
 BẢNG GỘP data/processed/funding_oi.parquet — MẶC ĐỊNH MỘT DÒNG MỖI QUAN SÁT, KHÔNG LẶP, KHÔNG LẤP:
   * dòng funding nằm tại giờ chốt kỳ (funding_* có giá trị, OI trống nếu không trùng giờ nến OI);
@@ -64,21 +73,9 @@ BẢNG GỘP data/processed/funding_oi.parquet — MẶC ĐỊNH MỘT DÒNG M�
     data_kind (= "historical"), in_live_window
   * Không nội suy, không lấp: ô nào không có thông tin hợp lệ thì để NaN.
 
-
 Mặc định tải funding từ sample.start (config.yaml) đến hiện tại; chạy lại bao nhiêu lần cũng được (gộp với file cũ, kết quả không mất dòng).
 
-
-KIỂM ĐẦU VÀO TRƯỚC KHI DỰNG funding_oi.parquet (không bao giờ ghi đè bảng đủ 3 sàn bằng bảng thiếu):
-  * Mọi venue perp trong config.yaml phải có file funding (và file OI, trừ khi --no-oi). Thiếu bất kỳ venue nào -> KHÔNG ghi
-    funding_oi.parquet, file cũ giữ nguyên, báo LỖI, mã thoát 1.
-  * Kiểm nguồn từng file: chỉ nhận data_kind == "historical". Nhãn "live" do bản script cũ ghi cho dòng trong cửa sổ live
-    (source == "ccxt", vẫn là API lịch sử) được chuẩn hóa về historical. Nhãn khác (synthetic, ...), thiếu cột data_kind hay
-    source khác ccxt -> file bị từ chối, không ghi bảng gộp, báo LỖI, mã thoát 1. Không dòng nào được "đổi nhãn" thành historical.
-  * Khi gộp với file cũ (merge_with_existing) cũng kiểm nguồn của file cũ: file cũ có dòng không phải historical bị sao lưu
-    sang *.bad-source* và KHÔNG được gộp.
-
 Mã thoát: 0 = ổn; 1 = có vấn đề (không tải được bản ghi nào, thiếu đầu vào, nguồn không hợp lệ, sai đơn vị OI, lỗi tải).
-
 
 Dùng:
     python src\\collectors\\live\\fetch_funding.py --probe       # thử, KHÔNG ghi file: sàn trả được từ khi nào, bao nhiêu kỳ/nến
@@ -90,8 +87,8 @@ Dùng:
 """
 from __future__ import annotations
 
-
 import argparse
+import json
 import random
 import shutil
 import sys
@@ -99,9 +96,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 import yaml
-
 
 HERE = Path(__file__).resolve().parent
 UTC = timezone.utc
@@ -109,15 +104,11 @@ H_MS = 3_600_000
 TF_MS = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
 
 
-
-
 def _find_project_root() -> Path:
     for p in [HERE, *HERE.parents]:
         if any((p / m).exists() for m in (".git", "config", "data", ".venv")):
             return p
     return Path.cwd()
-
-
 
 
 ROOT = _find_project_root()
@@ -133,9 +124,10 @@ DEFAULT_OI_MULT = {"okx_perp": 0.01}
 UNIT_REF_RATIO = 3.0                      # giá ngầm định so với giá ticker: trong khoảng (1/3, 3) lần
 UNIT_BAND_FALLBACK = (5_000.0, 1_000_000.0)   # khi không lấy được ticker; hợp đồng 0.01 BTC cho ra giá ~ giá/100, bị bắt
 REPORT_COLS = ["venue", "n_rows", "first_utc", "last_utc", "requested_since_utc", "n_expected_est", "n_missing_est",
-               "median_interval_h", "funding_bps_min", "funding_bps_median", "funding_bps_max", "n_windows",
+               "n_missing_head", "n_missing_interior", "n_missing_tail", "median_interval_h", "funding_bps_min", "funding_bps_median", "funding_bps_max", "n_windows",
                "n_failed_windows", "fetched_at_utc"]
-OI_REPORT_COLS = ["venue", "n_rows", "first_utc", "last_utc", "timeframe", "n_expected_est", "n_missing_est", "oi_base_median",
+OI_REPORT_COLS = ["venue", "n_rows", "first_utc", "last_utc", "timeframe", "n_expected_est", "n_missing_est",
+                  "n_missing_head", "n_missing_interior", "n_missing_tail", "oi_base_median",
                   "oi_usdt_median", "implied_price_median", "pct_usdt_missing", "oi_mult", "n_windows", "n_failed_windows",
                   "fetched_at_utc", "unit_check", "contract_size"]
 PROCESSED_COLS = ["ts_utc", "ts_available", "exchange", "market_type", "venue", "symbol", "funding_rate", "funding_rate_bps",
@@ -143,12 +135,8 @@ PROCESSED_COLS = ["ts_utc", "ts_available", "exchange", "market_type", "venue", 
                   "in_live_window"]
 
 
-
-
 def tf_ms(tf: str) -> int:
     return int(tf[:-1]) * TF_MS[tf[-1].lower()]
-
-
 
 
 def parse_mults(items) -> dict:
@@ -164,15 +152,11 @@ def parse_mults(items) -> dict:
     return out
 
 
-
-
 def resolve_oi_mult(venue: str, mults: dict | None):
     """--oi-mult > DEFAULT_OI_MULT > None (không nhân). Gọi ở MỌI nơi dùng hệ số (kể cả snapshot) để mặc định luôn an toàn."""
     if mults and venue in mults:
         return mults[venue]
     return DEFAULT_OI_MULT.get(venue)
-
-
 
 
 def _problem(a, msg: str):
@@ -181,29 +165,6 @@ def _problem(a, msg: str):
     p = getattr(a, "problems", None)
     if p is not None:
         p.append(msg)
-
-
-def check_source(df, label: str):
-    """Kiểm nguồn của MỘT file funding/OI trước khi dùng. Trả (df | None, lý do | None).
-    Chỉ nhận data_kind == "historical" (một nhãn nguồn cho cả file). Ngoại lệ duy nhất: nhãn "live" do bản script cũ gán cho dòng
-    trong cửa sổ live, khi cột source == "ccxt" (nguồn thật vẫn là API lịch sử) -> chuẩn hóa về historical.
-    Thiếu cột/ô trống data_kind, nhãn khác (synthetic, ...) hoặc source khác ccxt -> từ chối (None)."""
-    if df is None or not len(df):
-        return df, None
-    if "data_kind" not in df.columns or df["data_kind"].isna().any():
-        return None, f"{label}: thiếu nhãn data_kind (không xác nhận được nguồn)"
-    kinds = set(df["data_kind"].astype(str).str.strip().str.lower())
-    if kinds <= {"historical"}:
-        return df, None
-    srcs = set(df["source"].astype(str).str.strip().str.lower()) if "source" in df.columns else set()
-    if kinds <= {"historical", "live"} and srcs == {"ccxt"}:
-        df = df.copy()
-        df["data_kind"] = "historical"
-        print(f"[{label}] LƯU Ý: nhãn data_kind='live' của bản cũ (source=ccxt) được chuẩn hóa về 'historical'")
-        return df, None
-    return None, f"{label}: nguồn không hợp lệ, data_kind={sorted(kinds)} (chỉ nhận 'historical')"
-
-
 
 
 # ----------------------------------------------------------------------------- cấu hình
@@ -218,8 +179,6 @@ def parse_ts(s) -> datetime:
             return datetime.fromisoformat(s).replace(tzinfo=UTC)
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-
-
 
 
 def load_cfg(config_dir: Path):
@@ -238,8 +197,6 @@ def load_cfg(config_dir: Path):
     return cfg, venues
 
 
-
-
 def live_start(config_dir: Path) -> datetime:
     """Ngày bắt đầu thu live (live_sessions.yaml: start_date 00:00 giờ VN); không có file thì 2026-10-17 00:00 +07."""
     p = config_dir / "live_sessions.yaml"
@@ -252,14 +209,10 @@ def live_start(config_dir: Path) -> datetime:
         return datetime(2026, 10, 16, 17, 0, tzinfo=UTC)
 
 
-
-
 # ----------------------------------------------------------------------------- sàn + retry
 def make_exchange(ccxt_id: str):
     import ccxt
     return getattr(ccxt, ccxt_id)({"enableRateLimit": True, "timeout": 15000})
-
-
 
 
 def is_transient(e: Exception) -> bool:
@@ -267,8 +220,6 @@ def is_transient(e: Exception) -> bool:
     return (isinstance(e, (TimeoutError, ConnectionError))
             or any(k in n for k in ("timeout", "network", "notavailable", "unavailable", "ddos", "ratelimit", "connection"))
             or "too many" in msg or "429" in msg or "503" in msg or "502" in msg)
-
-
 
 
 def with_retry(fn, tries: int = 7, label: str = ""):
@@ -283,8 +234,6 @@ def with_retry(fn, tries: int = 7, label: str = ""):
             time.sleep(wait)
 
 
-
-
 def fetch_window(ex, symbol, s_ms, e_ms, limit):
     """Các kỳ chốt trong [s, e): gửi cả since và until để sàn trả đúng cửa sổ (Binance endTime, OKX after, Bybit endTime)."""
     rows = ex.fetch_funding_rate_history(symbol, s_ms, limit, {"until": e_ms})
@@ -296,8 +245,6 @@ def fetch_window(ex, symbol, s_ms, e_ms, limit):
     return keep
 
 
-
-
 def fetch_window_oi(ex, symbol, s_ms, e_ms, limit, tf="1h"):
     """Các nến OI có mốc trong [s, e): {ts_ms: (open_interest_base, open_interest_usdt)}."""
     rows = ex.fetch_open_interest_history(symbol, tf, s_ms, limit, {"until": e_ms})
@@ -307,8 +254,6 @@ def fetch_window_oi(ex, symbol, s_ms, e_ms, limit, tf="1h"):
         if t is not None and s_ms <= int(t) < e_ms and (amt is not None or val is not None):
             keep[int(t)] = (None if amt is None else float(amt), None if val is None else float(val))
     return keep
-
-
 
 
 def fetch_span(ex, symbol, s_ms, e_ms, limit, label, stats, depth=0, win=None, soft=False):
@@ -332,8 +277,6 @@ def fetch_span(ex, symbol, s_ms, e_ms, limit, label, stats, depth=0, win=None, s
     return got
 
 
-
-
 def fetch_all(ex, symbol, s_ms, e_ms, limit, label, stats, win=None, soft=False, step_days=WINDOW_DAYS):
     out, cur = {}, s_ms
     step = step_days * 24 * H_MS
@@ -342,8 +285,6 @@ def fetch_all(ex, symbol, s_ms, e_ms, limit, label, stats, win=None, soft=False,
         out.update(fetch_span(ex, symbol, cur, nxt, limit, label, stats, 0, win, soft))
         cur = nxt
     return out
-
-
 
 
 # ----------------------------------------------------------------------------- bảng + báo cáo
@@ -365,8 +306,6 @@ def to_frame(rec: dict, v: dict, live0: datetime):
                "funding_interval_h", "data_kind", "in_live_window", "source"]]
 
 
-
-
 def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None):
     import pandas as pd
     df = pd.DataFrame([(t, a, b) for t, (a, b) in sorted(rec.items())], columns=["ts", "open_interest_base", "open_interest_usdt"])
@@ -386,8 +325,6 @@ def to_frame_oi(rec: dict, v: dict, tf: str, live0: datetime, mult: float | None
                "open_interest_usdt", "data_kind", "in_live_window", "source"]]
 
 
-
-
 def oi_unit_check(df, ref_price: float | None = None):
     """Soát đơn vị open_interest_base = BTC bằng giá ngầm định (USDT / BTC).
     Trả (trạng thái, giá ngầm định trung vị): "ok" | "fail" | "unverified" (sàn không trả USDT nên không kiểm được).
@@ -404,49 +341,73 @@ def oi_unit_check(df, ref_price: float | None = None):
     return ("ok" if good else "fail"), implied
 
 
+def count_missing(ts_ms, step_ms: int, since_ms: int, until_ms: int, until_inclusive: bool) -> dict:
+    """Đếm mốc lưới thiếu so với CỬA SỔ yêu cầu, tách đầu / giữa / cuối.
+    Lưới neo tại mốc quan sát đầu tiên, bước step_ms. head = số mốc lưới nằm trong [since, first); tail = số mốc lưới
+    nằm sau mốc cuối tới `until` (gồm until nếu until_inclusive: funding; không gồm: nến OI đang chạy chưa tính);
+    interior = lỗ giữa các mốc quan sát. Không nội suy, chỉ đếm."""
+    ts = sorted(int(t) for t in ts_ms)
+    if not ts:
+        return {"head": 0, "interior": 0, "tail": 0, "expected": 0}
+    first, last = ts[0], ts[-1]
+    head = max(0, (first - since_ms) // step_ms)
+    span_after = until_ms - last if until_inclusive else until_ms - last - 1
+    tail = max(0, span_after // step_ms)
+    interior = sum(round((b - a) / step_ms) - 1 for a, b in zip(ts[:-1], ts[1:]) if (b - a) > 1.5 * step_ms)
+    return {"head": int(head), "interior": int(interior), "tail": int(tail),
+            "expected": int(len(ts) + head + interior + tail)}
+
+
+def _ms(series) -> list:
+    import pandas as pd
+    delta = pd.to_datetime(series, utc=True) - pd.Timestamp("1970-01-01", tz="UTC")
+    return [int(x) for x in (delta // pd.Timedelta(milliseconds=1)).tolist()]
 
 
 def make_oi_report(df, v, tf, since_ms, until_ms, stats, mult) -> dict:
     step = tf_ms(tf)
-    gaps = df["ts_oi_utc"].diff().dropna().dt.total_seconds() * 1000
-    missing = int(sum(round(g / step) - 1 for g in gaps if g > 1.5 * step))
+    miss = count_missing(_ms(df["ts_oi_utc"]), step, since_ms, until_ms, until_inclusive=False)
     ok = df["open_interest_base"].gt(0) & df["open_interest_usdt"].gt(0)
     implied = (df.loc[ok, "open_interest_usdt"] / df.loc[ok, "open_interest_base"]).median() if ok.any() else float("nan")
     return {"venue": v["venue"], "n_rows": len(df), "first_utc": df["ts_oi_utc"].min(), "last_utc": df["ts_oi_utc"].max(),
-            "timeframe": tf, "n_expected_est": int((until_ms - since_ms) / step), "n_missing_est": missing,
+            "timeframe": tf, "n_expected_est": miss["expected"],
+            "n_missing_est": miss["head"] + miss["interior"] + miss["tail"], "n_missing_head": miss["head"],
+            "n_missing_interior": miss["interior"], "n_missing_tail": miss["tail"],
             "oi_base_median": float(df["open_interest_base"].median()), "oi_usdt_median": float(df["open_interest_usdt"].median()),
             "implied_price_median": float(implied), "pct_usdt_missing": float(df["open_interest_usdt"].isna().mean() * 100),
             "oi_mult": mult if mult is not None else 1.0, "n_windows": stats["windows"], "n_failed_windows": stats["failed"],
             "fetched_at_utc": datetime.now(UTC).isoformat(timespec="seconds")}
 
 
-
-
 def make_report(df, v, since_ms, until_ms, stats) -> dict:
     iv = float(df["funding_interval_h"].median()) if len(df) > 1 else float("nan")
     step_h = iv if iv == iv and iv > 0 else 8.0
-    n_exp = int((until_ms - since_ms) / (step_h * H_MS)) if len(df) else 0
+    miss = count_missing(_ms(df["ts_funding_utc"]), int(round(step_h * H_MS)), since_ms, until_ms, until_inclusive=True)
     first, last = df["ts_funding_utc"].min(), df["ts_funding_utc"].max()
-    # số kỳ thiếu ước tính theo khoảng cách giữa các kỳ liên tiếp (> 1,5 lần chu kỳ)
-    gaps = df["funding_interval_h"].dropna()
-    missing = int(sum(round(g / step_h) - 1 for g in gaps if g > 1.5 * step_h))
     return {"venue": v["venue"], "n_rows": len(df), "first_utc": first, "last_utc": last,
             "requested_since_utc": datetime.fromtimestamp(since_ms / 1000, UTC).isoformat(timespec="seconds"),
-            "n_expected_est": n_exp, "n_missing_est": missing, "median_interval_h": iv,
+            "n_expected_est": miss["expected"], "n_missing_est": miss["head"] + miss["interior"] + miss["tail"],
+            "n_missing_head": miss["head"], "n_missing_interior": miss["interior"], "n_missing_tail": miss["tail"],
+            "median_interval_h": iv,
             "funding_bps_min": float(df["funding_rate_bps"].min()), "funding_bps_median": float(df["funding_rate_bps"].median()),
             "funding_bps_max": float(df["funding_rate_bps"].max()), "n_windows": stats["windows"],
             "n_failed_windows": stats["failed"], "fetched_at_utc": datetime.now(UTC).isoformat(timespec="seconds")}
 
 
+FILE_ATTRS = {"data_kind": "historical", "source": "ccxt"}   # metadata ghi vào file do script này tạo ra
 
 
-def write_frame(df, path: Path, fmt: str):
+def write_frame(df, path: Path, fmt: str, attrs: dict | None = None):
+    """Ghi nguyên tử. Parquet mang metadata `attrs` (mặc định data_kind=historical, source=ccxt); CSV không mang được metadata."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    (df.to_parquet(tmp, index=False) if fmt == "parquet" else df.to_csv(tmp, index=False))
+    if fmt == "parquet":
+        df = df.copy()
+        df.attrs = dict(FILE_ATTRS if attrs is None else attrs)
+        df.to_parquet(tmp, index=False)
+    else:
+        df.to_csv(tmp, index=False)
     tmp.replace(path)
-
-
 
 
 def save_report(out_dir: Path, rows, name="funding_report.csv", cols=None):
@@ -459,6 +420,69 @@ def save_report(out_dir: Path, rows, name="funding_report.csv", cols=None):
     new.sort_values("venue").to_csv(path, index=False)
 
 
+SYNTH_MARKERS = ("synth", "fake", "mock", "simulat", "demo")
+META_KEYS = ("data_kind", "kind", "source", "origin", "generator", "dataset")
+
+
+def read_file_meta(path: Path) -> dict:
+    """Metadata của file parquet (df.attrs + khóa-giá trị tùy chọn trong schema). CSV / file không tồn tại -> {}.
+    Chỉ đọc footer, không đọc dữ liệu."""
+    if path is None or path.suffix != ".parquet" or not path.exists():
+        return {}
+    import pyarrow.parquet as pq
+    raw = pq.read_schema(path).metadata or {}
+    meta = {}
+    for k, val in raw.items():
+        k, val = k.decode("utf-8", "replace"), val.decode("utf-8", "replace")
+        if k in ("PANDAS_ATTRS", "pandas"):
+            try:
+                blob = json.loads(val)
+                meta.update(blob if k == "PANDAS_ATTRS" else (blob.get("attrs") or {}))
+            except ValueError:
+                pass
+        elif k != "ARROW:schema":
+            meta[k] = val
+    return meta
+
+
+def _metadata_problem(path):
+    """Lý do từ chối theo METADATA file (None = ổn hoặc không có metadata)."""
+    meta = read_file_meta(path)
+    kind = meta.get("data_kind")
+    if kind is not None and str(kind).strip().lower() != "historical":
+        return f"metadata data_kind={kind!r} (chỉ nhận 'historical')"
+    for k in META_KEYS:
+        val = meta.get(k)
+        if val is not None and any(m in str(val).lower() for m in SYNTH_MARKERS):
+            return f"metadata {k}={val!r} cho thấy dữ liệu giả lập"
+    if str(meta.get("synthetic", "")).strip().lower() in ("true", "1", "yes"):
+        return "metadata synthetic=true"
+    return None
+
+
+def check_source(df, label: str, path: Path | None = None):
+    """Kiểm nguồn của MỘT file funding/OI trước khi dùng. Trả (df | None, lý do | None).
+    Lớp 1 - METADATA (khi có `path`): metadata nói synthetic / data_kind khác historical thì từ chối, DÙ cột data_kind nói historical.
+    Lớp 2 - CỘT: chỉ nhận data_kind == "historical" (một nhãn nguồn cho cả file). Ngoại lệ duy nhất: nhãn "live" do bản script cũ
+    gán cho dòng trong cửa sổ live, khi cột source == "ccxt" (nguồn thật vẫn là API lịch sử) -> chuẩn hóa về historical.
+    Thiếu cột/ô trống data_kind, nhãn khác (synthetic, ...) hoặc source khác ccxt -> từ chối (None)."""
+    why = _metadata_problem(path) if path is not None else None
+    if why:
+        return None, f"{label}: {why}"
+    if df is None or not len(df):
+        return df, None
+    if "data_kind" not in df.columns or df["data_kind"].isna().any():
+        return None, f"{label}: thiếu nhãn data_kind (không xác nhận được nguồn)"
+    kinds = set(df["data_kind"].astype(str).str.strip().str.lower())
+    if kinds <= {"historical"}:
+        return df, None
+    srcs = set(df["source"].astype(str).str.strip().str.lower()) if "source" in df.columns else set()
+    if kinds <= {"historical", "live"} and srcs == {"ccxt"}:
+        df = df.copy()
+        df["data_kind"] = "historical"
+        print(f"[{label}] LƯU Ý: nhãn data_kind='live' của bản cũ (source=ccxt) được chuẩn hóa về 'historical'")
+        return df, None
+    return None, f"{label}: nguồn không hợp lệ, data_kind={sorted(kinds)} (chỉ nhận 'historical')"
 
 
 def _backup(path: Path, tag: str) -> Path:
@@ -468,8 +492,6 @@ def _backup(path: Path, tag: str) -> Path:
         bak = path.with_name(f"{path.stem}.{tag}-{datetime.now(UTC):%Y%m%dT%H%M%S}{path.suffix}")
     shutil.copy2(path, bak)
     return bak
-
-
 
 
 def merge_with_existing(new, path: Path, key: str, time_cols: list, live0: datetime, label: str, check_units: bool = False,
@@ -485,7 +507,7 @@ def merge_with_existing(new, path: Path, key: str, time_cols: list, live0: datet
         bak = _backup(path, "corrupt")
         print(f"[{label}] file cũ không đọc được ({type(e).__name__}); đã sao lưu {bak.name}, ghi lại từ dữ liệu mới")
         return new
-    old, why = check_source(old, label)
+    old, why = check_source(old, label, path)
     if why:                                                      # file cũ có nguồn không phải historical: không gộp
         bak = _backup(path, "bad-source")
         msg = f"{why}; đã sao lưu {bak.name}, KHÔNG gộp dòng cũ"
@@ -509,8 +531,6 @@ def merge_with_existing(new, path: Path, key: str, time_cols: list, live0: datet
     if kept > 0:
         print(f"[{label}] gộp với file cũ: giữ {kept:,} dòng cũ ngoài cửa sổ vừa tải (tổng {len(merged):,} dòng)")
     return merged
-
-
 
 
 # ----------------------------------------------------------------------------- thao tác
@@ -541,12 +561,8 @@ def run_venue(v, a, since_ms, until_ms, live0, make_ex=None):
     return rep
 
 
-
-
 def oi_since_ms(a, since_ms, until_ms):
     return max(since_ms, until_ms - int(a.oi_days * 24 * H_MS))
-
-
 
 
 def _contract_size(ex, symbol):
@@ -554,8 +570,6 @@ def _contract_size(ex, symbol):
         return ex.market(symbol).get("contractSize")
     except Exception:  # noqa: BLE001 — chưa load markets / sàn giả: không biết
         return None
-
-
 
 
 def _ref_price(ex, symbol):
@@ -566,8 +580,6 @@ def _ref_price(ex, symbol):
         return float(p) if p else None
     except Exception:  # noqa: BLE001
         return None
-
-
 
 
 def run_oi(v, a, since_ms, until_ms, live0, mults, make_ex=None):
@@ -617,8 +629,6 @@ def run_oi(v, a, since_ms, until_ms, live0, mults, make_ex=None):
     return rep
 
 
-
-
 def probe_oi(v, a, since_ms, until_ms, make_ex=None):
     ex = (make_ex or make_exchange)(v["ccxt_id"])
     tf = a.oi_timeframe
@@ -639,16 +649,12 @@ def probe_oi(v, a, since_ms, until_ms, make_ex=None):
               f"{b[len(b)//2] if b else float('nan'):,.1f}, usdt median {u[len(u)//2] if u else float('nan'):,.0f}")
 
 
-
-
 def _read(path: Path, cols):
     import pandas as pd
     df = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
     for c in cols:
         df[c] = pd.to_datetime(df[c], utc=True).astype("datetime64[ns, UTC]")
     return df.sort_values(cols[0]).reset_index(drop=True)
-
-
 
 
 def _events(v, fu, oi, live0):
@@ -671,8 +677,6 @@ def _events(v, fu, oi, live0):
     return g[PROCESSED_COLS]
 
 
-
-
 def build_processed(a, venues, live0):
     """Gộp funding + OI thành lưới 1 giờ mỗi venue bằng ghép as-of (chỉ dùng thông tin ts_available <= ts_utc)."""
     import pandas as pd
@@ -690,11 +694,11 @@ def build_processed(a, venues, live0):
         if oi is None and need_oi:
             _problem(a, f"[{v['venue']}] thiếu file OI {op.name}; không dựng funding_oi (tránh ghi đè bảng đủ sàn bằng bảng thiếu)")
             bad = True
-        fu, why = check_source(fu, fp.name)
+        fu, why = check_source(fu, fp.name, fp)
         if why:
             _problem(a, f"[{v['venue']}] bỏ file funding: {why}")
             fu, bad = None, True
-        oi, why = check_source(oi, op.name)
+        oi, why = check_source(oi, op.name, op)
         if why:
             _problem(a, f"[{v['venue']}] bỏ file OI: {why}")
             oi, bad = None, True
@@ -740,7 +744,7 @@ def build_processed(a, venues, live0):
         g = g[g["funding_rate"].notna() | g["open_interest_base"].notna()].copy()
         g["ts_available"] = g["ts_utc"]
         g["exchange"], g["market_type"], g["venue"], g["symbol"] = v["exchange"], "perp", v["venue"], "BTC/USDT"
-        g["data_kind"] = "historical"                              # đầu vào đã qua check_source: chỉ còn nguồn historical
+        g["data_kind"] = "historical"                              # lấy qua API lịch sử: một nhãn nguồn cho cả file
         g["in_live_window"] = g["ts_utc"] >= pd.Timestamp(live0)   # giữ thông tin giai đoạn live
         parts.append(g[PROCESSED_COLS])
     if bad:
@@ -751,15 +755,13 @@ def build_processed(a, venues, live0):
         return None
     out = pd.concat(parts, ignore_index=True).sort_values(["venue", "ts_utc"]).reset_index(drop=True)
     path = a.processed.with_suffix(".parquet" if a.format == "parquet" else ".csv")
-    write_frame(out, path, a.format)
+    write_frame(out, path, a.format, attrs={"data_kind": "historical"})
     summ = out.groupby("venue").agg(rows=("ts_utc", "size"), first=("ts_utc", "min"), last=("ts_utc", "max"),
                                     funding_ok=("funding_rate", lambda x: int(x.notna().sum())),
                                     oi_ok=("open_interest_base", lambda x: int(x.notna().sum())))
     print(f"\nĐã ghi {path} ({len(out):,} dòng)")
     print(summ.to_string())
     return out
-
-
 
 
 def probe(v, since_ms, until_ms, limit, make_ex=None):
@@ -779,8 +781,6 @@ def probe(v, since_ms, until_ms, limit, make_ex=None):
         print(f"    {name}: {len(ts)} kỳ, {datetime.fromtimestamp(ts[0]/1000, UTC):%Y-%m-%d %H:%M} -> "
               f"{datetime.fromtimestamp(ts[-1]/1000, UTC):%Y-%m-%d %H:%M}, funding {min(got.values())*1e4:.3f} .. "
               f"{max(got.values())*1e4:.3f} bps/kỳ")
-
-
 
 
 def snapshot(v, a, make_ex=None, mults=None):
@@ -804,8 +804,6 @@ def snapshot(v, a, make_ex=None, mults=None):
     pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
     print(f"[{v['venue']}] snapshot: funding={row['funding_rate']} mark={row['mark_price']} index={row['index_price']} "
           f"oi={row['open_interest_base']}")
-
-
 
 
 def main(argv=None, make_ex=None):
@@ -875,21 +873,19 @@ def main(argv=None, make_ex=None):
         save_report(a.out, reports)
         import pandas as pd
         pd.set_option("display.width", 250)
-        print("\n" + pd.DataFrame(reports)[REPORT_COLS[:11]].to_string(index=False))
+        print("\n" + pd.DataFrame(reports)[REPORT_COLS[:14]].to_string(index=False))
         print(f"\nBáo cáo: {a.out / 'funding_report.csv'}")
     if oi_reports:
         save_report(a.out, oi_reports, "oi_report.csv", OI_REPORT_COLS)
         import pandas as pd
         pd.set_option("display.width", 250)
-        print("\n" + pd.DataFrame(oi_reports)[OI_REPORT_COLS[:12]].to_string(index=False))
+        print("\n" + pd.DataFrame(oi_reports)[OI_REPORT_COLS[:15]].to_string(index=False))
         print(f"\nBáo cáo: {a.out / 'oi_report.csv'}")
     if (reports or oi_reports) and not a.probe:
         build_processed(a, all_venues, live0)
     if a.problems:
         print(f"\n{len(a.problems)} vấn đề cần xử lý (xem các dòng LỖI ở trên) -> mã thoát 1")
     return 1 if a.problems else 0
-
-
 
 
 if __name__ == "__main__":

@@ -1,150 +1,179 @@
-"""C3.09 guards (offline, CSV format): không ghi đè bảng đủ 3 sàn bằng bảng thiếu, kiểm nguồn từng file, báo lỗi khi không tải được."""
-from datetime import datetime, timezone
+"""Guards của C3.09 (fetch_funding): nguồn dữ liệu (cột + metadata) và báo cáo thiếu đầu/cuối cửa sổ. Không gọi mạng."""
+import argparse
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from src.collectors.live import fetch_funding as F
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "collectors" / "live"))
+import fetch_funding as ff  # noqa: E402
 
-VENUES = ["binance_perp", "okx_perp", "bybit_perp"]
-T0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
+UTC = timezone.utc
+LIVE0 = datetime(2026, 10, 16, 17, 0, tzinfo=UTC)
+OKX = {"venue": "okx_perp", "exchange": "okx", "market_type": "perp", "ccxt_id": "okx", "symbol": "BTC/USDT:USDT"}
+STATS = {"windows": 1, "failed": 0}
 
 
-def _config(tmp_path):
-    cfg = tmp_path / "cfg"
+def ms(dt):
+    return int(dt.timestamp() * 1000)
+
+
+def funding_rec(first, n, step_h=8):
+    return {ms(first + timedelta(hours=step_h * i)): 0.0001 for i in range(n)}
+
+
+def oi_rec(first, n):
+    return {ms(first + timedelta(hours=i)): (5000.0, 5000.0 * 100_000.0) for i in range(n)}
+
+
+def args(tmp_path):
+    return argparse.Namespace(out=tmp_path / "funding", format="parquet", hourly=False, problems=[], no_oi=True,
+                              processed=tmp_path / "funding_oi.parquet")
+
+
+# ===================================================================== 1) nguồn: cột historical + metadata synthetic
+def write_with_attrs(df, path, attrs):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = df.copy()
+    df.attrs = attrs
+    df.to_parquet(path, index=False)
+
+
+@pytest.mark.parametrize("attrs", [{"data_kind": "synthetic"},
+                                   {"data_kind": "historical", "source": "synthetic_generator"},
+                                   {"data_kind": "historical", "synthetic": True}])
+def test_column_historical_but_metadata_synthetic_is_rejected(tmp_path, attrs):
+    a = args(tmp_path)
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    funding = ff.to_frame(funding_rec(base, 6), OKX, LIVE0)
+    assert (funding["data_kind"] == "historical").all()                   # cột nói historical...
+    write_with_attrs(funding, a.out / "okx_perp_funding.parquet", attrs)  # ...metadata nói synthetic
+    kept, why = ff.check_source(funding, "okx_perp_funding", a.out / "okx_perp_funding.parquet")
+    assert kept is None and "metadata" in why                             # check_source tự nó phải bắt được
+
+    out = ff.build_processed(a, [OKX], LIVE0)
+    assert out is None                                                    # không dựng bảng, không dòng nào vào D9
+    assert any("bỏ file funding" in m and "metadata" in m for m in a.problems)
+    assert not a.processed.exists()
+
+
+def test_main_exits_1_and_keeps_synthetic_out_of_d9(tmp_path):
+    cfg = tmp_path / "config"
     cfg.mkdir()
-    (cfg / "config.yaml").write_text(
-        "symbol: BTC/USDT\nvenues: [binance_perp, okx_perp, bybit_perp]\n"
-        "sample: {start: '2026-10-01T00:00:00Z', end: '2026-10-02T00:00:00Z'}\n", encoding="utf-8")
-    (cfg / "exchanges.yaml").write_text(
-        "venues:\n" + "".join(f"  - {{exchange: {v.split('_')[0]}, market_type: perp, ccxt_id: {v.split('_')[0]}, "
-                              f"symbol: 'BTC/USDT:USDT'}}\n" for v in VENUES), encoding="utf-8")
-    return cfg
-
-
-def _funding(venue, kind="historical", source="ccxt"):
-    ts = pd.date_range(T0, periods=3, freq="8h", tz="UTC")
-    return pd.DataFrame({"ts_funding_utc": ts, "ts_available": ts, "exchange": venue.split("_")[0], "market_type": "perp",
-                         "symbol": "BTC/USDT", "funding_rate": 1e-4, "funding_rate_bps": 1.0, "funding_interval_h": 8.0,
-                         "data_kind": kind, "in_live_window": False, "source": source})
-
-
-def _oi(venue, kind="historical", source="ccxt"):
-    ts = pd.date_range(T0, periods=3, freq="1h", tz="UTC")
-    return pd.DataFrame({"ts_oi_utc": ts, "ts_available": ts + pd.Timedelta(hours=1), "exchange": venue.split("_")[0],
-                         "market_type": "perp", "symbol": "BTC/USDT", "timeframe": "1h", "open_interest_base": 10.0,
-                         "open_interest_usdt": 1_000_000.0, "data_kind": kind, "in_live_window": False, "source": source})
-
-
-def _write_raw(out, venues, **kw):
-    out.mkdir(parents=True, exist_ok=True)
-    for v in venues:
-        _funding(v, **kw).to_csv(out / f"{v}_funding.csv", index=False)
-        _oi(v, **kw).to_csv(out / f"{v}_oi.csv", index=False)
-
-
-def _run(tmp_path, *extra, make_ex=None):
-    cfg, out, proc = _config(tmp_path) if not (tmp_path / "cfg").exists() else tmp_path / "cfg", tmp_path / "raw", tmp_path / "funding_oi.csv"
-    args = ["--format", "csv", "--config-dir", str(cfg), "--out", str(out), "--processed", str(proc), *extra]
-    return F.main(args, make_ex=make_ex), proc
-
-
-def test_missing_venue_does_not_overwrite_three_venue_table(tmp_path):
-    _config(tmp_path)
-    _write_raw(tmp_path / "raw", ["binance_perp", "bybit_perp"])          # thiếu okx_perp
-    (tmp_path / "funding_oi.csv").write_text("sentinel,3-venue-table\n", encoding="utf-8")
-    code, proc = _run(tmp_path, "--build-only")
+    (cfg / "config.yaml").write_text("sample: {start: '2025-10-18T00:01:00Z', end: '2026-10-01T00:00:00Z'}\n"
+                                     "venues: [okx_perp]\n", encoding="utf-8")
+    (cfg / "exchanges.yaml").write_text("venues:\n  - {exchange: okx, market_type: perp, ccxt_id: okx, "
+                                        "symbol: 'BTC/USDT:USDT'}\n", encoding="utf-8")
+    out = tmp_path / "funding"
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    write_with_attrs(ff.to_frame(funding_rec(base, 6), OKX, LIVE0), out / "okx_perp_funding.parquet",
+                     {"data_kind": "synthetic"})
+    code = ff.main(["--build-only", "--config-dir", str(cfg), "--out", str(out),
+                    "--processed", str(tmp_path / "funding_oi.parquet")])
     assert code == 1
-    assert proc.read_text(encoding="utf-8") == "sentinel,3-venue-table\n"
 
 
-def test_full_inputs_build_all_three_venues(tmp_path):
-    _config(tmp_path)
-    _write_raw(tmp_path / "raw", VENUES)
-    code, proc = _run(tmp_path, "--build-only")
-    out = pd.read_csv(proc)
-    assert code == 0 and set(out["venue"]) == set(VENUES) and set(out["data_kind"]) == {"historical"}
+def test_genuine_file_written_by_script_is_accepted_and_labelled(tmp_path):
+    a = args(tmp_path)
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    path = a.out / "okx_perp_funding.parquet"
+    ff.write_frame(ff.to_frame(funding_rec(base, 6), OKX, LIVE0), path, "parquet")
+    assert ff.read_file_meta(path)["data_kind"] == "historical"
+    kept, why = ff.check_source(pd.read_parquet(path), "okx_perp_funding", path)
+    assert why is None and len(kept) == 6
+    out = ff.build_processed(a, [OKX], LIVE0)
+    assert len(out) == 6 and not a.problems
+    assert ff.read_file_meta(a.processed)["data_kind"] == "historical"
 
 
-def test_synthetic_file_is_rejected_not_relabelled(tmp_path):
-    _config(tmp_path)
-    _write_raw(tmp_path / "raw", VENUES)
-    _funding("okx_perp", kind="synthetic").to_csv(tmp_path / "raw" / "okx_perp_funding.csv", index=False)
-    code, proc = _run(tmp_path, "--build-only")
-    assert code == 1 and not proc.exists()
+def test_old_file_without_metadata_still_accepted(tmp_path):
+    path = tmp_path / "okx_perp_funding.parquet"
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    ff.to_frame(funding_rec(base, 3), OKX, LIVE0).to_parquet(path, index=False)   # file đời cũ: không metadata
+    kept, why = ff.check_source(pd.read_parquet(path), "okx_perp_funding", path)
+    assert why is None and len(kept) == 3
 
 
-def test_legacy_live_label_from_ccxt_is_normalised(tmp_path):
-    _config(tmp_path)
-    _write_raw(tmp_path / "raw", VENUES, kind="live")
-    code, proc = _run(tmp_path, "--build-only")
-    assert code == 0 and set(pd.read_csv(proc)["data_kind"]) == {"historical"}
+def test_column_only_checks_still_work(tmp_path):
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    df = ff.to_frame(funding_rec(base, 3), OKX, LIVE0)
+    synthetic = df.assign(data_kind="synthetic")
+    assert ff.check_source(synthetic, "x")[0] is None
+    legacy = df.assign(data_kind="live")                                   # nhãn của bản script cũ, source=ccxt
+    kept, why = ff.check_source(legacy, "x")
+    assert why is None and (kept["data_kind"] == "historical").all()
+    assert ff.check_source(legacy.assign(source="other"), "x")[0] is None  # nguồn khác ccxt: từ chối
 
 
-def test_live_label_without_ccxt_source_is_rejected(tmp_path):
-    _config(tmp_path)
-    _write_raw(tmp_path / "raw", VENUES, kind="live", source="simulator")
-    code, proc = _run(tmp_path, "--build-only")
-    assert code == 1 and not proc.exists()
+def test_missing_venue_input_blocks_processed_table(tmp_path):
+    a = args(tmp_path)
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    ff.write_frame(ff.to_frame(funding_rec(base, 3), OKX, LIVE0), a.out / "okx_perp_funding.parquet", "parquet")
+    other = dict(OKX, venue="bybit_perp", exchange="bybit")
+    assert ff.build_processed(a, [OKX, other], LIVE0) is None              # thiếu bybit -> không ghi bảng thiếu
+    assert not a.processed.exists() and any("bybit_perp" in m for m in a.problems)
 
 
-class FakeEx:
-    def __init__(self, funding=()):
-        self.funding = list(funding)
-
-    def fetch_funding_rate_history(self, symbol, since, limit, params):
-        return [r for r in self.funding if since <= r["timestamp"] < params["until"]]
-
-    def market(self, symbol):
-        return {"contractSize": 1}
-
-
-def test_old_synthetic_rows_are_not_merged_into_new_download(tmp_path):
-    _config(tmp_path)
-    out = tmp_path / "raw"
-    out.mkdir()
-    _funding("binance_perp", kind="synthetic").to_csv(out / "binance_perp_funding.csv", index=False)
-    rows = [{"timestamp": int(T0.timestamp() * 1000) + i * 8 * 3_600_000, "fundingRate": 2e-4} for i in range(3)]
-    code, _ = _run(tmp_path, "--venues", "binance_perp", "--no-oi", "--since", "2026-10-01", "--until", "2026-10-02",
-                   make_ex=lambda cid: FakeEx(rows))
-    saved = pd.read_csv(out / "binance_perp_funding.csv")
-    assert code == 1                                            # file cũ không hợp lệ được báo lỗi
-    assert set(saved["data_kind"]) == {"historical"} and (saved["funding_rate"] == 2e-4).all()
-    assert list(out.glob("binance_perp_funding.bad-source*.csv"))   # bản cũ được sao lưu, không bị xóa
+def test_rejected_old_file_is_backed_up_not_merged_into_new_data(tmp_path):
+    a = args(tmp_path)
+    base = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+    path = a.out / "okx_perp_funding.parquet"
+    write_with_attrs(ff.to_frame(funding_rec(base - timedelta(days=5), 6), OKX, LIVE0), path, {"data_kind": "synthetic"})
+    new = ff.to_frame(funding_rec(base, 3), OKX, LIVE0)
+    merged = ff.merge_with_existing(new, path, "ts_funding_utc", ["ts_funding_utc", "ts_available"], LIVE0, "okx_perp")
+    assert len(merged) == 3                                                       # dòng synthetic không lọt vào
+    assert list(a.out.glob("okx_perp_funding.bad-source*.parquet"))          # nhưng được giữ lại để điều tra
 
 
-def test_no_data_downloaded_returns_error_and_keeps_old_file(tmp_path):
-    _config(tmp_path)
-    out = tmp_path / "raw"
-    out.mkdir()
-    _funding("binance_perp").to_csv(out / "binance_perp_funding.csv", index=False)
-    before = (out / "binance_perp_funding.csv").read_bytes()
-    code, _ = _run(tmp_path, "--venues", "binance_perp", "--no-oi", "--since", "2026-10-01", "--until", "2026-10-02",
-                   make_ex=lambda cid: FakeEx([]))
-    assert code == 1
-    assert (out / "binance_perp_funding.csv").read_bytes() == before
+# ===================================================================== 2) báo cáo thiếu đầu / cuối
+SINCE = datetime(2025, 10, 18, 0, 1, tzinfo=UTC)
+UNTIL = datetime(2026, 10, 22, 11, 57, tzinfo=UTC)
 
 
-class FullEx(FakeEx):
-    """Sàn giả đủ funding + OI + ticker; OKX trả OI theo hợp đồng (1000 hợp đồng = 10 BTC)."""
-    def __init__(self, cid):
-        super().__init__([{"timestamp": int(T0.timestamp() * 1000) + i * 8 * 3_600_000, "fundingRate": 1e-4} for i in range(3)])
-        self.base = 1000.0 if cid == "okx" else 10.0
-
-    def fetch_open_interest_history(self, symbol, tf, since, limit, params):
-        return [{"timestamp": int(T0.timestamp() * 1000) + i * 3_600_000, "openInterestAmount": self.base,
-                 "openInterestValue": 1_000_000.0} for i in range(6)]
-
-    def market(self, symbol):
-        return {"contractSize": 0.01 if self.base == 1000.0 else 1}
-
-    def fetch_ticker(self, symbol):
-        return {"last": 100_000.0}
+def test_funding_late_start_and_early_stop_report_head_and_tail():
+    # lưới 8h: cửa sổ có 1108 kỳ; sàn chỉ có 282 kỳ từ 2026-07-20 16:00 (như OKX), rồi dừng sớm 5 kỳ
+    first = datetime(2026, 7, 20, 16, 0, tzinfo=UTC)
+    df = ff.to_frame(funding_rec(first, 277), OKX, LIVE0)
+    rep = ff.make_report(df, OKX, ms(SINCE), ms(UNTIL), STATS)
+    assert rep["n_rows"] == 277
+    assert rep["n_missing_head"] == 826
+    assert rep["n_missing_interior"] == 0
+    assert rep["n_missing_tail"] == 5
+    assert rep["n_missing_est"] == 831 and rep["n_expected_est"] == 1108      # không còn báo "thiếu 0"
 
 
-def test_normal_run_three_venues_exit_zero_and_okx_oi_in_btc(tmp_path):
-    _config(tmp_path)
-    code, proc = _run(tmp_path, "--since", "2026-10-01", "--until", "2026-10-02", make_ex=FullEx)
-    out = pd.read_csv(proc)
-    oi = out.dropna(subset=["open_interest_base"])
-    assert code == 0 and set(out["venue"]) == set(VENUES)
-    assert (oi["open_interest_base"] == 10.0).all()            # OKX đã quy đổi hợp đồng -> BTC
+def test_funding_full_coverage_reports_zero_missing():
+    first = datetime(2025, 10, 18, 8, 0, tzinfo=UTC)
+    df = ff.to_frame(funding_rec(first, 1108), OKX, LIVE0)
+    rep = ff.make_report(df, OKX, ms(SINCE), ms(UNTIL), STATS)
+    assert (rep["n_missing_head"], rep["n_missing_interior"], rep["n_missing_tail"], rep["n_missing_est"]) == (0, 0, 0, 0)
+    assert rep["n_expected_est"] == 1108
+
+
+def test_funding_interior_hole_is_still_counted():
+    first = datetime(2025, 10, 18, 8, 0, tzinfo=UTC)
+    rec = funding_rec(first, 1108)
+    for k in (100, 101, 102):
+        rec.pop(ms(first + timedelta(hours=8 * k)))
+    rep = ff.make_report(ff.to_frame(rec, OKX, LIVE0), OKX, ms(SINCE), ms(UNTIL), STATS)
+    assert (rep["n_missing_head"], rep["n_missing_interior"], rep["n_missing_tail"]) == (0, 3, 0)
+
+
+def test_oi_late_start_and_early_stop_report_head_and_tail():
+    tf = "1h"
+    s_ms, until_ms = ms(datetime(2026, 9, 23, 11, 57, tzinfo=UTC)), ms(datetime(2026, 10, 22, 11, 57, tzinfo=UTC))
+    first = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)               # bắt đầu muộn 48 nến
+    df = ff.to_frame_oi(oi_rec(first, 600), OKX, tf, LIVE0, None)  # 600 nến -> dừng sớm so với 696
+    rep = ff.make_oi_report(df, OKX, tf, s_ms, until_ms, STATS, None)
+    assert rep["n_expected_est"] == 696
+    assert (rep["n_missing_head"], rep["n_missing_interior"], rep["n_missing_tail"]) == (48, 0, 48)
+    assert rep["n_missing_est"] == 96
+
+
+def test_oi_full_window_with_running_candle_reports_zero():
+    s_ms, until_ms = ms(datetime(2026, 9, 23, 11, 57, tzinfo=UTC)), ms(datetime(2026, 10, 22, 11, 57, tzinfo=UTC))
+    df = ff.to_frame_oi(oi_rec(datetime(2026, 9, 23, 12, 0, tzinfo=UTC), 696), OKX, "1h", LIVE0, None)
+    rep = ff.make_oi_report(df, OKX, "1h", s_ms, until_ms, STATS, None)
+    assert rep["n_missing_est"] == 0 and rep["n_expected_est"] == 696
