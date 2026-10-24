@@ -12,8 +12,8 @@
   "process": "delayed_common_random_walk_plus_stationary_venue_noise",
   "warning": "Known lead-lag is DGP truth; IS/CS/ILS must be tested against TV5 code, not assumed.",
   "files_sha256": {
-    "live_quotes_long.parquet": "6231f981936140f7fb579dbf56623c33fdfc8219e254bd69113b8e12b9c2d81d",
-    "ohlcv_1m_long.parquet": "ede6ce05b38f5979bdd2955705886826ec183ade13219655bf99fa83c0903517",
-    "panel_1m_wide.parquet": "a9e5f93bd45631583df1d4a0ddb76c104f8f20a6df37214920e4b91f07da2198"
+    "live_quotes_long.parquet": "883a6394ff1d457979bfcf97ce03a5bf23b62efaa1a8cd01123f6af84d961453",
+    "ohlcv_1m_long.parquet": "6d0aee204c6e16fa913e237fa0d08c747ad07213b42fe5fef82cf18701eb97b8",
+    "panel_1m_wide.parquet": "a7d03ade3cbb290589391ee86545c7afb1b888156f47c4c79eea80cfa600e3e3"
   }
 }
