@@ -31,7 +31,7 @@ from src.utils.time_utils import require_utc
 METHOD = "proxy_close_1m"
 LEDGER_COLUMNS = ["signal_id", "ts_decision", "ts_fill", "market_type", "buy_exchange", "sell_exchange", "qty_btc",
                   "buy_px", "sell_px", "fees_usdt", "pnl_usdt", "status", "reject_reason",
-                  "buy_venue", "sell_venue", "latency_min", "decision_gross_bps", "decision_net_bps", "gross_bps",
+                  "buy_venue", "sell_venue", "latency_min", "decision_mid_gap_bps", "decision_gross_bps", "decision_net_bps", "gross_bps",
                   "net_bps", "fee_total_bps", "other_cost_usdt", "half_spread_buy_bps", "half_spread_sell_bps",
                   "method", "data_kind"]
 SUMMARY_COLUMNS = ["market_type", "buy_venue", "sell_venue", "n_signals", "n_filled", "n_rejected", "n_net_positive",
@@ -133,6 +133,8 @@ def run_backtest(panel: pd.DataFrame, cfg: BacktestConfig) -> BacktestResult:
     for buy, sell in pairs:
         ask_buy, bid_sell = legs[buy][0], legs[sell][1]
         decision_gross = gross_gap_bps(bid_sell, ask_buy)
+        close_buy, close_sell = frame[f"close__{buy}"].to_numpy(dtype=float), frame[f"close__{sell}"].to_numpy(dtype=float)
+        decision_mid = gross_gap_bps(close_sell, close_buy)     # gap between the two closes (= mids) before any cost
         decision_net = net_gap_bps(decision_gross, fee[buy], fee[sell], slippage, extra)
         candidates = np.flatnonzero(np.nan_to_num(decision_net, nan=-np.inf) > cfg.entry_threshold_bps)
         blocked_until = None
@@ -143,7 +145,7 @@ def run_backtest(panel: pd.DataFrame, cfg: BacktestConfig) -> BacktestResult:
             t_fill = t + latency
             blocked_until = t_fill
             j = position.get(t_fill)
-            record = {"ts_decision": t, "buy_venue": buy, "sell_venue": sell,
+            record = {"ts_decision": t, "buy_venue": buy, "sell_venue": sell, "decision_mid_gap_bps": float(decision_mid[i]),
                       "decision_gross_bps": float(decision_gross[i]), "decision_net_bps": float(decision_net[i])}
             if t_fill > last_time:
                 record.update(status=REJECTED, reject_reason="fill_beyond_sample")
@@ -156,12 +158,12 @@ def run_backtest(panel: pd.DataFrame, cfg: BacktestConfig) -> BacktestResult:
                               net_bps=float(net_gap_bps(gross, fee[buy], fee[sell], slippage, extra)))
             records.append(record)
 
-    ledger = pd.DataFrame.from_records(records, columns=["ts_decision", "buy_venue", "sell_venue", "decision_gross_bps",
+    ledger = pd.DataFrame.from_records(records, columns=["ts_decision", "buy_venue", "sell_venue", "decision_mid_gap_bps", "decision_gross_bps",
                                                          "decision_net_bps", "status", "reject_reason", "ts_fill",
                                                          "buy_px", "sell_px", "gross_bps", "net_bps"])
     ledger["ts_decision"] = ledger["ts_decision"].astype("datetime64[ns, UTC]")
     ledger["ts_fill"] = pd.to_datetime(ledger["ts_fill"], utc=True).astype("datetime64[ns, UTC]")
-    for column in ("buy_px", "sell_px", "gross_bps", "net_bps", "decision_gross_bps", "decision_net_bps"):
+    for column in ("buy_px", "sell_px", "gross_bps", "net_bps", "decision_mid_gap_bps", "decision_gross_bps", "decision_net_bps"):
         ledger[column] = ledger[column].astype("float64")
     ledger["market_type"] = ledger["buy_venue"].map(market)
     ledger["buy_exchange"] = ledger["buy_venue"].map(lambda v: split_venue(v)[0])
