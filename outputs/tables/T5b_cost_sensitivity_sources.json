@@ -1,0 +1,20 @@
+{
+  "table": "T5b_cost_sensitivity.csv",
+  "split": "test",
+  "frozen_settings": "D:\\GPM1_Crypto\\config\\frozen_t5b.yaml",
+  "frozen_settings_sha256": "69803409f6c88224b8bffb2a885b3866e5c5b882b8576b2e4bead4ef8d29a2a8",
+  "test_consumed_after_run": true,
+  "manifest_frozen_config_sha256": "69803409f6c88224b8bffb2a885b3866e5c5b882b8576b2e4bead4ef8d29a2a8",
+  "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+  "fees_sha256": "4c9c084cd955c4a28c331c270f8f45b0484c7d1ce277a9dce63a395b261fcef0",
+  "live_quotes_sha256": "50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64",
+  "half_spread_bps": {
+    "binance_perp": 0.006113392424850748,
+    "binance_spot": 0.0006110526470762356,
+    "bybit_perp": 0.0061134073752037,
+    "bybit_spot": 0.006110635500337048,
+    "okx_perp": 0.006113145770150656,
+    "okx_spot": 0.0061103367960095075
+  },
+  "note": "Sensitivity only; nothing was selected on the final test."
+}
