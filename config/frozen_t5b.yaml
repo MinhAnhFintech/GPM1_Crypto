@@ -1,0 +1,33 @@
+# C6.07 (TV6): FROZEN settings for the single final-test evaluation of T5b (cost sensitivity).
+# Fixed before the final test is opened, from choices made on the development/validation splits only.
+# Do NOT edit after `python -m src.backtest.run_t5b --split test` has been run: claim_final_test records this
+# file's SHA-256 in split_manifest.json and locks the final test.
+frozen_on: '2026-10-24'
+frozen_by: 'TV6; parameters chosen by the team lead on 2026-10-23 (config.yaml), grid agreed on 2026-10-24'
+
+# The evaluation refuses to run if any of these inputs differs.
+inputs:
+  fees_sha256: 4c9c084cd955c4a28c331c270f8f45b0484c7d1ce277a9dce63a395b261fcef0        # config/fees.yaml (taker fees, slippage/extra 0)
+  live_quotes_sha256: 50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64  # final D2 of TV3, 13 sessions 17-23/10
+  panel_fingerprint: 9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4  # D3/D4 of TV4
+
+base:
+  entry_threshold_bps: 0.0        # signal when the decision net gap > 0
+  fee_type: taker
+  half_spread_statistic: median   # proxy half spread per venue = median(live spread_bps) / 2
+  live_grid_step_s: 5
+  live_max_age_s: 6
+  base_latency_min: 1             # base scenario of backtest A
+  base_latency_s: 5               # base scenario of backtest B
+  base_qty_btc: 0.1
+
+grid:
+  fee_multipliers: [1.0, 0.5, 0.0]           # taker schedule, half, none (gross upper bound)
+  backtest_a:                                # historical proxy, evaluated on the final test ONCE
+    latency_min: [1, 2, 5]
+    slippage_bps: [0.0, 1.0, 2.0]            # size dimension of the proxy (no depth): extra cost per trade
+    qty_btc: 0.1
+  backtest_b:                                # live sample (not part of the historical split)
+    latency_s: [5, 10, 30]
+    qty_btc: [0.01, 0.1, 1.0]
+    require_top_size: true
