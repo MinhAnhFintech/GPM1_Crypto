@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.utils.io_utils import write_parquet
+from src.utils.pipeline_stages import validate_output_location
 from src.utils.schema import data_kind as frame_data_kind, validate_frame
 from src.utils.time_utils import require_utc
 
@@ -145,12 +146,10 @@ def write_gap_events(df: pd.DataFrame, path=DEFAULT_GAP_EVENTS_PATH) -> None:
     kind = frame_data_kind(df) if not df.empty else df.attrs.get("data_kind")
     if kind not in DATA_KINDS:
         raise ValueError(f"gap events need exactly one data_kind label, got {kind!r}")
-    outputs, synthetic = (ROOT/"outputs").resolve(), (ROOT/"outputs/synthetic").resolve()
-    resolved = path.resolve()
-    if kind == "synthetic" and resolved.is_relative_to(outputs) and not resolved.is_relative_to(synthetic):
-        raise ValueError("Synthetic gap events belong under outputs/synthetic/, not the official outputs tables")
-    if kind != "synthetic" and resolved.is_relative_to(synthetic):
-        raise ValueError(f"{kind} gap events must not be written under outputs/synthetic/")
+    # Shared destination rule (TV4), checked before anything is written: synthetic events never land in the research zone
+    # (outputs/ except outputs/synthetic/, data/raw|interim|processed), research events never in synthetic/fixtures;
+    # sub-folders, ".." and aliases are resolved first.
+    validate_output_location(path, root=ROOT, mode="synthetic" if kind == "synthetic" else "historical")
     df = df.copy()
     df.attrs["data_kind"] = kind
     write_parquet(df, path, "D7" if not df.empty else None)

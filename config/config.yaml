@@ -32,12 +32,22 @@ venues:
 
 # TV6 (C6.03): gap event detection (src/cost_model/gap_events.py). Other keys belong to TV1.
 gap_events:
-  gap_threshold_bps: 5.0  # gross_gap_bps >= threshold counts as a gap. TODO: nhom chot gia tri
-  grid_step_s: 60         # spacing of consecutive observations (1min grid). TODO: nhom chot gia tri
+  gap_threshold_bps: 2.0  # gross_gap_bps >= threshold counts as a gap (~p99 of live and historical gaps; 22.8k events on dev, 167 at 5 bps). Chot boi nhom truong 23/10; C6.07/sensitivity thu 1, 2, 3, 5
+  grid_step_s: 60         # historical panel: spacing of consecutive observations (1min grid)
+  live_grid_step_s: 5     # live D2: collector cadence (5 s grid)
+  live_max_age_s: 6       # live D2: a quote older than this is missing (NaN); never carried forward
 
 # TV2 (C2.02): OHLCV quality flags (src/features/ohlcv_quality.py). Other keys belong to TV1.
 quality:
   jump_bps: 300.0   # |log return close-close 1 phut| > nguong -> chi danh dau de xem lai, khong sua du lieu. TODO: nhom chot
+
+# TV6 (C6.04): backtest A, close proxy (src/backtest/engine.py). Other keys belong to TV1.
+backtest_a:
+  latency_min: 1              # fill L minutes after the decision (latency is time, not a fee). Chot 23/10: smallest realistic lag on a 1-min grid; C6.07 varies 1, 2, 5
+  entry_threshold_bps: 0.0    # signal when expected net_gap_bps at decision > threshold. Chot 23/10: not tuned on data; C6.07 varies 0, 2, 5
+  qty_btc: 0.1                # BTC per signal (~8.2k USDT; 0.04-0.7% of the p5 +-10bps depth, so no size slippage modelled); capital pre-positioned on every venue. Chot 23/10; C6.07 varies 0.01, 0.1, 1
+  fee_type: taker
+  half_spread_statistic: median   # assumed half spread per venue = median(live D2 spread_bps) / 2
 
 # Team modules registered here run after the TV4 foundation. Paths are relative
 # to repo; each command is an argv list (no shell), with {data_dir}/{output_dir}.

@@ -2,6 +2,9 @@
 import numpy as np
 import pandas as pd
 import pytest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 from src.cost_model.gap_events import EVENT_COLUMNS, detect_gap_events, write_gap_events
 from src.cost_model.pairs import compute_gaps
@@ -161,3 +164,77 @@ def test_write_roundtrip_and_path_guard(tmp_path):
     write_gap_events(detect(gaps([0, 0])), tmp_path/"empty.parquet")
     with pytest.raises(ValueError, match="outputs/synthetic"):
         write_gap_events(events, "outputs/tables/gap_events.parquet")
+
+
+# --- live D2 runner: 5-second grid, separate from the 1-minute historical grid --------------------------------------------
+def _live_quotes(path, n=12, window=range(3, 6), t0="2026-10-18T07:00:00Z"):
+    """Two spot venues quoted every 5 s; during `window` okx's bid is 10 bps above binance's ask (a gap)."""
+    import yaml  # noqa: F401  (config is written by the caller)
+    times = pd.date_range(t0, periods=n, freq="5s").as_unit("ns")
+    rows = []
+    for i, t in enumerate(times):
+        for exchange, bid, ask in (("binance", 100.0, 100.01), ("okx", 100.0 + (0.1 if i in window else 0.0), 100.01 + (0.1 if i in window else 0.0))):
+            mid = (bid + ask) / 2
+            rows.append({"ts_recv_utc": t, "ts_event_utc": t - pd.Timedelta(milliseconds=50), "exchange": exchange,
+                         "market_type": "spot", "symbol": "BTC/USDT", "bid": bid, "ask": ask, "bid_size": 1.0, "ask_size": 1.0,
+                         "mid": mid, "spread_abs": ask - bid, "spread_bps": (ask - bid) / mid * 1e4,
+                         "depth_bid_10bps_usdt": 1e6, "depth_ask_10bps_usdt": 1e6, "data_kind": "synthetic"})
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def test_live_runner_uses_live_grid_step_for_event_duration(tmp_path):
+    from src.cost_model import run_gap_events
+    config = tmp_path/"config.yaml"
+    config.write_text("gap_events:\n  gap_threshold_bps: 2.0\n  grid_step_s: 60\n  live_grid_step_s: 5\n  live_max_age_s: 6\n",
+                      encoding="utf-8")
+    quotes = tmp_path/"d2.parquet"
+    _live_quotes(quotes)
+    events = run_gap_events.main(["--quotes", str(quotes), "--config", str(config), "--output", str(tmp_path/"gap_events.parquet")])
+    okx_binance = events[(events.buy_exchange == "binance") & (events.sell_exchange == "okx")]
+    assert len(okx_binance) == 1
+    event = okx_binance.iloc[0]
+    assert event.n_obs == 3 and event.duration_s == 15.0            # 3 ticks x 5 s, not 3 x 60 s
+    assert event.market_type == "spot" and event.data_kind == "synthetic"
+    assert (tmp_path/"gap_events.parquet").is_file()
+
+
+def test_live_runner_does_not_bridge_a_missing_tick(tmp_path):
+    from src.cost_model import run_gap_events
+    config = tmp_path/"config.yaml"
+    config.write_text("gap_events:\n  gap_threshold_bps: 2.0\n  grid_step_s: 60\n  live_grid_step_s: 5\n  live_max_age_s: 4\n",
+                      encoding="utf-8")                              # max_age 4 s: a skipped tick makes the quote missing
+    quotes = tmp_path/"d2.parquet"
+    _live_quotes(quotes, window=range(3, 8))
+    frame = pd.read_parquet(quotes)
+    frame = frame[~((frame.exchange == "okx") & (frame.ts_recv_utc == pd.Timestamp("2026-10-18T07:00:25Z")))]   # tick 5 missing
+    frame.to_parquet(quotes, index=False)
+    events = run_gap_events.main(["--quotes", str(quotes), "--config", str(config), "--output", str(tmp_path/"gap_events.parquet")])
+    pair = events[(events.buy_exchange == "binance") & (events.sell_exchange == "okx")]
+    assert sorted(pair.n_obs) == [2, 2]                              # ticks 3-4 and 6-7; the hole is not bridged
+
+
+def test_panel_runner_calibrates_half_spread_from_matching_d2(tmp_path):
+    from src.cost_model import run_gap_events
+    fixtures = ROOT/"data/fixtures/multi"
+    events = run_gap_events.main(["--panel", str(fixtures/"panel_1m_wide.parquet"), "--calibration-quotes",
+                                  str(fixtures/"live_quotes_long.parquet"), "--output", str(tmp_path/"gap_events.parquet")])
+    assert set(events.data_kind) <= {"synthetic"}
+    assert events.empty or set(events.market_type) <= {"spot", "perp"}
+    with pytest.raises(ValueError, match="must be calibrated on"):
+        live = pd.read_parquet(fixtures/"live_quotes_long.parquet").assign(data_kind="live")
+        live.to_parquet(tmp_path/"live_d2.parquet", index=False)
+        run_gap_events.main(["--panel", str(fixtures/"panel_1m_wide.parquet"), "--calibration-quotes", str(tmp_path/"live_d2.parquet"),
+                             "--output", str(tmp_path/"x.parquet")])
+
+
+def test_panel_runner_never_reads_the_final_test_split(tmp_path):
+    from src.cost_model import run_gap_events
+    from src.synchronization.split import create_split_manifest
+    fixtures = ROOT/"data/fixtures/multi"
+    panel = pd.read_parquet(fixtures/"panel_1m_wide.parquet")
+    manifest = create_split_manifest(panel)
+    events = run_gap_events.main(["--panel", str(fixtures/"panel_1m_wide.parquet"), "--calibration-quotes",
+                                  str(fixtures/"live_quotes_long.parquet"), "--output", str(tmp_path/"dev.parquet")])
+    assert events.empty or events.ts_end.max() <= pd.Timestamp(manifest["dev_end"])
+    with pytest.raises(SystemExit):                                  # "test" is not an accepted split
+        run_gap_events.main(["--panel", str(fixtures/"panel_1m_wide.parquet"), "--split", "test", "--output", str(tmp_path/"t.parquet")])
