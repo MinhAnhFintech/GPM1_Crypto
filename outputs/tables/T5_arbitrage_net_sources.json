@@ -1,0 +1,16 @@
+{
+  "table": "T5_arbitrage_net.csv",
+  "ledgers": {
+    "A": {
+      "path": "D:\\GPM1_Crypto\\outputs\\tables\\backtest_a_dev_L1_ledger.parquet",
+      "sha256": "69a69b88234809be61e33e9390f1d7a0d69ed38baaa39ef8cf6ce1640f28cc02",
+      "data_kind": "historical"
+    },
+    "B": {
+      "path": "D:\\GPM1_Crypto\\outputs\\tables\\trades_ledger.parquet",
+      "sha256": "0147a4fae6ff0399a3b3644b3299b30b9745892f826b898e80aa462b8f2df2e0",
+      "data_kind": "live"
+    }
+  },
+  "note": "Stages add up exactly per filled signal: mid gap - fees - spread - slippage - latency = net."
+}

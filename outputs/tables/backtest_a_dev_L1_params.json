@@ -1,0 +1,95 @@
+{
+  "method": "proxy_close_1m",
+  "data_kind": "historical",
+  "latency_min": 1,
+  "entry_threshold_bps": 0.0,
+  "qty_btc": 0.1,
+  "fee_type": "taker",
+  "fee_bps": {
+    "binance_perp": 5.0,
+    "binance_spot": 10.0,
+    "bybit_perp": 5.5,
+    "bybit_spot": 10.0,
+    "okx_perp": 5.0,
+    "okx_spot": 10.0
+  },
+  "slippage_bps": 0.0,
+  "extra_cost_bps": 0.0,
+  "half_spread_bps": {
+    "binance_perp": 0.006113392424850748,
+    "binance_spot": 0.0006110526470762356,
+    "bybit_perp": 0.0061134073752037,
+    "bybit_spot": 0.006110635500337048,
+    "okx_perp": 0.006113145770150656,
+    "okx_spot": 0.0061103367960095075
+  },
+  "venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ],
+  "pairs": [
+    [
+      "binance_perp",
+      "bybit_perp"
+    ],
+    [
+      "binance_perp",
+      "okx_perp"
+    ],
+    [
+      "binance_spot",
+      "bybit_spot"
+    ],
+    [
+      "binance_spot",
+      "okx_spot"
+    ],
+    [
+      "bybit_perp",
+      "binance_perp"
+    ],
+    [
+      "bybit_perp",
+      "okx_perp"
+    ],
+    [
+      "bybit_spot",
+      "binance_spot"
+    ],
+    [
+      "bybit_spot",
+      "okx_spot"
+    ],
+    [
+      "okx_perp",
+      "binance_perp"
+    ],
+    [
+      "okx_perp",
+      "bybit_perp"
+    ],
+    [
+      "okx_spot",
+      "binance_spot"
+    ],
+    [
+      "okx_spot",
+      "bybit_spot"
+    ]
+  ],
+  "first_ts": "2025-10-18 00:01:00+00:00",
+  "last_ts": "2026-05-14 19:11:00+00:00",
+  "n_minutes": 300671,
+  "split": "dev",
+  "panel": "D:\\GPM1_Crypto\\data\\processed\\panel_1m_wide.parquet",
+  "panel_sha256": "f3d22fbbb3129a72333e71f0ccc9b5e26e2fd08d88eb4dc13c98f89cccc72262",
+  "manifest": "D:\\GPM1_Crypto\\data\\processed\\split_manifest.json",
+  "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+  "live_quotes": "D:\\GPM1_Crypto\\data\\processed\\live_quotes_long.parquet",
+  "live_quotes_sha256": "50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64",
+  "note": "Backtest A is a proxy on 1-minute closes plus a calibrated half spread; not executable prices."
+}

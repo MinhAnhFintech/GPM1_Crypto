@@ -1,0 +1,41 @@
+{
+  "table": "T6b_gap_by_regime.csv",
+  "d5_is_official_path": true,
+  "d5_receipt": "D:\\GPM1_Crypto\\data\\processed\\regime_flags_receipt.json",
+  "d5_panel_fingerprint_matches_d4": true,
+  "window": [
+    "2025-10-18 00:01:00+00:00",
+    "2026-05-14 19:11:00+00:00"
+  ],
+  "pairs_per_group": {
+    "spot": 6,
+    "perp": 6
+  },
+  "inputs": {
+    "gap_events_historical": {
+      "path": "D:\\GPM1_Crypto\\outputs\\tables\\gap_events_historical.parquet",
+      "sha256": "440dd295b1d8c26dae399e0265aa408d5f3558caf1e10ebd5b8e147959d6b159"
+    },
+    "regime_flags": {
+      "path": "D:\\GPM1_Crypto\\data\\processed\\regime_flags.parquet",
+      "sha256": "7ca7212464493077c83dad07cde20bd9e9be71e2f087234ed75640348b678d2f"
+    },
+    "split_manifest": {
+      "path": "D:\\GPM1_Crypto\\data\\processed\\split_manifest.json",
+      "sha256": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0"
+    },
+    "gap_events_live": {
+      "path": "D:\\GPM1_Crypto\\outputs\\tables\\gap_events.parquet",
+      "sha256": "17600e69ba5fb2c6536c0d40e41426c42b678ce923d64c620abfc77563de6d7a"
+    },
+    "live_quotes": {
+      "path": "D:\\GPM1_Crypto\\data\\processed\\live_quotes_long.parquet",
+      "sha256": "50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64"
+    },
+    "backtest_a_ledger": {
+      "path": "D:\\GPM1_Crypto\\outputs\\tables\\backtest_a_dev_L1_ledger.parquet",
+      "sha256": "69a69b88234809be61e33e9390f1d7a0d69ed38baaa39ef8cf6ce1640f28cc02"
+    }
+  },
+  "note": "Descriptive comparison; events cluster in time so rate ratios are not tested for significance."
+}

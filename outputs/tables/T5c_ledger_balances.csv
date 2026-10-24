@@ -1,0 +1,10 @@
+backtest,venue,usdt_change,btc_change,n_legs
+A_proxy_close_1m_dev,binance_perp,-1694.1779273245102,0.2,8
+A_proxy_close_1m_dev,binance_spot,16673.58470515613,-0.2,2
+A_proxy_close_1m_dev,bybit_perp,-526.7818187706853,-0.1,5
+A_proxy_close_1m_dev,bybit_spot,-8345.902659873791,0.1,1
+A_proxy_close_1m_dev,okx_perp,2150.4677108804844,-0.1,7
+A_proxy_close_1m_dev,okx_spot,-8346.503259991483,0.1,1
+B_live_bidask,binance_perp,-8387.11146,0.1,1
+B_live_bidask,bybit_perp,-8387.530606,0.1,1
+B_live_bidask,okx_perp,16756.31765,-0.2,2

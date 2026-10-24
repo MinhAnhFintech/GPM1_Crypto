@@ -1,0 +1,102 @@
+{
+  "method": "live_bidask",
+  "data_kind": "live",
+  "grid_step_s": 5.0,
+  "latency_s": 5.0,
+  "entry_threshold_bps": 0.0,
+  "qty_btc": 0.1,
+  "fee_type": "taker",
+  "fee_bps": {
+    "binance_perp": 5.0,
+    "binance_spot": 10.0,
+    "bybit_perp": 5.5,
+    "bybit_spot": 10.0,
+    "okx_perp": 5.0,
+    "okx_spot": 10.0
+  },
+  "slippage_bps": 0.0,
+  "extra_cost_bps": 0.0,
+  "require_top_size": true,
+  "venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ],
+  "pairs": [
+    [
+      "binance_perp",
+      "bybit_perp"
+    ],
+    [
+      "binance_perp",
+      "okx_perp"
+    ],
+    [
+      "binance_spot",
+      "bybit_spot"
+    ],
+    [
+      "binance_spot",
+      "okx_spot"
+    ],
+    [
+      "bybit_perp",
+      "binance_perp"
+    ],
+    [
+      "bybit_perp",
+      "okx_perp"
+    ],
+    [
+      "bybit_spot",
+      "binance_spot"
+    ],
+    [
+      "bybit_spot",
+      "okx_spot"
+    ],
+    [
+      "okx_perp",
+      "binance_perp"
+    ],
+    [
+      "okx_perp",
+      "bybit_perp"
+    ],
+    [
+      "okx_spot",
+      "binance_spot"
+    ],
+    [
+      "okx_spot",
+      "bybit_spot"
+    ]
+  ],
+  "sessions": [
+    "20261017_S2",
+    "20261018_S1",
+    "20261018_S2",
+    "20261019_S1",
+    "20261019_S2",
+    "20261020_S1",
+    "20261020_S2",
+    "20261021_S1",
+    "20261021_S2",
+    "20261022_S1",
+    "20261022_S2",
+    "20261023_S1",
+    "20261023_S2"
+  ],
+  "first_ts": "2026-10-17 13:00:05+00:00",
+  "last_ts": "2026-10-23 15:59:55+00:00",
+  "n_grid": 105839,
+  "market_type": "all",
+  "max_age_s": 6.0,
+  "quotes": "D:\\GPM1_Crypto\\data\\processed\\live_quotes_long.parquet",
+  "quotes_sha256": "50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64",
+  "ledger": "trades_ledger.parquet",
+  "note": "Backtest B uses real top-of-book bid/ask of the live sample; latency is simulated by filling later."
+}
