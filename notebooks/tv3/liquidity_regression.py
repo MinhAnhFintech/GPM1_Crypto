@@ -2,17 +2,27 @@
 
   Mô hình A (mẫu dài):           IS ~ vol_share + rv_60m + is_perp          (+ A_fe: thay is_perp bằng hiệu ứng cố định venue;
                                                                               A_ils: biến phụ thuộc ILS; A_<venue>: từng venue riêng)
-  Mô hình B (mẫu live, ngắn):    IS ~ rv_live + spread_bps + log_depth + is_perp
-        = các biến nền của A mà mẫu live có được (biến động: rv_live, tương ứng rv_60m của A) + spread và depth (theo PCCV C3.07:
-        "B: thêm spread và depth"). Cần IS tính trên các phiên live: --live-is.
-  B_no_rv (độ nhạy):             như B nhưng bỏ rv_live (đặc tả B cũ: chỉ spread + depth)
+  Mô hình A_live (mẫu live):     IS ~ rv_live + depth_share + is_perp        (A đúng biến của mẫu live, CHƯA có spread và depth)
+  Mô hình B (mẫu live, ngắn):    IS ~ rv_live + depth_share + is_perp + spread_bps + log_depth
+        = A_live + spread và depth (theo PCCV C3.07: "B: thêm spread và depth"), trên CÙNG các quan sát với A_live, nên
+        B chỉ khác A_live đúng hai biến mới: so B với A_live trả lời "thêm spread và depth có giúp giải thích IS không".
+        Cần IS tính trên các phiên live: --live-is.
+  Hai mẫu KHÔNG chồng thời gian (A: 18/10/2025–30/09/2026; live: 17–23/10/2026) và mẫu live không có volume, nên B và A_live
+  KHÔNG dùng vol_share/rv_60m của mẫu dài. Biến thay thế, tính từ chính dữ liệu live:
+    rv_live     = độ lệch chuẩn lợi suất log 1 phút của mid trong phiên (thay rv_60m);
+    depth_share = độ sâu ±band bps của venue / tổng độ sâu của các venue trong cùng phiên (thay vol_share). ĐÂY KHÔNG PHẢI tỷ trọng
+                  khối lượng: nó đo phần thanh khoản đang nằm trên sổ lệnh, không đo giao dịch. Ghi rõ như vậy trong báo cáo.
+  Lưu ý cộng tuyến: depth_share và log_depth cùng sinh từ độ sâu nên tương quan; cột notes ghi số điều kiện của X, và B_no_depth_share
+  (bỏ depth_share) cho biết kết quả có đổi không.
+  B_no_rv (độ nhạy):             như B nhưng bỏ rv_live
   B_no_spread (độ nhạy):         như B nhưng bỏ spread (spread bị giới hạn bởi tick size nên gần như không đổi)
+  B_no_depth_share (độ nhạy):    như B nhưng bỏ depth_share (tránh trùng thông tin với log_depth)
   B_vol (tùy chọn):              B + vol_share theo phiên, nếu có --live-candles (nến 1 phút của các phiên live, volume_base). vol_share
                                  KHÔNG thể tính từ D2 (collector không ghi giao dịch/volume); phải lấy từ nến, cùng định nghĩa C2.04:
                                  tỷ trọng volume_base của venue trong tổng mọi venue ở từng phút, trung bình các phút của phiên.
 
-rv_live (độ lệch chuẩn lợi suất log 1 phút của mid trong phiên) và rv_60m (độ lệch chuẩn 60 phút của ret_1m, mẫu dài) cùng ý nghĩa
-nhưng khác khung thời gian: so DẤU và mức ý nghĩa giữa A và B, đừng so độ lớn hệ số.
+Hệ số của B/A_live không so trực tiếp với A (khác mẫu, khác định nghĩa biến, khác khung thời gian): chỉ so dấu và độ lớn tương đối.
+Mẫu live ngắn (13 phiên, mỗi phiên một quan sát cho mỗi venue) nên đây là kết quả thăm dò.
 
 Đơn vị quan sát (mô hình A): một venue × một cửa sổ rolling IS, gắn với window_end (không dùng available_at: với các cửa sổ của
 mẫu phát triển available_at bị dồn về cuối mẫu phát triển nên không còn là thời điểm của cửa sổ).
@@ -299,6 +309,8 @@ def model_b_frame(li: pd.DataFrame, lm: pd.DataFrame, band: int) -> tuple[pd.Dat
     m = (li[["venue", "session_id", "is_val"]].merge(sess, on=["venue", "session_id"], how="left")
          .merge(session_rv(lm), on=["venue", "session_id"], how="left"))
     m["is_perp"] = m["venue"].str.contains("perp").astype(float)
+    m["depth_level"] = np.exp(m["log_depth"])
+    m["depth_share"] = m["depth_level"] / m.groupby("session_id")["depth_level"].transform("sum")   # chỉ hợp lệ khi đủ venue (xem dưới)
     excluded = {}
     for s in sorted(set(lm["session_id"]) | set(li["session_id"])):
         sub = m[m["session_id"] == s]
@@ -312,6 +324,7 @@ def model_b_frame(li: pd.DataFrame, lm: pd.DataFrame, band: int) -> tuple[pd.Dat
             excluded[s] = "thiếu rv_live (mid có ít hơn 6 lợi suất 1 phút liền nhau để tính biến động)"
     times = lm.groupby("session_id")["t"].agg(t_start="min", t_end="max").reset_index()
     m = m[~m["session_id"].isin(excluded)].merge(times, on="session_id", how="left")
+    m = m.drop(columns="depth_level")
     m["t"] = m["t_start"]                           # thời gian THẬT của phiên (đầu phiên); t_end = phút cuối của phiên
     return m, excluded
 
@@ -526,14 +539,22 @@ def run(a) -> pd.DataFrame:
         nb = (f"mẫu live; mỗi quan sát = venue × phiên; sai số chuẩn theo cụm session_id, p/CI theo t(G-1); "
               f"dùng {m['session_id'].nunique()}/{n_all} phiên" + (f"; loại {why_txt}" if why_txt else "")
               + (f"; loại theo --exclude-sessions: {exclude}" if exclude else ""))
-        base_x, base_z = ["rv_live", "spread_bps", "log_depth"], ["rv_live", "spread_bps", "log_depth"]
+        a_x = ["rv_live", "depth_share"]
+        base_x = a_x + ["spread_bps", "log_depth"]
+        base_z = list(base_x)
+        live_note = ("; biến của mẫu live: rv_live (thay rv_60m), depth_share (thay vol_share; KHÔNG phải tỷ trọng khối lượng, "
+                     "mẫu live không ghi volume)")
         b_models = [
+            fit(m, "A_live", a_x + ["is_perp"], a_x, 0, "cluster", group_col="session_id",
+                notes=nb + live_note + "; A đúng biến live, chưa có spread/depth; cùng quan sát với B"),
             fit(m, "B", base_x + ["is_perp"], base_z, 0, "cluster", group_col="session_id",
-                notes=nb + "; B = biến động (rv_live, tương ứng rv_60m của A) + spread + depth; chưa có vol_share (mẫu live không ghi volume)"),
-            fit(m, "B_no_rv", ["spread_bps", "log_depth", "is_perp"], ["spread_bps", "log_depth"], 0, "cluster",
-                group_col="session_id", notes=nb + "; độ nhạy: đặc tả B cũ, không có rv_live"),
-            fit(m, "B_no_spread", ["rv_live", "log_depth", "is_perp"], ["rv_live", "log_depth"], 0, "cluster",
-                group_col="session_id", notes=nb + "; độ nhạy: bỏ spread (bị giới hạn bởi tick size)")]
+                notes=nb + live_note + "; B = A_live + spread + log_depth"),
+            fit(m, "B_no_depth_share", ["rv_live", "spread_bps", "log_depth", "is_perp"], ["rv_live", "spread_bps", "log_depth"], 0,
+                "cluster", group_col="session_id", notes=nb + "; độ nhạy: bỏ depth_share (cùng nguồn độ sâu với log_depth)"),
+            fit(m, "B_no_rv", ["depth_share", "spread_bps", "log_depth", "is_perp"], ["depth_share", "spread_bps", "log_depth"], 0,
+                "cluster", group_col="session_id", notes=nb + "; độ nhạy: bỏ rv_live"),
+            fit(m, "B_no_spread", ["rv_live", "depth_share", "log_depth", "is_perp"], ["rv_live", "depth_share", "log_depth"], 0,
+                "cluster", group_col="session_id", notes=nb + "; độ nhạy: bỏ spread (bị giới hạn bởi tick size)")]
         if candles is not None:
             vs = session_vol_share(candles, lm)
             m = m.merge(vs, on=["venue", "session_id"], how="left")
@@ -544,7 +565,7 @@ def run(a) -> pd.DataFrame:
             b_models.append(fit(m, "B_vol", ["vol_share"] + base_x + ["is_perp"], ["vol_share"] + base_z, 0, "cluster",
                                 group_col="session_id",
                                 notes=nb + "; B + vol_share theo phiên (từ nến 1 phút, tỷ trọng volume_base trong tổng mọi venue)"))
-        if not len(b_models[0]):                        # B chính phải có; thiếu thì dừng, không ghi T4 chỉ còn bản độ nhạy
+        if not len(b_models[0]) or not len(b_models[1]):   # A_live và B phải có (so được với nhau); thiếu thì dừng, không ghi T4 chỉ còn bản độ nhạy
             raise SystemExit("Có --live-is nhưng không ước lượng được mô hình B chính (quá ít phiên/quan sát sau khi loại phiên "
                              "thiếu depth/spread/rv_live). Không ghi gì; file cũ giữ nguyên.")
         out += b_models
