@@ -1,4 +1,5 @@
 import io
+import json
 
 import pandas as pd
 import pytest
@@ -15,7 +16,9 @@ val,bybit,bybit_spot,bybit_perp,10,10,0.0,1.0,0.5,0.5,0.24,0.0,1.0,0.5,0.5,0.76,
 
 @pytest.fixture
 def frame():
-    return pd.read_csv(io.StringIO(CSV))
+    df = pd.read_csv(io.StringIO(CSV))
+    df["data_kind"] = "historical"
+    return df
 
 
 def test_ils_flip_detects_sign_change(frame):
@@ -38,6 +41,42 @@ def test_load_requires_columns(tmp_path, frame):
     frame.drop(columns=["ils_spot"]).to_csv(path, index=False)
     with pytest.raises(ValueError, match="thiếu cột"):
         f7.load_t3c(path)
+
+
+def test_synthetic_source_cannot_overwrite_historical_figure(tmp_path, frame, monkeypatch):
+    root = tmp_path
+    monkeypatch.setattr(f7, "ROOT", root)
+    source = root / "outputs" / "synthetic" / "tables" / "T3c_spot_perp.csv"
+    source.parent.mkdir(parents=True)
+    frame["data_kind"] = "synthetic"
+    frame.to_csv(source, index=False)
+    old_spec = source.parent / "T2_vecm_spec.json"
+    old_spec.write_text(json.dumps({"data_kind": "synthetic"}), encoding="utf-8")
+
+    historical_output = root / "outputs" / "figures" / "F7_spot_perp_is_ils.png"
+    historical_output.parent.mkdir(parents=True)
+    previous_contents = b"existing historical figure"
+    historical_output.write_bytes(previous_contents)
+
+    with pytest.raises(ValueError, match="Synthetic outputs belong"):
+        f7.main(["--t3c", str(source), "--out", str(historical_output)])
+    assert historical_output.read_bytes() == previous_contents
+
+
+def test_load_rejects_conflicting_t3c_and_spec_provenance(tmp_path, frame):
+    path = tmp_path / "T3c_spot_perp.csv"
+    frame.to_csv(path, index=False)
+    (tmp_path / "T2_vecm_spec.json").write_text(json.dumps({"data_kind": "synthetic"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="không khớp"):
+        f7.load_t3c(path)
+
+
+def test_legacy_t3c_uses_standard_historical_output_location(tmp_path, frame, monkeypatch):
+    monkeypatch.setattr(f7, "ROOT", tmp_path)
+    path = tmp_path / "outputs" / "tables" / "T3c_spot_perp.csv"
+    path.parent.mkdir(parents=True)
+    frame.drop(columns=["data_kind"]).to_csv(path, index=False)
+    assert f7.load_t3c(path).attrs["data_kind"] == "historical"
 
 
 def test_png_written(tmp_path, frame):

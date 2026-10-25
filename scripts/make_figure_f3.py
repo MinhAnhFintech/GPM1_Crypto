@@ -57,7 +57,12 @@ def prepare(d6: pd.DataFrame) -> pd.DataFrame:
 def rolling_median(part: pd.DataFrame, windows: int) -> pd.Series:
     """Trung vị trượt của is_mid theo thứ tự window_end; ô trống (status != ok) không được nội suy."""
     ordered = part.sort_values("window_end")
-    return ordered["is_mid"].rolling(windows, min_periods=max(windows // 2, 1)).median().reindex(part.index)
+    median = ordered["is_mid"].rolling(windows, min_periods=max(windows // 2, 1)).median()
+    if "ok" in ordered:
+        median = median.where(ordered["ok"])
+    elif "status" in ordered:
+        median = median.where(ordered["status"].astype(str).str.lower().eq("ok"))
+    return median.reindex(part.index)
 
 
 def band_summary(frame: pd.DataFrame) -> dict:

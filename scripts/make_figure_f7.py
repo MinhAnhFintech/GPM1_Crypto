@@ -4,7 +4,7 @@ Chạy từ gốc repo:
     python scripts/make_figure_f7.py
 
 Đầu vào : outputs/tables/T3c_spot_perp.csv (TV5; mỗi dòng = một sàn x một split dev/val; không có mẫu kiểm tra cuối).
-Đầu ra  : outputs/figures/F7_spot_perp_is_ils.png
+Đầu ra  : outputs/figures/F7_spot_perp_is_ils.png (historical) hoặc outputs/synthetic/figures/ (synthetic).
 
 Cách đọc: hàng trên là Information Share. Thanh đứng là khoảng [is_lower, is_upper], chấm là is_mid, spot lệch trái,
 perp lệch phải, mỗi sàn một ô, dev và val ở hai nhóm. Hàng dưới là ILS (Information Leadership Share, tổng spot + perp
@@ -13,6 +13,7 @@ dẫn; hình chỉ mô tả và ghi lại cột conclusion của TV5. Đơn vị
 """
 from pathlib import Path
 import argparse
+import json
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,10 +35,45 @@ REQUIRED = ["split", "exchange", "is_lower_spot", "is_upper_spot", "is_mid_spot"
 
 
 def load_t3c(path) -> pd.DataFrame:
+    path = Path(path)
     frame = pd.read_csv(path)
     missing = [c for c in REQUIRED if c not in frame.columns]
     if missing:
         raise ValueError(f"T3c thiếu cột: {missing}")
+    kinds = set(frame["data_kind"].dropna().astype(str).str.strip().str.lower()) if "data_kind" in frame else set()
+    if "data_kind" in frame and (frame["data_kind"].isna().any() or len(kinds) != 1):
+        raise ValueError("T3c data_kind phải có đúng một nguồn không thiếu")
+    kind = next(iter(kinds), None)
+    if kind is not None and kind not in {"historical", "synthetic"}:
+        raise ValueError(f"T3c data_kind không hợp lệ: {kind!r}")
+    resolved_path = path.resolve()
+    if resolved_path.is_relative_to((ROOT / "outputs/synthetic").resolve()):
+        path_kind = "synthetic"
+    elif resolved_path.is_relative_to((ROOT / "outputs/tables").resolve()):
+        path_kind = "historical"
+    else:
+        path_kind = None
+    spec_path = path.parent / "T2_vecm_spec.json"
+    if spec_path.exists():
+        try:
+            spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Không đọc được provenance từ {spec_path}: {exc}") from exc
+        if not isinstance(spec, dict):
+            raise ValueError(f"T2 spec không hợp lệ: {spec_path}")
+        spec_kind = spec.get("data_kind")
+        if spec_kind not in {"historical", "synthetic"}:
+            raise ValueError(f"T2 spec data_kind không hợp lệ: {spec_kind!r}")
+        if kind is not None and kind != spec_kind:
+            raise ValueError(f"T3c data_kind={kind!r} không khớp T2 spec={spec_kind!r}")
+        kind = spec_kind
+    if kind is not None and path_kind is not None and kind != path_kind:
+        raise ValueError(f"T3c data_kind={kind!r} không khớp vị trí nguồn {path_kind!r}")
+    if kind is None:
+        kind = path_kind
+    if kind is None:
+        raise ValueError("T3c thiếu data_kind, vị trí nguồn hợp đồng và T2_vecm_spec.json để xác minh nguồn")
+    frame.attrs["data_kind"] = kind
     return frame
 
 
@@ -59,7 +95,7 @@ def ils_flip(frame: pd.DataFrame) -> dict:
     return out
 
 
-def plot_spot_perp(frame: pd.DataFrame, path) -> Path:
+def plot_spot_perp(frame: pd.DataFrame, path, kind: str = "historical") -> Path:
     exchanges = sorted(frame["exchange"].unique())
     flips = ils_flip(frame)
     fig, axes = plt.subplots(2, len(exchanges), figsize=(4.6 * len(exchanges), 7.4), sharey="row", squeeze=False)
@@ -102,7 +138,7 @@ def plot_spot_perp(frame: pd.DataFrame, path) -> Path:
             top.set_ylabel("Information Share [lower, upper] và midpoint", fontsize=9)
             bottom.set_ylabel("ILS (spot + perp = 1)", fontsize=9)
             top.legend(loc="lower left", fontsize=8)
-    fig.suptitle("Spot vs perp trong cùng sàn: IS và ILS, dev và val | historical", fontsize=13, y=0.995)
+    fig.suptitle(f"Spot vs perp trong cùng sàn: IS và ILS, dev và val | {kind}", fontsize=13, y=0.995)
     fig.text(0.5, 0.005, "Thanh = khoảng IS, chấm = midpoint; hàng dưới là ILS, đường chấm = 0,5. Khoảng IS chồng nhau nên không xác định bên dẫn.",
              ha="center", fontsize=8, color="#444")
     fig.tight_layout(rect=(0, 0.03, 1, 0.97))
@@ -116,10 +152,15 @@ def plot_spot_perp(frame: pd.DataFrame, path) -> Path:
 def main(argv=None) -> Path:
     parser = argparse.ArgumentParser(description="C2.06 F7: spot vs perp IS and ILS")
     parser.add_argument("--t3c", default=str(ROOT / "outputs/tables/T3c_spot_perp.csv"))
-    parser.add_argument("--out", default=str(ROOT / "outputs/figures/F7_spot_perp_is_ils.png"))
+    parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
-    validate_output_location(Path(args.out), root=ROOT, mode="historical")
-    path = plot_spot_perp(load_t3c(args.t3c), args.out)
+    frame = load_t3c(args.t3c)
+    kind = frame.attrs["data_kind"]
+    output_path = (Path(args.out) if args.out else
+                   ROOT / ("outputs/synthetic/figures" if kind == "synthetic" else "outputs/figures")
+                   / "F7_spot_perp_is_ils.png")
+    validate_output_location(output_path, root=ROOT, mode=kind)
+    path = plot_spot_perp(frame, output_path, kind)
     print(f"Wrote {path}")
     return path
 

@@ -62,3 +62,13 @@ def test_rolling_median_keeps_index_and_smooths():
     out = rolling_median(part, 24)
     assert out.index.equals(part.index)
     assert out.iloc[-1] == 0.4 or abs(out.iloc[-1] - 0.4) < 1e-9
+
+
+def test_rolling_median_is_blank_at_failed_windows(d6):
+    part = f3.prepare(d6)
+    part = part[part.venue.eq("okx_perp")]
+    smoothed = f3.rolling_median(part, f3.SMOOTH_WINDOWS)
+    failed = ~part["ok"]
+    assert failed.sum() == 5
+    assert smoothed.loc[failed].isna().all()
+    assert smoothed.loc[~failed].notna().any()
