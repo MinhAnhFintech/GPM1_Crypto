@@ -563,6 +563,17 @@ def explain(cols, title="Giải thích các cột"):
         st.markdown("\n".join(f"- **{c}**: {GLOSSARY[c]}" for c in cols if c in GLOSSARY))
 
 
+TAB_LABELS = ["Trang chủ", "Báo giá", "Độ phân tán", "Venue dẫn giá", "Gap và arbitrage", "Tải dữ liệu"]
+GUIDE_STEPS = [
+    ("Trang chủ", "đọc 5 câu hỏi nghiên cứu để biết dashboard trả lời điều gì."),
+    ("Báo giá", "giá BTC của 6 venue ở phút cuối của dữ liệu, tách spot và perp."),
+    ("Độ phân tán", "các sàn lệch giá nhau bao nhiêu theo thời gian. Cuộn chuột để phóng to."),
+    ("Venue dẫn giá", "sàn nào dẫn dắt giá, nếu phân biệt được."),
+    ("Gap và arbitrage", "chênh lệch giá giữa các sàn có còn lãi sau chi phí không."),
+    ("Tải dữ liệu", "lấy bảng đang xem về máy."),
+]
+
+
 def _default_path(contract: Path) -> str:
     """Không tự chuyển provenance khi thiếu file; người dùng chọn nguồn rõ ràng."""
     return str(contract)
@@ -571,6 +582,11 @@ def _default_path(contract: Path) -> str:
 # --------------------------------------------------------------------------- giao diện
 def main():
     st.set_page_config(page_title="Crypto price discovery", layout="wide")
+
+    with st.sidebar.expander("Hướng dẫn xem", expanded=True):
+        st.markdown("\n".join(f"{i}. **{name}**: {text}" for i, (name, text) in enumerate(GUIDE_STEPS, 1)))
+        st.caption("Rê chuột lên tên cột để xem ý nghĩa; mở khung Giải thích các cột dưới mỗi bảng.")
+    st.sidebar.caption("Mô phỏng nghiên cứu, không khuyến nghị giao dịch.")
 
     # Ba ô đường dẫn phải là text_input đầu tiên ở thanh bên (test dựa vào thứ tự này).
     source = st.sidebar.text_input("Panel Parquet (D3)", str(PANEL_DEFAULT))
@@ -616,8 +632,7 @@ def main():
         # A whole event's duration/summary is not available until ts_end.
         d7 = d7[(d7.ts_start >= panel.index[0]) & (d7.ts_end <= asof)].copy()
 
-    tab_home, tab_quote, tab_disp, tab_lead, tab_gap, tab_data = st.tabs(
-        ["Trang chủ", "Báo giá", "Độ phân tán", "Venue dẫn giá", "Gap và arbitrage", "Tải dữ liệu"])
+    tab_home, tab_quote, tab_disp, tab_lead, tab_gap, tab_data = st.tabs(TAB_LABELS)
     with tab_home:
         st.markdown(hero_html(), unsafe_allow_html=True)
         st.info(f"data_kind = {kind} | {len(venues)} venue | quan sát cuối: {asof:%Y-%m-%d %H:%M} UTC")
