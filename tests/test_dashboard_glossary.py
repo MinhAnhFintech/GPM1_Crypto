@@ -31,8 +31,10 @@ def test_col_config_covers_exactly_the_requested_columns():
 
 
 def test_live_table_columns_match_what_live_latest_returns():
-    live = pd.DataFrame(dict(ts_grid_utc=pd.date_range("2026-10-20 10:00", periods=2, freq="5s", tz="UTC"),
-                             venue=["a_spot", "a_spot"], market_type=["spot", "spot"], bid=[1.0, 2.0], ask=[1.1, 2.1],
-                             mid=[1.05, 2.05], spread_abs=[0.1, 0.1], spread_bps=[1.0, 2.0],
-                             depth_bid_10bps_usdt=[1.0, 2.0], depth_ask_10bps_usdt=[1.0, 2.0], data_kind="live"))
+    times = pd.date_range("2026-10-20 10:00", periods=2, freq="5s", tz="UTC")
+    live = pd.DataFrame(dict(ts_recv_utc=times, ts_grid_utc=times, market_type=["spot", "spot"],
+                             bid=[1.0, 2.0], ask=[1.1, 2.1], spread_bps=[1.0, 2.0],
+                             depth_bid_10bps_usdt=[1.0, 2.0], depth_ask_10bps_usdt=[1.0, 2.0],
+                             depth_truncated=[False, True], depth_cover_bps=[10.0, 8.0],
+                             venue=["a_spot", "a_spot"]))
     assert list(app.live_latest(live).columns) == app.LIVE_SHOWN_COLS

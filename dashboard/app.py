@@ -330,8 +330,9 @@ const lb=(a,t)=>{let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;a[m][0]<t?
 const vis=a=>a.slice(Math.max(0,lb(a,v0)-1),Math.min(a.length,lb(a,v1+1)+1));
 const near=(a,t)=>{let lo=0,hi=a.length-1;while(hi-lo>1){const m=(lo+hi)>>1;a[m][0]<=t?lo=m:hi=m}return a[hi][0]<=t?a[hi]:a[lo][0]<=t?a[lo]:null};
 const fmt=t=>new Date(t).toISOString().slice(5,16).replace('T',' ');
-function clampView(){const span=Math.max(MINSPAN,Math.min(v1-v0,x1-x0));
- if(v0<x0){v0=x0;v1=x0+span}if(v1>x1){v1=x1;v0=x1-span}v0=Math.max(x0,v0);v1=Math.min(x1,v1)}
+function clampView(){const range=x1-x0,minSpan=Math.min(MINSPAN,range);
+ const span=Math.min(range,Math.max(minSpan,v1-v0)),center=(v0+v1)/2;
+ v0=Math.max(x0,Math.min(x1-span,center-span/2));v1=v0+span}
 function draw(play){
  const W=box.clientWidth;if(!W){lastW=0;return}
  const shown=N.map(n=>vis(D[n])),vals=[].concat(...shown).filter(p=>p[1]!==null&&p[0]>=v0&&p[0]<=v1).map(p=>p[1]);
@@ -471,18 +472,19 @@ def _load_table(source: str, mtime: float, required: tuple, time_cols: tuple,
 
 
 LIVE_DEFAULT = ROOT / "data/processed/live_quotes_long.parquet"
-LIVE_COLS = ["ts_grid_utc", "venue", "market_type", "bid", "ask", "mid", "spread_abs", "spread_bps",
-             "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "data_kind"]
+LIVE_COLS = ["ts_recv_utc", "ts_grid_utc", "ts_event_utc", "exchange", "symbol", "venue", "market_type",
+             "bid", "ask", "bid_size", "ask_size", "mid", "spread_abs", "spread_bps",
+             "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "depth_cover_bps", "data_kind"]
 
 
 def live_latest(live: pd.DataFrame) -> pd.DataFrame:
-    """Báo giá live mới nhất của từng venue (ts_grid_utc lớn nhất) kèm spread trung vị và số quote của cả mẫu.
+    """Báo giá nhận được mới nhất của từng venue kèm spread trung vị và số quote của cả mẫu.
     Không lấp, không nội suy: ô thiếu (ví dụ depth) để trống. Đơn vị: giá USDT, spread bps, depth USDT."""
-    ordered = live.sort_values(["venue", "ts_grid_utc"])
+    ordered = live.sort_values(["venue", "ts_recv_utc", "ts_grid_utc"])
     last = ordered.groupby("venue", sort=True).tail(1).set_index("venue")
     stats = ordered.groupby("venue")["spread_bps"].agg(spread_bps_median="median", n_quotes="size")
-    cols = ["market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
-            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
+    cols = ["market_type", "ts_recv_utc", "ts_grid_utc", "bid", "ask", "spread_bps",
+            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "depth_cover_bps"]
     return last[cols].join(stats).reset_index()
 
 
@@ -501,13 +503,15 @@ def _load_live(source: str, mtime: float, venues: tuple = ()):
             raise ValueError("file rỗng")
         if df["data_kind"].isna().any() or set(df["data_kind"].unique()) != {"live"}:
             raise ValueError("data_kind phải là 'live'")
-        df["ts_grid_utc"] = pd.to_datetime(df["ts_grid_utc"], utc=True)
-        if df["ts_grid_utc"].isna().any():
-            raise ValueError("ts_grid_utc có giá trị thiếu")
+        for column in ("ts_recv_utc", "ts_grid_utc", "ts_event_utc"):
+            df[column] = pd.to_datetime(df[column], utc=True).astype("datetime64[ns, UTC]")
+            if column != "ts_event_utc" and df[column].isna().any():
+                raise ValueError(f"{column} có giá trị thiếu")
         if venues and not df["venue"].isin(venues).all():
             raise ValueError("venue không có trong panel")
         if not df["venue"].str.rsplit("_", n=1).str[1].eq(df["market_type"]).all():
             raise ValueError("venue không khớp market_type")
+        validate_frame(df, "D2")
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         return None, f"Không dùng được {path.name}: {exc}"
     return df[LIVE_COLS], None
@@ -518,6 +522,7 @@ GLOSSARY = {
     "market_type": "Loại thị trường: spot (giao ngay) hoặc perp (hợp đồng vĩnh viễn). Chỉ so sánh các venue cùng loại.",
     "close_usdt": "Giá đóng cửa của nến 1 phút ở phút cuối của panel, tính bằng USDT.",
     "missing": "Có giá hay không ở phút cuối, False là có giá bình thường. True là sàn không có giá ở phút này (ô close_usdt để trống).",
+    "ts_recv_utc": "Thời điểm (UTC) hệ thống nhận được quote; dùng để chọn báo giá mới nhất.",
     "ts_grid_utc": "Mốc thời gian (UTC) trên lưới 5 giây mà quote này được gán vào.",
     "bid": "Giá mua cao nhất đang chờ trong sổ lệnh, tính bằng USDT.",
     "ask": "Giá bán thấp nhất đang chờ trong sổ lệnh, tính bằng USDT.",
@@ -526,6 +531,8 @@ GLOSSARY = {
     "n_quotes": "Số quote live của venue này trong mẫu.",
     "depth_bid_10bps_usdt": "Tổng khối lượng mua đang chờ trong khoảng 10 bps dưới giá giữa, tính bằng USDT. Càng lớn thì lệnh lớn càng ít làm trượt giá.",
     "depth_ask_10bps_usdt": "Tổng khối lượng bán đang chờ trong khoảng 10 bps trên giá giữa, tính bằng USDT.",
+    "depth_truncated": "True nếu dữ liệu sổ lệnh bị cắt trước khi đo đủ độ sâu; khi True, depth 10 bps có thể chưa bao phủ toàn dải.",
+    "depth_cover_bps": "Độ phủ sổ lệnh thực tế quanh giá giữa, tính bằng bps; nhỏ hơn 10 nghĩa là depth chưa phủ đủ dải 10 bps.",
     "is_lower": "Cận dưới của Information Share (phần venue này đóng góp vào việc hình thành giá chung), từ 0 đến 1. Cận được tính qua mọi thứ tự xếp các venue.",
     "is_upper": "Cận trên của Information Share, từ 0 đến 1. Khoảng từ is_lower đến is_upper càng rộng thì càng khó nói venue này đóng góp bao nhiêu.",
     "is_mid": "Trung điểm của hai cận (is_lower và is_upper). Chỉ dùng để xếp thứ tự tham khảo, không phải kết luận.",
@@ -545,8 +552,9 @@ GLOSSARY = {
     "net_bps": "Gap sau khi trừ phí taker hai chân, spread, slippage và chi phí khác (ước tính theo cấu hình của TV6), tính bằng bps. Dương nghĩa là còn lãi trong mô phỏng.",
 }
 QUOTE_COLS = ["venue", "market_type", "close_usdt", "missing"]
-LIVE_SHOWN_COLS = ["venue", "market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
-                   "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "spread_bps_median", "n_quotes"]
+LIVE_SHOWN_COLS = ["venue", "market_type", "ts_recv_utc", "ts_grid_utc", "bid", "ask", "spread_bps",
+                   "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "depth_cover_bps",
+                   "spread_bps_median", "n_quotes"]
 RANK_COLS = ["venue", "is_lower", "is_upper", "is_mid", "component_share", "ils", "status", "reason"]
 GAP_SUMMARY_COLS = ["market_type", "su_kien", "trung_vi_bps", "thieu"]
 GAP_EVENT_COLS = ["ts_start", "ts_end", "duration_s", "market_type", "buy_exchange", "sell_exchange", "gross_bps"]
@@ -658,11 +666,15 @@ def main():
         if live is None:
             st.write(live_msg)
         else:
-            st.dataframe(live_latest(live), hide_index=True, column_config=col_config(LIVE_SHOWN_COLS))
+            latest_live = live_latest(live)
+            st.dataframe(latest_live, hide_index=True, column_config=col_config(LIVE_SHOWN_COLS))
             explain(LIVE_SHOWN_COLS)
+            if (latest_live["depth_truncated"] | latest_live["depth_cover_bps"].lt(10)
+                    | latest_live["depth_cover_bps"].isna()).any():
+                st.warning("Một số báo giá live bị cắt hoặc thiếu độ phủ depth 10 bps; số đo có thể chưa bao phủ toàn dải.")
             st.caption(f"data_kind = live | mẫu {live['ts_grid_utc'].min():%Y-%m-%d %H:%M} → "
                        f"{live['ts_grid_utc'].max():%Y-%m-%d %H:%M} UTC, {len(live):,} quote | bid, ask: USDT; "
-                       "spread_bps: bps; depth: USDT trong 10 bps quanh giá giữa. Mẫu live là một giai đoạn ngắn và KHÁC "
+                       "spread_bps: bps; depth: USDT trong tối đa 10 bps quanh giá giữa, xem cờ và độ phủ. Mẫu live là một giai đoạn ngắn và KHÁC "
                        "giai đoạn của panel, không so trực tiếp với giá đóng cửa ở trên.")
 
     # 2. Độ phân tán giá
