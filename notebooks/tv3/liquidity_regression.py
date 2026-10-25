@@ -2,8 +2,17 @@
 
   Mô hình A (mẫu dài):           IS ~ vol_share + rv_60m + is_perp          (+ A_fe: thay is_perp bằng hiệu ứng cố định venue;
                                                                               A_ils: biến phụ thuộc ILS; A_<venue>: từng venue riêng)
-  Mô hình B (mẫu live, ngắn):    IS ~ spread_bps + log_depth + is_perp      (cần IS tính trên các phiên live: --live-is)
+  Mô hình B (mẫu live, ngắn):    IS ~ rv_live + spread_bps + log_depth + is_perp
+        = các biến nền của A mà mẫu live có được (biến động: rv_live, tương ứng rv_60m của A) + spread và depth (theo PCCV C3.07:
+        "B: thêm spread và depth"). Cần IS tính trên các phiên live: --live-is.
+  B_no_rv (độ nhạy):             như B nhưng bỏ rv_live (đặc tả B cũ: chỉ spread + depth)
   B_no_spread (độ nhạy):         như B nhưng bỏ spread (spread bị giới hạn bởi tick size nên gần như không đổi)
+  B_vol (tùy chọn):              B + vol_share theo phiên, nếu có --live-candles (nến 1 phút của các phiên live, volume_base). vol_share
+                                 KHÔNG thể tính từ D2 (collector không ghi giao dịch/volume); phải lấy từ nến, cùng định nghĩa C2.04:
+                                 tỷ trọng volume_base của venue trong tổng mọi venue ở từng phút, trung bình các phút của phiên.
+
+rv_live (độ lệch chuẩn lợi suất log 1 phút của mid trong phiên) và rv_60m (độ lệch chuẩn 60 phút của ret_1m, mẫu dài) cùng ý nghĩa
+nhưng khác khung thời gian: so DẤU và mức ý nghĩa giữa A và B, đừng so độ lớn hệ số.
 
 Đơn vị quan sát (mô hình A): một venue × một cửa sổ rolling IS, gắn với window_end (không dùng available_at: với các cửa sổ của
 mẫu phát triển available_at bị dồn về cuối mẫu phát triển nên không còn là thời điểm của cửa sổ).
@@ -14,17 +23,24 @@ Newey-West như mẫu của TV4. Số trễ = số cửa sổ chồng lấn = ce
 Các biến giải thích (trừ is_perp) được chuẩn hóa z trên mẫu ước lượng: hệ số = IS đổi bao nhiêu khi biến tăng 1 độ lệch chuẩn.
 Kết quả chỉ là MỐI LIÊN HỆ (association), không phải quan hệ nhân quả.
 
-Mỗi phiên live là một đoạn riêng: mô hình B dùng một quan sát cho mỗi (venue, phiên), không ghép các phiên.
+Mỗi phiên live là một đoạn riêng: mô hình B dùng một quan sát cho mỗi (venue, phiên), không ghép các phiên. Sai số chuẩn của B
+là sai số chuẩn theo cụm phiên (tổng điểm số trong từng phiên, hiệu chỉnh G/(G-1)·(n-1)/(n-k) như statsmodels cov_cluster),
+p-value và khoảng tin cậy dùng phân phối t với G-1 bậc tự do. Phiên thiếu độ sâu bị loại nguyên phiên và lý do được ghi vào cột notes.
+
+Nguồn dữ liệu được kiểm trước khi ghi: rolling_is và features_1m phải là historical, live phải là live (hoặc tất cả synthetic nếu
+đường dẫn ghi nằm dưới thư mục có tên "synthetic"). Sai nhãn/không rõ nhãn -> báo lỗi, KHÔNG ghi gì, file T4 cũ giữ nguyên.
 
 Chạy:
     python notebooks\\tv3\\liquidity_regression.py --inspect      # xem cột/khoảng thời gian của các file đầu vào
     python notebooks\\tv3\\liquidity_regression.py                 # chạy A và B, ghi outputs/tables/T4_leadership_determinants.csv
+    python notebooks\\tv3\\liquidity_regression.py --live-is data\\processed\\live_session_is.parquet --live-candles data\\raw\\ohlcv_live\\candles.parquet
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -41,7 +57,9 @@ DEF_OUT = ROOT / "outputs" / "tables" / "T4_leadership_determinants.csv"
 TIME_CANDS = ["window_end", "window_end_utc", "available_at", "ts_available", "ts_utc", "ts_grid_utc", "ts_open_utc"]
 FEAT_TIME_CANDS = ["ts_utc", "ts_open_utc", "ts_grid_utc", "ts_1m_utc", "ts_available"]
 MIN_COVER = 0.8          # cửa sổ đặc trưng phải có ít nhất 80% số phút
-SKEW_SESSIONS = [] 
+REAL_KINDS = {"rolling_is": "historical", "features_1m": "historical", "live": "live", "live_is": "live",
+              "live_candles": "historical"}
+SYNTH_KINDS = {k: "synthetic" for k in REAL_KINDS}
 
 
 # ---------------------------------------------------------------- đọc file
@@ -50,6 +68,44 @@ def read_any(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise SystemExit(f"Không thấy file: {path}")
     return pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+
+
+def kind_of(df: pd.DataFrame, label: str):
+    """data_kind từ cột và từ df.attrs; hai nơi mâu thuẫn -> lỗi; không có -> None."""
+    kinds = set(df["data_kind"].dropna().astype(str).unique()) if "data_kind" in df.columns else set()
+    meta = df.attrs.get("data_kind")
+    if meta:
+        kinds.add(str(meta))
+    if len(kinds) > 1:
+        raise SystemExit(f"{label}: data_kind không nhất quán {sorted(kinds)}. Không ghi gì.")
+    return next(iter(kinds)) if kinds else None
+
+
+def output_zone(out: Path) -> str:
+    """"synthetic" nếu đường dẫn ghi có thư mục tên synthetic (vd outputs/synthetic/...), còn lại là vùng kết quả thật."""
+    return "synthetic" if any(p.lower() == "synthetic" for p in Path(out).resolve().parts) else "real"
+
+
+def guard_input(df: pd.DataFrame, label: str, out: Path, required: bool = True) -> None:
+    """Từ chối (trước khi ghi bất cứ thứ gì) nếu nhãn nguồn không khớp vùng ghi."""
+    zone = output_zone(out)
+    want = (REAL_KINDS if zone == "real" else SYNTH_KINDS)[label]
+    got = kind_of(df, label)
+    if got is None and not required:
+        print(f"CẢNH BÁO: {label} không có data_kind (không kiểm được nguồn)")
+        return
+    if got != want:
+        raise SystemExit(f"{label}: data_kind={got!r}, vùng ghi {zone!r} ({out}) cần {want!r}. "
+                         f"Không ghi gì; file kết quả cũ giữ nguyên.")
+
+
+def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Ghi qua file tạm rồi thay: lỗi giữa chừng không để lại file hỏng, file cũ còn nguyên."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    df.to_csv(tmp, index=False, float_format="%.6g")
+    os.replace(tmp, path)
 
 
 def utc(s) -> pd.Series:
@@ -199,9 +255,65 @@ def live_minutes(q: pd.DataFrame, band: int, exclude: list[str]) -> pd.DataFrame
         depth = depth.where(q["depth_cover_bps"] >= band)
     q["log_depth"] = np.log(depth.where(depth > 0))
 
+    q["mid"] = (q["bid"] + q["ask"]) / 2
     return (q.groupby(["venue", "session_id", "t"])
-              .agg(spread_bps=("spread_bps", "median"), log_depth=("log_depth", "median"), n_ticks=("bid", "size"))
+              .agg(spread_bps=("spread_bps", "median"), log_depth=("log_depth", "median"), mid_last=("mid", "last"),
+                   n_ticks=("bid", "size"))
               .reset_index())
+
+
+def session_rv(lm: pd.DataFrame) -> pd.DataFrame:
+    """rv_live: độ lệch chuẩn lợi suất log 1 phút của mid trong phiên (chỉ các cặp phút liền nhau), theo (venue, phiên)."""
+    rows = []
+    for (v, s), g in lm.sort_values("t").groupby(["venue", "session_id"]):
+        r = np.log(g["mid_last"]).diff().where(g["t"].diff() == pd.Timedelta("1min")).dropna()
+        rows.append({"venue": v, "session_id": s, "rv_live": float(r.std(ddof=1)) if len(r) > 5 else np.nan})
+    return pd.DataFrame(rows, columns=["venue", "session_id", "rv_live"])
+
+
+def session_vol_share(candles: pd.DataFrame, lm: pd.DataFrame) -> pd.DataFrame:
+    """vol_share theo (venue, phiên) từ nến 1 phút: với mỗi phút, volume_base của venue / tổng volume_base của mọi venue có nến phút đó;
+    rồi trung bình các phút nằm trong phiên (từ phút đầu tới phút cuối của quote live). Phiên có ít hơn MIN_COVER số phút -> NaN.
+    candles: cột ts_open_utc (giờ MỞ nến), volume_base (BTC) và venue (hoặc exchange + market_type). Không nội suy phút thiếu."""
+    c = candles.copy()
+    c["venue"] = venue_name(c)
+    c["t"] = utc(c["ts_open_utc"]).dt.floor("min")
+    wide = c.pivot_table(index="t", columns="venue", values="volume_base", aggfunc="sum").sort_index()
+    total = wide.sum(axis=1, min_count=1)
+    share = wide.div(total.where(total > 0), axis=0)
+    rows = []
+    for s, g in lm.groupby("session_id"):
+        t0, t1 = g["t"].min(), g["t"].max()
+        n_min = int((t1 - t0) / pd.Timedelta("1min")) + 1
+        sub = share.loc[t0:t1]
+        for v in share.columns:
+            col = sub[v].dropna()
+            rows.append({"venue": v, "session_id": s,
+                         "vol_share": float(col.mean()) if len(col) >= math.ceil(MIN_COVER * n_min) else np.nan})
+    return pd.DataFrame(rows, columns=["venue", "session_id", "vol_share"])
+
+
+def model_b_frame(li: pd.DataFrame, lm: pd.DataFrame, band: int) -> tuple[pd.DataFrame, dict]:
+    """Một dòng mỗi (venue, phiên). Phiên thiếu IS hoặc thiếu spread/độ sâu ở bất kỳ venue nào bị loại NGUYÊN PHIÊN, kèm lý do."""
+    sess = lm.groupby(["venue", "session_id"]).agg(spread_bps=("spread_bps", "median"), log_depth=("log_depth", "median")).reset_index()
+    m = (li[["venue", "session_id", "is_val"]].merge(sess, on=["venue", "session_id"], how="left")
+         .merge(session_rv(lm), on=["venue", "session_id"], how="left"))
+    m["is_perp"] = m["venue"].str.contains("perp").astype(float)
+    excluded = {}
+    for s in sorted(set(lm["session_id"]) | set(li["session_id"])):
+        sub = m[m["session_id"] == s]
+        if sub.empty:
+            excluded[s] = "không có dòng IS ok trong --live-is"
+        elif sub["log_depth"].isna().any():
+            excluded[s] = f"thiếu độ sâu ≤{band} bps (depth_cover_bps < {band} hoặc không có độ sâu)"
+        elif sub["spread_bps"].isna().any():
+            excluded[s] = "thiếu spread"
+        elif sub["rv_live"].isna().any():
+            excluded[s] = "thiếu rv_live (mid có ít hơn 6 lợi suất 1 phút liền nhau để tính biến động)"
+    times = lm.groupby("session_id")["t"].agg(t_start="min", t_end="max").reset_index()
+    m = m[~m["session_id"].isin(excluded)].merge(times, on="session_id", how="left")
+    m["t"] = m["t_start"]                           # thời gian THẬT của phiên (đầu phiên); t_end = phút cuối của phiên
+    return m, excluded
 
 
 # ---------------------------------------------------------------- OLS + HAC
@@ -217,14 +329,26 @@ def _nw(sg: np.ndarray, lags: int) -> np.ndarray:
 def ols_hac(y: np.ndarray, X: np.ndarray, groups: np.ndarray, lags: int, mode: str = "group", times: np.ndarray | None = None) -> dict:
     """OLS với ma trận phương sai bền, hiệu chỉnh n/(n-k).
     mode="group": Newey-West trong từng nhóm (dữ liệu PHẢI sắp theo nhóm rồi theo thời gian), cộng dồn giữa các nhóm.
-                  lags=0 và mỗi nhóm một dòng -> HC1; lags=0 và nhóm = phiên -> sai số chuẩn theo cụm.
-    mode="dk":    Driscoll-Kraay: cộng điểm số của mọi venue có cùng `times`, rồi Newey-West theo thời gian."""
+                  Với lags=0 chỉ là HC1 theo từng dòng (KHÔNG phải sai số theo cụm; muốn theo cụm dùng mode="cluster").
+    mode="dk":    Driscoll-Kraay: cộng điểm số của mọi venue có cùng `times`, rồi Newey-West theo thời gian.
+    mode="cluster": sai số chuẩn theo cụm: meat = tổng theo cụm của (tổng điểm số trong cụm)(tổng điểm số trong cụm)',
+                  hiệu chỉnh G/(G-1)·(n-1)/(n-k) (mặc định của statsmodels cov_cluster). Cần G >= 2."""
     n, k = X.shape
     xtx_inv = np.linalg.inv(X.T @ X)
     beta = xtx_inv @ X.T @ y
     u = y - X @ beta
     s = X * u[:, None]
-    if mode == "dk":
+    scale = n / (n - k)
+    if mode == "cluster":
+        codes = pd.factorize(groups)[0]
+        n_groups = int(codes.max()) + 1
+        if n_groups < 2:
+            raise ValueError("cluster: cần ít nhất 2 cụm")
+        sums = np.zeros((n_groups, k))
+        np.add.at(sums, codes, s)
+        meat = sums.T @ sums
+        scale = n_groups / (n_groups - 1.0) * (n - 1.0) / (n - k)
+    elif mode == "dk":
         agg = pd.DataFrame(s).groupby(pd.factorize(times, sort=True)[0]).sum().sort_index().to_numpy()
         meat = _nw(agg, lags)
         n_groups = len(agg)
@@ -234,10 +358,11 @@ def ols_hac(y: np.ndarray, X: np.ndarray, groups: np.ndarray, lags: int, mode: s
         for g in np.unique(codes):
             meat += _nw(s[codes == g], lags)
         n_groups = len(np.unique(codes))
-    cov = xtx_inv @ meat @ xtx_inv * n / (n - k)
+    cov = xtx_inv @ meat @ xtx_inv * scale
     se = np.sqrt(np.clip(np.diag(cov), 0, None))
     tstat = np.divide(beta, se, out=np.full(k, np.nan), where=se > 0)
     p = np.array([math.erfc(abs(t) / math.sqrt(2)) if t == t else np.nan for t in tstat])
+    n_groups = int(n_groups)
     ss_res, ss_tot = float(u @ u), float(((y - y.mean()) ** 2).sum())
     return {"beta": beta, "se": se, "t": tstat, "p": p, "r2": 1 - ss_res / ss_tot if ss_tot > 0 else np.nan,
             "n": n, "n_groups": n_groups, "cond": float(np.linalg.cond(X))}
@@ -245,7 +370,7 @@ def ols_hac(y: np.ndarray, X: np.ndarray, groups: np.ndarray, lags: int, mode: s
 
 def fit(df: pd.DataFrame, name: str, xcols: list[str], zcols: list[str], lags: int, cov: str = "dk",
         group_col: str | None = None, fe: str | None = None, y: str = "is_val", notes: str = "") -> pd.DataFrame:
-    """cov: "dk" (nhóm = thời gian, cần cột t), "group" (nhóm = group_col). fe: tên cột để thêm biến giả cố định (bỏ nhóm đầu)."""
+    """cov: "dk" (nhóm = thời gian, cần cột t), "group" (HAC trong từng nhóm group_col), "cluster" (theo cụm group_col). fe: tên cột để thêm biến giả cố định (bỏ nhóm đầu)."""
     d = df.dropna(subset=[y] + xcols).copy()
     keep = [c for c in zcols if d[c].std(ddof=0) > 1e-12]
     dropped = [c for c in zcols if c not in keep]
@@ -266,25 +391,17 @@ def fit(df: pd.DataFrame, name: str, xcols: list[str], zcols: list[str], lags: i
     d = d.sort_values(sort_cols)
     X = np.column_stack([np.ones(len(d))] + [d[c].to_numpy(float) for c in terms])
     grp = d[group_col].astype(str).to_numpy() if group_col else np.zeros(len(d))
-    r = ols_hac(d[y].to_numpy(float), X, grp, lags, mode=cov, times=d["t"].to_numpy() if cov == "dk" else None)
-    if name in {"B", "B_no_spread"}:
-        G = d[group_col].nunique()
-
-        if G > 1:
-            df_t = G - 1
-            p_values = 2 * student_t.sf(
-                abs(r["t"]), df=df_t
-        )
-            t_crit = student_t.ppf(0.975, df=df_t)
-        else:
-            p_values = np.full_like(
-                r["t"], np.nan, dtype=float
-            )
-            t_crit = np.nan
+    try:
+        r = ols_hac(d[y].to_numpy(float), X, grp, lags, mode=cov, times=d["t"].to_numpy() if cov == "dk" else None)
+    except ValueError as exc:
+        print(f"[{name}] bỏ qua: {exc}")
+        return pd.DataFrame()
+    if cov == "cluster":                       # ít cụm: p-value và CI theo t(G-1), không dùng xấp xỉ chuẩn
+        df_t = r["n_groups"] - 1
+        p_values = 2 * student_t.sf(np.abs(r["t"]), df=df_t)
+        t_crit = student_t.ppf(0.975, df=df_t)
     else:
-    # Giữ nguyên cách tính hiện tại của Model A
-        p_values = r["p"]
-        t_crit = 1.96
+        p_values, t_crit = r["p"], 1.96
     if r["cond"] > 30:
         notes = (notes + f" số điều kiện X = {r['cond']:.0f} (>30: cộng tuyến, đọc hệ số từng biến cẩn thận)").strip()
     rows = []
@@ -293,7 +410,8 @@ def fit(df: pd.DataFrame, name: str, xcols: list[str], zcols: list[str], lags: i
                      "coef": r["beta"][i],"se_hac": r["se"][i],"t": r["t"][i],"p_value": p_values[i],
                      "ci95_low": r["beta"][i] - t_crit * r["se"][i],"ci95_high": r["beta"][i] + t_crit * r["se"][i],
                      "n_obs": r["n"], "n_groups": r["n_groups"], "hac_lags": lags, "cov": cov, "r2": r["r2"],
-                     "sample_start": d["t"].min().isoformat(), "sample_end": d["t"].max().isoformat(), "notes": notes})
+                     "sample_start": d["t"].min().isoformat(),
+                     "sample_end": (d["t_end"] if "t_end" in d.columns else d["t"]).max().isoformat(), "notes": notes})
     return pd.DataFrame(rows)
 
 
@@ -333,7 +451,9 @@ def crosscheck(base: pd.DataFrame, lags: int) -> None:
 
 
 def run(a) -> pd.DataFrame:
-    is_df, win, step = tidy_is(read_any(a.rolling_is), a)
+    is_raw = read_any(a.rolling_is)
+    guard_input(is_raw, "rolling_is", a.out)                       # nguồn sai -> dừng TRƯỚC khi làm gì và trước khi ghi
+    is_df, win, step = tidy_is(is_raw, a)
     if win is None or step is None:
         raise SystemExit("Không đọc được độ dài cửa sổ/bước của rolling IS: truyền --window-min và --step-min (lấy từ config rolling).")
     lags = a.hac_lags if a.hac_lags is not None else int(math.ceil(win / step))
@@ -347,7 +467,9 @@ def run(a) -> pd.DataFrame:
     is_df["is_perp"] = is_df["venue"].str.contains("perp").astype(float)
     width = f"; khoảng chặn IS rộng trung vị {is_df['is_width'].median():.2f}" if "is_width" in is_df.columns else ""
 
-    fw = feature_windows(tidy_features(read_any(a.features), a), win)
+    feat_raw = read_any(a.features)
+    guard_input(feat_raw, "features_1m", a.out, required=False)
+    fw = feature_windows(tidy_features(feat_raw, a), win)
     miss = sorted(set(is_df["venue"]) - set(fw["venue"]))
     if miss:
         print(f"CẢNH BÁO: venue có IS nhưng không có trong features_1m (tên khác?): {miss}")
@@ -368,8 +490,18 @@ def run(a) -> pd.DataFrame:
         crosscheck(base, lags)
 
     # ---- mô hình B: cần IS tính trên các phiên live
-    if a.live_is and Path(a.live).exists():
+    if a.live_is:
+        if not Path(a.live).exists():
+            raise SystemExit(f"Có --live-is nhưng không thấy {a.live}")
         li = read_any(a.live_is)
+        guard_input(li, "live_is", a.out)
+        quotes = read_any(a.live)
+        guard_input(quotes, "live", a.out)
+        candles = None
+        if a.live_candles:
+            candles = read_any(a.live_candles)
+            guard_input(candles, "live_candles", a.out)
+        exclude = [x for x in a.exclude_sessions.split(",") if x]
         if "status" in li.columns:                      # run_live_is ghi cả phiên lỗi (kèm reason): chỉ giữ dòng ok
             print(f"live-is: giữ {int(li.status.eq('ok').sum())}/{len(li)} dòng status=ok")
             li = li[li["status"].astype(str).eq("ok")]
@@ -382,23 +514,44 @@ def run(a) -> pd.DataFrame:
         if ycol is None or "session_id" not in li.columns:
             raise SystemExit(f"--live-is cần cột session_id và IS (is_mid hoặc is_lower/is_upper); có: {list(li.columns)}")
         li = li.rename(columns={ycol: "is_val"})
-        if not a.keep_skew:
-            li = li[~li["session_id"].isin(SKEW_SESSIONS)]
-        lm = live_minutes(read_any(a.live), a.depth_band, [] if a.keep_skew else SKEW_SESSIONS)
-        sess = (lm.groupby(["venue", "session_id"]).agg(spread_bps=("spread_bps", "median"), log_depth=("log_depth", "median")).reset_index())
-        m = li[["venue", "session_id", "is_val"]].merge(sess, on=["venue", "session_id"], how="inner")
-        m["is_perp"] = m["venue"].str.contains("perp").astype(float)
-        m["t"] = pd.Timestamp("2026-10-17", tz="UTC")
-        print(f"Mô hình B: {len(m)} quan sát (venue × phiên), {m['session_id'].nunique()} phiên")
-        nb = "mẫu live; mỗi quan sát = venue × phiên; sai số chuẩn theo cụm phiên (ít cụm: đọc thận trọng)"
-        out.append(fit(m, "B", ["spread_bps", "log_depth", "is_perp"], ["spread_bps", "log_depth"], 0, "group",
-                       group_col="session_id", notes=nb))
-        out.append(fit(m, "B_no_spread", ["log_depth", "is_perp"], ["log_depth"], 0, "group", group_col="session_id",
-                       notes=nb + "; bỏ spread (bị giới hạn bởi tick size)"))
+        if exclude:
+            li = li[~li["session_id"].isin(exclude)]
+        lm = live_minutes(quotes, a.depth_band, exclude)
+        m, excluded = model_b_frame(li, lm, a.depth_band)
+        n_all = len(set(lm["session_id"]) | set(li["session_id"]))
+        print(f"Mô hình B: {len(m)} quan sát (venue × phiên), {m['session_id'].nunique()}/{n_all} phiên")
+        for sid, why in excluded.items():
+            print(f"  loại phiên {sid}: {why}")
+        why_txt = "; ".join(f"{k}: {v}" for k, v in excluded.items())
+        nb = (f"mẫu live; mỗi quan sát = venue × phiên; sai số chuẩn theo cụm session_id, p/CI theo t(G-1); "
+              f"dùng {m['session_id'].nunique()}/{n_all} phiên" + (f"; loại {why_txt}" if why_txt else "")
+              + (f"; loại theo --exclude-sessions: {exclude}" if exclude else ""))
+        base_x, base_z = ["rv_live", "spread_bps", "log_depth"], ["rv_live", "spread_bps", "log_depth"]
+        b_models = [
+            fit(m, "B", base_x + ["is_perp"], base_z, 0, "cluster", group_col="session_id",
+                notes=nb + "; B = biến động (rv_live, tương ứng rv_60m của A) + spread + depth; chưa có vol_share (mẫu live không ghi volume)"),
+            fit(m, "B_no_rv", ["spread_bps", "log_depth", "is_perp"], ["spread_bps", "log_depth"], 0, "cluster",
+                group_col="session_id", notes=nb + "; độ nhạy: đặc tả B cũ, không có rv_live"),
+            fit(m, "B_no_spread", ["rv_live", "log_depth", "is_perp"], ["rv_live", "log_depth"], 0, "cluster",
+                group_col="session_id", notes=nb + "; độ nhạy: bỏ spread (bị giới hạn bởi tick size)")]
+        if candles is not None:
+            vs = session_vol_share(candles, lm)
+            m = m.merge(vs, on=["venue", "session_id"], how="left")
+            no_vs = m[m["vol_share"].isna()]
+            if len(no_vs):
+                print(f"  B_vol: bỏ {len(no_vs)}/{len(m)} dòng thiếu vol_share (nến thiếu hơn {1 - MIN_COVER:.0%} số phút phiên): "
+                      f"{ {s: sorted(g['venue']) for s, g in no_vs.groupby('session_id')} }")
+            b_models.append(fit(m, "B_vol", ["vol_share"] + base_x + ["is_perp"], ["vol_share"] + base_z, 0, "cluster",
+                                group_col="session_id",
+                                notes=nb + "; B + vol_share theo phiên (từ nến 1 phút, tỷ trọng volume_base trong tổng mọi venue)"))
+        if not len(b_models[0]):                        # B chính phải có; thiếu thì dừng, không ghi T4 chỉ còn bản độ nhạy
+            raise SystemExit("Có --live-is nhưng không ước lượng được mô hình B chính (quá ít phiên/quan sát sau khi loại phiên "
+                             "thiếu depth/spread/rv_live). Không ghi gì; file cũ giữ nguyên.")
+        out += b_models
     else:
         live0 = "17/10/2026"
-        print(f"Mô hình B: bỏ qua. rolling_is kết thúc {is_df['t'].max():%Y-%m-%d}, không phủ các phiên live (từ {live0}); "
-              "cần IS tính trên từng phiên live (file --live-is: session_id, venue, is_mid hoặc is_lower/is_upper).")
+        print(f"Mô hình B: bỏ qua (không có --live-is). rolling_is kết thúc {is_df['t'].max():%Y-%m-%d}, không phủ các phiên live "
+              f"(từ {live0}); cần IS tính trên từng phiên live (python -m src.price_discovery.run_live_is).")
     parts = [o for o in out if len(o)]
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
@@ -422,8 +575,10 @@ def main(argv=None):
     ap.add_argument("--until", help="ISO UTC (không gồm until). Đừng đưa tập test cuối vào (C4.09)")
     ap.add_argument("--live-is", type=Path, dest="live_is",
                     help="IS tính trên từng phiên live (cột session_id, venue, is_mid hoặc is_lower/is_upper) cho mô hình B")
+    ap.add_argument("--live-candles", type=Path, dest="live_candles",
+                    help="nến 1 phút các venue trong thời gian live (ts_open_utc, venue, volume_base, data_kind=historical): thêm mô hình B_vol")
     ap.add_argument("--crosscheck", action="store_true", help="so HAC của một venue với statsmodels (nếu cài)")
-    ap.add_argument("--keep-skew", action="store_true", help="giữ phiên 18/10 S1 (lệch đồng hồ ~3 s)")
+    ap.add_argument("--exclude-sessions", default="", help="session_id loại khỏi mô hình B, cách nhau dấu phẩy (mặc định: không loại)")
     a = ap.parse_args(argv)
     if a.inspect:
         inspect(a)
@@ -432,8 +587,7 @@ def main(argv=None):
     if res.empty:
         print("Không có kết quả nào để ghi.")
         return 1
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    res.to_csv(a.out, index=False, float_format="%.6g")
+    write_csv_atomic(res, a.out)
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(res[["model", "dep", "term", "coef", "se_hac", "t", "p_value", "n_obs", "n_groups", "r2"]].to_string(index=False))
     print(f"\nĐã ghi {a.out}")

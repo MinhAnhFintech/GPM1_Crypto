@@ -1,4 +1,4 @@
-"""C3.07: OLS-HAC/Driscoll-Kraay tự viết khớp công thức, và chạy end-to-end trên dữ liệu giả (không cần dữ liệu thật)."""
+"""Đặc tả mô hình B (C3.07): B = rv_live + spread + depth; B_no_rv, B_no_spread là độ nhạy; B_vol khi có nến. Dữ liệu giả, không mạng."""
 import sys
 from pathlib import Path
 
@@ -6,207 +6,164 @@ import numpy as np
 import pandas as pd
 import pytest
 
-try:
-    import pyarrow  # noqa: F401
-    EXT = "parquet"
-except ImportError:                       # máy không có pyarrow: dùng CSV (script đọc cả hai)
-    EXT = "csv"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "notebooks" / "tv3"))
+import liquidity_regression as lr  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "analysis"))
-from notebooks.tv3 import liquidity_regression as lr  # noqa: E402
-
-VENUES = ["binance_spot", "binance_perp", "okx_spot", "okx_perp"]
-SESSIONS = [("20261018_S1", "2026-10-18", 7), ("20261019_S1", "2026-10-19", 7), ("20261019_S2", "2026-10-19", 13),
-            ("20261020_S1", "2026-10-20", 7), ("20261020_S2", "2026-10-20", 13), ("20261021_S1", "2026-10-21", 7),
-            ("20261021_S2", "2026-10-21", 13)]       
+VENUES = ["binance_spot", "binance_perp", "okx_spot", "okx_perp", "bybit_spot", "bybit_perp"]
+SESSIONS = ["20261017_S2", "20261018_S1", "20261019_S1", "20261019_S2", "20261020_S1", "20261020_S2", "20261021_S1", "20261021_S2"]
+NO_DEPTH, SHORT_COVER = "20261017_S2", "20261020_S1"      # phiên không đo depth; phiên có bybit_perp bị cắt dưới 5 bps
 
 
-# ===================================================================== phần toán
-def test_ols_hac_lag0_equals_hc1_and_recovers_beta():
-    rng = np.random.default_rng(0)
-    n = 4000
-    x = rng.normal(size=n)
-    y = 1.0 + 0.5 * x + rng.normal(size=n)
-    X = np.column_stack([np.ones(n), x])
-    r = lr.ols_hac(y, X, np.zeros(n), lags=0)
-    assert abs(r["beta"][1] - 0.5) < 0.05
-    xtx_inv = np.linalg.inv(X.T @ X)
-    u = y - X @ r["beta"]
-    hc1 = xtx_inv @ (X.T * (u ** 2)) @ X @ xtx_inv * n / (n - 2)
-    assert np.allclose(r["se"], np.sqrt(np.diag(hc1)))
+def session_times(si, ticks=121):
+    return pd.date_range("2026-10-17 13:00", periods=ticks, freq="5s", tz="UTC") + pd.Timedelta(days=si)   # 121 tick = 10 phút
 
 
-def ar1(n, rho, rng):
-    z = np.zeros(n)
-    for i in range(1, n):
-        z[i] = rho * z[i - 1] + rng.normal()
-    return z
-
-
-def test_hac_se_larger_than_naive_when_errors_autocorrelated():
-    rng = np.random.default_rng(1)
-    n = 3000
-    x, e = ar1(n, 0.9, rng), ar1(n, 0.9, rng)
-    X = np.column_stack([np.ones(n), x])
-    y = 0.2 * x + e
-    g = np.zeros(n)
-    assert lr.ols_hac(y, X, g, lags=30)["se"][1] > 1.5 * lr.ols_hac(y, X, g, lags=0)["se"][1]
-
-
-def test_driscoll_kraay_equals_group_hac_for_a_single_series_and_is_larger_with_cross_correlation():
-    rng = np.random.default_rng(3)
-    n = 1500
-    x, e = ar1(n, 0.5, rng), ar1(n, 0.5, rng)
-    y = 0.3 * x + e
-    X = np.column_stack([np.ones(n), x])
-    t = np.arange(n)
-    one = lr.ols_hac(y, X, np.zeros(n), lags=10)
-    dk = lr.ols_hac(y, X, np.zeros(n), lags=10, mode="dk", times=t)
-    assert np.allclose(one["se"], dk["se"])
-    # hai "venue" nhận CÙNG cú sốc ở mỗi thời điểm: DK phải nhận ra sự phụ thuộc, HAC theo nhóm thì không
-    X2 = np.vstack([X, X])
-    y2 = np.concatenate([y, y + rng.normal(scale=0.01, size=n)])
-    grp = np.array(["a"] * n + ["b"] * n)
-    t2 = np.concatenate([t, t])
-    se_group = lr.ols_hac(y2, X2, grp, lags=10)["se"][1]
-    se_dk = lr.ols_hac(y2, X2, grp, lags=10, mode="dk", times=t2)["se"][1]
-    assert se_dk > 1.2 * se_group
-
-
-# ===================================================================== dữ liệu giả
-def save(df, tmp_path, name):
-    p = tmp_path / f"{name}.{EXT}"
-    df.to_parquet(p, index=False) if EXT == "parquet" else df.to_csv(p, index=False)
-    return p
-
-
-def load(tmp_path, name):
-    p = tmp_path / f"{name}.{EXT}"
-    return pd.read_parquet(p) if EXT == "parquet" else pd.read_csv(p)
-
-
-def make_inputs(tmp_path, win_min=1439, step_min=60):
-    """Giống rolling_is thật: cửa sổ ~1 ngày, bước 1 giờ, window_end làm mốc, available_at dồn về cuối mẫu phát triển."""
-    rng = np.random.default_rng(2)
-    mins = pd.date_range("2026-01-01", "2026-02-20 23:59", freq="1min", tz="UTC")
-    feat = []
-    for i, v in enumerate(VENUES):
-        slow = 0.1 * np.sin(np.arange(len(mins)) / (1440 * (2 + i)) + i)
-        feat.append(pd.DataFrame({"ts_utc": mins, "venue": v, "vol_share": 0.1 + 0.1 * i + slow + rng.normal(0, 0.01, len(mins)),
-                                  "rv_60m": 3e-4 + 1e-4 * np.sin(np.arange(len(mins)) / 3000 + i) + rng.normal(0, 1e-5, len(mins))}))
-    feat = pd.concat(feat)
-    save(feat, tmp_path, "features")
-
-    ends = pd.date_range("2026-01-03", "2026-02-20 23:00", freq=f"{step_min}min", tz="UTC")
-    dev_end = pd.Timestamp("2026-01-20", tz="UTC")
+def make_inputs(tmp_path, with_candles=False, ticks=121):
+    rng = np.random.default_rng(11)
+    t0 = pd.Timestamp("2026-01-02 00:00", tz="UTC")
     rows = []
     for v in VENUES:
-        vs = feat[feat.venue == v].set_index("ts_utc")["vol_share"].rolling(f"{win_min}min").mean()
-        for t in ends:
-            val = 0.2 + 0.5 * (vs[t] - 0.25) + rng.normal(0, 0.01)
-            rows.append({"window_start": t - pd.Timedelta(minutes=win_min), "window_end": t, "available_at": max(t, dev_end),
-                         "venue": v, "is_lower": val - 0.1, "is_upper": val + 0.1, "is_mid": val, "component_share": 1e4 * rng.normal(),
-                         "ils": 0.25 + 0.3 * (vs[t] - 0.25) + rng.normal(0, 0.01), "status": "ok", "reason": "overlapping_bounds"})
-    rows.append({"window_start": ends[0], "window_end": ends[0], "available_at": ends[0], "venue": "okx_perp",
-                 "is_lower": np.nan, "is_upper": np.nan, "is_mid": np.nan, "component_share": np.nan, "ils": np.nan,
-                 "status": "error", "reason": "singular"})
-    save(pd.DataFrame(rows), tmp_path, "rolling_is")
+        for i in range(300):
+            e = t0 + pd.Timedelta(hours=i)
+            lo = rng.uniform(0, 0.3)
+            rows.append({"venue": v, "window_start": e - pd.Timedelta(minutes=1440), "window_end": e, "is_lower": lo,
+                         "is_upper": lo + rng.uniform(0.5, 0.7), "ils": rng.uniform(0.3, 0.7), "status": "ok",
+                         "data_kind": "historical"})
+    pd.DataFrame(rows).to_parquet(tmp_path / "rolling_is.parquet", index=False)
+
+    minutes = pd.date_range("2026-01-01 00:00", "2026-01-14 12:00", freq="min", tz="UTC")
+    pd.concat([pd.DataFrame({"ts_utc": minutes, "venue": v, "vol_share": rng.uniform(0.1, 0.3, len(minutes)),
+                             "rv_60m": rng.uniform(1e-4, 1e-3, len(minutes)), "data_kind": "historical"}) for v in VENUES]
+              ).to_parquet(tmp_path / "features_1m.parquet", index=False)
+
+    q, li, candles = [], [], []
+    for si, s in enumerate(SESSIONS):
+        ts = session_times(si, ticks)
+        for vi, v in enumerate(VENUES):
+            depth = np.nan if s == NO_DEPTH else rng.uniform(1e5, 5e5)
+            cover = np.nan if s == NO_DEPTH else (4.0 if (s == SHORT_COVER and v == "bybit_perp") else 9.0)
+            mid = 100.0 * np.exp(np.cumsum(rng.normal(scale=1e-4 * (1 + vi), size=len(ts))))      # mid biến động, khác nhau theo venue
+            q.append(pd.DataFrame({"session_id": s, "venue": v, "data_kind": "live", "ts_grid_utc": ts, "bid": mid - 0.005,
+                                   "ask": mid + 0.005, "spread_bps": rng.uniform(0.5, 1.5), "depth_bid_5bps_usdt": depth,
+                                   "depth_ask_5bps_usdt": depth, "depth_cover_bps": cover}))
+            lo = rng.uniform(0, 0.3)
+            li.append({"session_id": s, "venue": v, "status": "ok", "is_lower": lo, "is_upper": lo + 0.6, "data_kind": "live"})
+            cm = pd.date_range(ts[0].floor("min"), ts[-1].floor("min"), freq="min", tz="UTC")
+            candles.append(pd.DataFrame({"ts_open_utc": cm, "venue": v, "data_kind": "historical",
+                                         "volume_base": (vi + 1) * (1 + 0.2 * si * (vi % 3)) * rng.uniform(0.9, 1.1, len(cm))}))
+    pd.concat(q).to_parquet(tmp_path / "live_quotes_long.parquet", index=False)
+    pd.DataFrame(li).to_parquet(tmp_path / "live_is.parquet", index=False)
+    if with_candles:
+        pd.concat(candles).to_parquet(tmp_path / "candles.parquet", index=False)
 
 
-def make_live(tmp_path):
-    rng = np.random.default_rng(4)
-    q = []
-    for sess, day, h in SESSIONS:
-        grid = pd.date_range(f"{day} {h:02d}:00:05", periods=2159, freq="5s", tz="UTC")
-        for v in VENUES:
-            ex, mt = v.split("_")
-            sp = 0.0012 if v == "binance_spot" else 0.0122
-            q.append(pd.DataFrame({"ts_grid_utc": grid, "exchange": ex, "market_type": mt, "session_id": sess, "data_kind": "live",
-                                   "bid": 80000.0 - sp * 4, "ask": 80000.0 + sp * 4,
-                                   "depth_bid_5bps_usdt": rng.uniform(1e6, 3e6, len(grid)) * (1 + VENUES.index(v)),
-                                   "depth_ask_5bps_usdt": rng.uniform(1e6, 3e6, len(grid)) * (1 + VENUES.index(v)),
-                                   "depth_cover_bps": 15.0}))
-    save(pd.concat(q), tmp_path, "live")
-    rows = [{"session_id": s, "venue": v, "is_lower": 0.1 * i, "is_upper": 0.1 * i + 0.2, "ils": 0.2}
-            for s, _, _ in SESSIONS for i, v in enumerate(VENUES)]
-    save(pd.DataFrame(rows), tmp_path, "live_is")
-
-
-def run_cli(tmp_path, *extra):
-    out = tmp_path / "T4.csv"
-    code = lr.main(["--rolling-is", str(tmp_path / f"rolling_is.{EXT}"), "--features", str(tmp_path / f"features.{EXT}"),
-                    "--live", str(tmp_path / f"live.{EXT}"), "--out", str(out), *extra])
-    return code, out
-
-
-# ===================================================================== end-to-end
-def test_model_a_aligns_on_window_end_not_available_at_and_recovers_vol_share_effect(tmp_path):
-    make_inputs(tmp_path)
-    code, out = run_cli(tmp_path)
+def run_main(tmp_path, *extra, out="T4.csv"):
+    path = tmp_path / out
+    code = lr.main(["--rolling-is", str(tmp_path / "rolling_is.parquet"), "--features", str(tmp_path / "features_1m.parquet"),
+                    "--live", str(tmp_path / "live_quotes_long.parquet"), "--live-is", str(tmp_path / "live_is.parquet"),
+                    "--out", str(path), *extra])
     assert code == 0
-    t4 = pd.read_csv(out)
-    a = t4[t4.model == "A"].set_index("term")
-    assert a.loc["vol_share_w (z)", "coef"] > 0 and a.loc["vol_share_w (z)", "p_value"] < 0.01
-    assert (t4.hac_lags == 24).all()                                    # cửa sổ 1439 / bước 60 -> 24
-    assert set(t4.model) >= {"A", "A_fe", "A_ils", *[f"A_{v}" for v in VENUES]}
-    assert a["n_obs"].iloc[0] == 4 * len(pd.date_range("2026-01-03", "2026-02-20 23:00", freq="60min")) # dòng status=error bị bỏ
-    assert (a["cov"] == "dk").all()
-    assert "component_share" not in set(t4.term)                        # CS không ổn định, không dùng làm biến
+    return pd.read_csv(path)
 
 
-def test_fe_model_has_venue_dummies_and_no_is_perp(tmp_path):
+def terms(t4, model):
+    return list(t4.loc[t4.model == model, "term"])
+
+
+# ------------------------------------------------------------------ đặc tả B
+def test_b_contains_a_base_volatility_plus_spread_and_depth(tmp_path):
     make_inputs(tmp_path)
-    t4 = pd.read_csv(run_cli(tmp_path)[1])
-    fe = t4[t4.model == "A_fe"]
-    assert "is_perp" not in set(fe.term) and sum(t.startswith("fe_venue") for t in fe.term) == 3
+    t4 = run_main(tmp_path)
+    assert terms(t4, "B") == ["const", "rv_live (z)", "spread_bps (z)", "log_depth (z)", "is_perp"]
+    assert "rv_live (z)" not in terms(t4, "B_no_rv") and "spread_bps (z)" in terms(t4, "B_no_rv")   # đặc tả B cũ, làm độ nhạy
+    assert "spread_bps (z)" not in terms(t4, "B_no_spread") and "rv_live (z)" in terms(t4, "B_no_spread")
+    assert "B_vol" not in set(t4.model)                                    # không có nến -> không có B_vol
+    assert "B_rv" not in set(t4.model)
+    assert t4.loc[t4.model == "B", "notes"].str.contains("chưa có vol_share").all()
 
 
-def test_model_b_skipped_with_clear_message_when_no_live_is(tmp_path, capsys):
+def test_b_sample_drops_whole_sessions_with_reason(tmp_path, capsys):
     make_inputs(tmp_path)
-    make_live(tmp_path)
-    t4 = pd.read_csv(run_cli(tmp_path)[1])
-    assert not t4.model.str.startswith("B").any()
-    assert "Mô hình B: bỏ qua" in capsys.readouterr().out
-
-
-def test_model_b_with_live_is_drops_skew_session(tmp_path):
-    make_inputs(tmp_path)
-    make_live(tmp_path)
-    save(pd.read_csv(tmp_path / "live_is.csv") if EXT == "csv" else load(tmp_path, "live_is"), tmp_path, "live_is")
-    t4 = pd.read_csv(run_cli(tmp_path, "--live-is", str(tmp_path / f"live_is.{EXT}"))[1])
+    t4 = run_main(tmp_path)
+    log = capsys.readouterr().out
+    assert f"loại phiên {NO_DEPTH}" in log and f"loại phiên {SHORT_COVER}" in log
     b = t4[t4.model == "B"]
-    # Giữ tất cả 7 phiên × 4 venues
-    assert b["n_obs"].iloc[0] == 28
-    assert b["n_groups"].iloc[0] == 7
-    assert {"spread_bps (z)", "log_depth (z)", "is_perp"} <= set(b.term)
-    assert (t4[t4.model == "B_no_spread"].term != "spread_bps (z)").all()
-    t4k = pd.read_csv(run_cli(tmp_path, "--live-is", str(tmp_path / f"live_is.{EXT}"), "--keep-skew")[1])
-    assert t4k[t4k.model == "B"]["n_obs"].iloc[0] == 28
+    assert b["n_obs"].eq(36).all() and b["n_groups"].eq(6).all()        # 8 phiên - 2 phiên thiếu depth = 6 phiên x 6 venue
+    assert b["notes"].str.contains("6/8 phiên").all() and b["notes"].str.contains(NO_DEPTH).all()
 
 
-def test_unmatched_venue_names_fail_loudly(tmp_path):
+def test_rv_live_is_measured_from_live_mid_and_varies_by_venue(tmp_path):
     make_inputs(tmp_path)
-    f = load(tmp_path, "features")
-    f["venue"] = f["venue"].str.split("_").str[0]                 # 'binance' thay vì 'binance_spot'
-    save(f, tmp_path, "features")
-    with pytest.raises(SystemExit, match="không khớp"):
-        run_cli(tmp_path)
+    q = pd.read_parquet(tmp_path / "live_quotes_long.parquet")
+    lm = lr.live_minutes(q, 5, [])
+    rv = lr.session_rv(lm)
+    assert rv["rv_live"].notna().all() and rv["rv_live"].std() > 0
+    means = rv.groupby("venue").rv_live.mean().reindex(VENUES)           # dữ liệu giả: venue sau có biến động mid lớn hơn
+    assert np.corrcoef(np.arange(len(VENUES)), means.to_numpy())[0, 1] > 0.9
 
 
-def test_wide_features_are_accepted(tmp_path):
-    make_inputs(tmp_path)
-    f = load(tmp_path, "features")
-    wide = f.pivot(index="ts_utc", columns="venue", values="vol_share").add_prefix("vol_share__").reset_index()
-    wide["rv_60m"] = f.groupby("ts_utc")["rv_60m"].mean().to_numpy()
-    save(wide, tmp_path, "features")
-    code, out = run_cli(tmp_path)
-    assert code == 0 and "A" in set(pd.read_csv(out).model)
+# ------------------------------------------------------------------ B_vol
+def test_session_vol_share_is_minute_share_averaged_over_session():
+    t = pd.date_range("2026-10-17 13:00", periods=5, freq="min", tz="UTC")
+    candles = pd.concat([pd.DataFrame({"ts_open_utc": t, "venue": "a", "volume_base": 1.0}),
+                         pd.DataFrame({"ts_open_utc": t, "venue": "b", "volume_base": 3.0})])
+    lm = pd.DataFrame({"session_id": "s", "venue": "a", "t": t})
+    out = lr.session_vol_share(candles, lm).set_index("venue")["vol_share"]
+    assert out["a"] == pytest.approx(0.25) and out["b"] == pytest.approx(0.75) and out.sum() == pytest.approx(1.0)
 
 
-def test_crosscheck_runs_without_statsmodels_or_matches_it(tmp_path, capsys):
-    make_inputs(tmp_path)
-    run_cli(tmp_path, "--crosscheck")
-    out = capsys.readouterr().out
-    assert "crosscheck" in out
-    if "chưa cài statsmodels" not in out:
-        assert "SE HAC lệch tương đối tối đa" in out
+def test_session_vol_share_needs_enough_minutes_and_does_not_fill():
+    t = pd.date_range("2026-10-17 13:00", periods=10, freq="min", tz="UTC")
+    full = pd.DataFrame({"ts_open_utc": t, "venue": "a", "volume_base": 1.0})
+    gappy = pd.DataFrame({"ts_open_utc": t[:6], "venue": "b", "volume_base": 1.0})     # chỉ 6/10 phút < 80%
+    lm = pd.DataFrame({"session_id": "s", "venue": "a", "t": t})
+    out = lr.session_vol_share(pd.concat([full, gappy]), lm).set_index("venue")["vol_share"]
+    assert np.isnan(out["b"]) and out["a"] > 0
+
+
+def test_b_vol_added_with_candles_and_other_models_unchanged(tmp_path):
+    make_inputs(tmp_path, with_candles=True)
+    plain = run_main(tmp_path, out="plain.csv")
+    t4 = run_main(tmp_path, "--live-candles", str(tmp_path / "candles.parquet"), out="with_vol.csv")
+    assert terms(t4, "B_vol") == ["const", "vol_share (z)", "rv_live (z)", "spread_bps (z)", "log_depth (z)", "is_perp"]
+    assert t4.loc[t4.model == "B_vol", "n_obs"].eq(36).all()
+    keep = ["model", "term", "coef", "se_hac", "p_value"]
+    pd.testing.assert_frame_equal(plain[plain.model != "B_vol"][keep].reset_index(drop=True),
+                                  t4[t4.model != "B_vol"][keep].reset_index(drop=True))     # thêm nến không làm đổi A, B, độ nhạy
+
+
+# ------------------------------------------------------------------ kiểm nguồn nến, suy luận theo cụm
+def test_synthetic_candles_are_rejected_in_real_zone_and_old_file_kept(tmp_path):
+    make_inputs(tmp_path, with_candles=True)
+    c = pd.read_parquet(tmp_path / "candles.parquet").assign(data_kind="synthetic")
+    c.to_parquet(tmp_path / "candles.parquet", index=False)
+    out = tmp_path / "T4.csv"
+    out.write_text("old\n")
+    with pytest.raises(SystemExit, match="live_candles"):
+        lr.main(["--rolling-is", str(tmp_path / "rolling_is.parquet"), "--features", str(tmp_path / "features_1m.parquet"),
+                 "--live", str(tmp_path / "live_quotes_long.parquet"), "--live-is", str(tmp_path / "live_is.parquet"),
+                 "--live-candles", str(tmp_path / "candles.parquet"), "--out", str(out)])
+    assert out.read_text() == "old\n"
+
+
+def test_cluster_se_matches_statsmodels_and_group_mode_does_not():
+    sm = pytest.importorskip("statsmodels.api")
+    rng = np.random.default_rng(5)
+    g = np.repeat(np.arange(8), 6)
+    X = np.column_stack([np.ones(48), rng.normal(size=48), rng.normal(size=48)])
+    y = 0.2 + rng.normal(scale=0.2, size=48) + np.repeat(rng.normal(scale=0.15, size=8), 6)
+    ref = sm.OLS(y, X).fit(cov_type="cluster", cov_kwds={"groups": g})
+    np.testing.assert_allclose(lr.ols_hac(y, X, g.astype(str), 0, mode="cluster")["se"], ref.bse, rtol=1e-8)
+    assert not np.allclose(lr.ols_hac(y, X, g.astype(str), 0, mode="group")["se"], ref.bse, rtol=1e-3)   # HC1 theo dòng, khác theo cụm
+
+
+def test_sessions_too_short_for_rv_are_dropped_with_reason_and_nothing_written(tmp_path, capsys):
+    make_inputs(tmp_path, ticks=61)                                   # 6 phút mid -> 5 lợi suất < 6: không tính được rv_live
+    out = tmp_path / "T4.csv"
+    out.write_text("old\n")
+    with pytest.raises(SystemExit, match="mô hình B chính"):
+        lr.main(["--rolling-is", str(tmp_path / "rolling_is.parquet"), "--features", str(tmp_path / "features_1m.parquet"),
+                 "--live", str(tmp_path / "live_quotes_long.parquet"), "--live-is", str(tmp_path / "live_is.parquet"),
+                 "--out", str(out)])
+    assert "thiếu rv_live" in capsys.readouterr().out
+    assert out.read_text() == "old\n"                                   # không ghi T4 chỉ còn B_no_rv

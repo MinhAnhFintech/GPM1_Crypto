@@ -11,10 +11,21 @@ The regime for each rolling IS estimate is assigned from the latest regime row
 whose ts_available is <= the IS window_end (or available_at if window_end is
 not present). This is an explicit alignment convention; review it with TV4 if
 team conventions differ. Only successful/usable IS rows are included.
+
+Source checks run BEFORE anything is written (a failure exits with code 1 and the existing T6_stress.csv is left untouched):
+  * rolling_is (D6) and regime_flags (D5) must each carry a data_kind (column, DataFrame metadata, or for D5 the receipt
+    next to it, regime_flags_receipt.json) and the two must be the same kind; a synthetic D6 can never be combined with a
+    historical D5;
+  * the kind must fit the output location: real results (outputs/ without a directory named "synthetic") need historical
+    inputs, a path under a directory named "synthetic" needs synthetic inputs;
+  * an unlabeled D5 is refused unless --allow-unlabeled-flags is given (then only a warning is printed).
+The CSV is written through a temporary file and then moved into place.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 import sys
 
@@ -27,6 +38,55 @@ REGIME_COLUMNS = {
     "flag_high_vol": "high_vs_low_volatility",
     "regime_bull_bear": "bull_vs_bear",
 }
+
+
+def _kind_of(df: pd.DataFrame, label: str):
+    """data_kind from the column and from df.attrs; disagreement is an error; none -> None."""
+    kinds = set(df["data_kind"].dropna().astype(str).unique()) if "data_kind" in df.columns else set()
+    meta = df.attrs.get("data_kind")
+    if meta:
+        kinds.add(str(meta))
+    if len(kinds) > 1:
+        raise ValueError(f"{label}: inconsistent data_kind {sorted(kinds)}")
+    return next(iter(kinds)) if kinds else None
+
+
+def _receipt_kind(flags_path: Path):
+    receipt = flags_path.with_name(flags_path.stem + "_receipt.json")
+    if receipt.exists():
+        try:
+            return json.loads(receipt.read_text(encoding="utf-8")).get("data_kind")
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def _output_zone(path: Path) -> str:
+    return "synthetic" if any(p.lower() == "synthetic" for p in Path(path).resolve().parts) else "real"
+
+
+def check_sources(rolling_kind, flags_kind, output_path: Path, allow_unlabeled_flags: bool = False) -> None:
+    """Raise ValueError (before anything is written) when the sources do not fit each other or the output location."""
+    zone = _output_zone(output_path)
+    want = "historical" if zone == "real" else "synthetic"
+    if rolling_kind is None:
+        raise ValueError("rolling IS input has no data_kind (column or metadata); cannot verify its source")
+    if flags_kind is None:
+        if not allow_unlabeled_flags:
+            raise ValueError("regime flags input has no data_kind (column, metadata or receipt); cannot verify its source "
+                             "(--allow-unlabeled-flags only prints a warning instead)")
+        print("WARNING: regime flags have no data_kind; source not verified", file=sys.stderr)
+    elif flags_kind != rolling_kind:
+        raise ValueError(f"rolling IS is {rolling_kind!r} but regime flags are {flags_kind!r}: refusing to combine them")
+    if rolling_kind != want:
+        raise ValueError(f"inputs are {rolling_kind!r} but output location {output_path} ({zone}) needs {want!r}")
+
+
+def _write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(tmp, path)
 
 
 def _load_parquet(path: Path, label: str) -> pd.DataFrame:
@@ -195,13 +255,16 @@ def _make_regime_summary(merged: pd.DataFrame) -> pd.DataFrame:
     ])
 
 
-def run(project_root: Path) -> Path:
+def run(project_root: Path, allow_unlabeled_flags: bool = False) -> Path:
     rolling_path = project_root / "outputs" / "tables" / "rolling_is.parquet"
     flags_path = project_root / "data" / "processed" / "regime_flags.parquet"
     output_path = project_root / "outputs" / "tables" / "T6_stress.csv"
 
     rolling = _load_parquet(rolling_path, "rolling IS input")
     flags = _load_parquet(flags_path, "regime flags input")
+    rolling_kind = _kind_of(rolling, "rolling IS input")
+    flags_kind = _kind_of(flags, "regime flags input") or _receipt_kind(flags_path)
+    check_sources(rolling_kind, flags_kind, output_path, allow_unlabeled_flags)    # nothing is written before this passes
     rolling = _usable_rows(rolling)
 
     time_col = "window_end" if "window_end" in rolling.columns else "available_at" if "available_at" in rolling.columns else None
@@ -233,8 +296,7 @@ def run(project_root: Path) -> Path:
     result = _make_regime_summary(merged)
     if result.empty:
         raise ValueError("No regime comparisons produced. Check regime_flags columns/labels.")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(output_path, index=False, encoding="utf-8-sig")
+    _write_csv_atomic(result, output_path)
     print(f"C3.08 complete: {output_path}")
     print(f"Aligned rolling IS rows: {len(merged):,}")
     print(f"Output rows: {len(result):,}")
@@ -245,9 +307,11 @@ def run(project_root: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="C3.08: rolling IS by market regime")
     parser.add_argument("--project-root", type=Path, default=Path.cwd(), help="Project root (default: current directory)")
+    parser.add_argument("--allow-unlabeled-flags", action="store_true",
+                        help="do not refuse a regime_flags file without data_kind (prints a warning)")
     args = parser.parse_args()
     try:
-        run(args.project_root.resolve())
+        run(args.project_root.resolve(), args.allow_unlabeled_flags)
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1)

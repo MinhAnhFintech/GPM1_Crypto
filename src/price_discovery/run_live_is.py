@@ -12,12 +12,22 @@ Chạy (tại thư mục repo):
     python -m src.price_discovery.run_live_is
     python -m src.price_discovery.run_live_is --k-ar-diff 1        # nếu đặc tả khóa quá nhiều trễ cho 180 điểm/phiên
 Kết quả: data/processed/live_session_is.parquet (session_id, venue, is_lower, is_upper, is_mid, component_share, ils, status, reason).
+
+Kiểm tra TRƯỚC khi ghi (sai thì báo lỗi, thoát mã 1, KHÔNG ghi và file live_session_is.parquet cũ giữ nguyên):
+  * đặc tả T2_vecm_spec.json phải có data_kind = historical (không dùng đặc tả synthetic);
+  * live_quotes_long phải mang data_kind = live (cột hoặc metadata); dòng không phải live bị bỏ, nếu không còn dòng live thì lỗi;
+  * sau khi loại phiên (--exclude-sessions) vẫn phải còn dữ liệu;
+  * kết quả phải có ít nhất một dòng venue × phiên status = ok;
+  * đường dẫn đọc/ghi không nằm dưới thư mục tên "synthetic".
+File được ghi qua tệp tạm rồi thay, nên lỗi giữa chừng không để lại file hỏng.
 Đưa vào mô hình B:  python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import types
 from itertools import combinations
 from pathlib import Path
 
@@ -92,7 +102,81 @@ def build_live_is(quotes: pd.DataFrame, spec: dict, *, align_fn, logs_fn, shares
     return pd.DataFrame(rows, columns=OUT_COLS)
 
 
-def main(argv=None):
+def has_synthetic_path(*paths) -> bool:
+    return any(p.lower() == "synthetic" for path in paths for p in Path(path).resolve().parts)
+
+
+def live_kinds(quotes: pd.DataFrame) -> set:
+    kinds = set(quotes["data_kind"].dropna().astype(str).unique()) if "data_kind" in quotes.columns else set()
+    meta = quotes.attrs.get("data_kind")
+    return kinds | ({str(meta)} if meta else set())
+
+
+def check_sources(spec: dict, quotes: pd.DataFrame, spec_path, quotes_path, out_path, exclude) -> pd.DataFrame:
+    """Mọi kiểm tra nguồn; trả về quotes đã lọc (chỉ live, đã bỏ phiên loại). Lỗi -> SystemExit, chưa ghi gì."""
+    if has_synthetic_path(spec_path, quotes_path, out_path):
+        raise SystemExit(f"Đường dẫn nằm dưới thư mục 'synthetic' ({spec_path}, {quotes_path}, {out_path}): "
+                         "script này chỉ dùng dữ liệu live thật. Không ghi gì; file cũ giữ nguyên.")
+    if spec.get("data_kind") != "historical":
+        raise SystemExit(f"{spec_path}: data_kind={spec.get('data_kind')!r}, cần 'historical' (đặc tả synthetic không dùng cho "
+                         "dữ liệu live). Không ghi gì; file cũ giữ nguyên.")
+    kinds = live_kinds(quotes)
+    if "live" not in kinds:
+        raise SystemExit(f"{quotes_path}: data_kind={sorted(kinds) or 'không có'}, cần 'live'. Không ghi gì; file cũ giữ nguyên.")
+    if "data_kind" in quotes.columns:
+        live_rows = quotes["data_kind"].astype(str).eq("live")
+        if not live_rows.all():
+            print(f"CẢNH BÁO: bỏ {int((~live_rows).sum()):,} dòng không phải live ({sorted(kinds - {'live'})})")
+        quotes = quotes[live_rows]
+    if exclude:
+        quotes = quotes[~quotes["session_id"].isin(list(exclude))]
+    if quotes.empty:
+        raise SystemExit("Không còn dữ liệu live sau khi lọc nguồn/loại phiên. Không ghi gì; file cũ giữ nguyên.")
+    return quotes
+
+
+def write_atomic(df: pd.DataFrame, path: Path, write_frame) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    write_frame(df, tmp)
+    os.replace(tmp, path)
+
+
+def load_deps():
+    from src.price_discovery import analysis as A
+    from src.synchronization.live import align_live_quotes
+    from src.utils.io_utils import read_parquet
+    return types.SimpleNamespace(align=align_live_quotes, logs=A.log_prices, shares=A.static_shares, pairs=A.pairwise_ils,
+                                 read_parquet=read_parquet, write_frame=lambda df, p: df.to_parquet(p, index=False))
+
+
+def run(a, deps) -> pd.DataFrame:
+    spec = json.loads(a.spec.read_text(encoding="utf-8"))
+    quotes = deps.read_parquet(a.quotes, "D2")
+    exclude = tuple(x for x in a.exclude_sessions.split(",") if x)
+    quotes = check_sources(spec, quotes, a.spec, a.quotes, a.out, exclude)
+    venues = [v.strip() for v in a.venues.split(",")] if a.venues else None
+    print(f"đặc tả khóa: k_ar_diff={spec['k_ar_diff']}, venue={spec['venues']}; lưới {a.grid}, max_age {a.max_age}")
+    out = build_live_is(quotes, spec, align_fn=deps.align, logs_fn=deps.logs, shares_fn=deps.shares,
+                        pairs_fn=None if a.no_ils else deps.pairs, grid=a.grid, max_age=a.max_age, exclude=(),
+                        k_ar_diff=a.k_ar_diff, venues=venues)
+    ok = out[out.status.eq("ok")]
+    if ok.empty:
+        reasons = out.drop_duplicates("session_id")[["session_id", "reason"]].to_string(index=False) if len(out) else "(không có phiên)"
+        raise SystemExit("Không phiên nào ước lượng được (status=ok). Không ghi gì; file cũ giữ nguyên.\n" + reasons)
+    write_atomic(out, a.out, deps.write_frame)
+    print(f"\n{out.session_id.nunique()} phiên, {len(ok)}/{len(out)} dòng venue × phiên ok -> {a.out}")
+    if len(out) - len(ok):
+        print(out[out.status.ne("ok")].drop_duplicates("session_id")[["session_id", "reason"]].to_string(index=False))
+    k, n = int(ok.k_ar_diff.iloc[0]), ok.groupby("session_id").venue.nunique().max()
+    if ok.n_obs.min() < 10 * n * (k + 1):
+        print(f"CẢNH BÁO: {int(ok.n_obs.min())} điểm/phiên cho {n} venue với k_ar_diff={k} là rất ít tham số/điểm; "
+              "đọc IS live cẩn thận hoặc thử --k-ar-diff nhỏ hơn và hỏi TV5.")
+    return out
+
+
+def main(argv=None, deps=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--quotes", type=Path, default=ROOT / "data/processed/live_quotes_long.parquet")
     ap.add_argument("--spec", type=Path, default=ROOT / "outputs/tables/T2_vecm_spec.json")
@@ -101,35 +185,10 @@ def main(argv=None):
     ap.add_argument("--max-age", default="60s", help="quote cũ hơn mức này (tính đến mốc lưới) bị coi là thiếu")
     ap.add_argument("--k-ar-diff", type=int, help="ghi đè số trễ của đặc tả khóa (ghi lại vào cột k_ar_diff)")
     ap.add_argument("--venues", help="danh sách venue, cách nhau dấu phẩy (mặc định: venue của đặc tả)")
-    ap.add_argument("--exclude-sessions", default=",".join(SKEW_SESSIONS), help="session_id loại ra (mặc định phiên lệch đồng hồ)")
+    ap.add_argument("--exclude-sessions", default=",".join(SKEW_SESSIONS), help="session_id loại ra, cách nhau dấu phẩy (mặc định: không loại)")
     ap.add_argument("--no-ils", action="store_true", help="bỏ ILS (chạy nhanh hơn)")
     a = ap.parse_args(argv)
-
-    from src.price_discovery import analysis as A
-    from src.synchronization.live import align_live_quotes
-    from src.utils.io_utils import read_parquet
-
-    spec = json.loads(a.spec.read_text(encoding="utf-8"))
-    quotes = read_parquet(a.quotes, "D2")
-    quotes = quotes[quotes["data_kind"].astype(str).eq("live")] if "data_kind" in quotes.columns else quotes
-    exclude = tuple(s for s in a.exclude_sessions.split(",") if s)
-    venues = [v.strip() for v in a.venues.split(",")] if a.venues else None
-    print(f"đặc tả khóa: k_ar_diff={spec['k_ar_diff']}, venue={spec['venues']}; lưới {a.grid}, max_age {a.max_age}")
-    out = build_live_is(quotes, spec, align_fn=align_live_quotes, logs_fn=A.log_prices, shares_fn=A.static_shares,
-                        pairs_fn=None if a.no_ils else A.pairwise_ils, grid=a.grid, max_age=a.max_age, exclude=exclude,
-                        k_ar_diff=a.k_ar_diff, venues=venues)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(a.out, index=False)
-    ok = out[out.status.eq("ok")]
-    print(f"\n{out.session_id.nunique()} phiên, {len(ok)}/{len(out)} dòng venue × phiên ok -> {a.out}")
-    if len(out) - len(ok):
-        print(out[out.status.ne("ok")].drop_duplicates("session_id")[["session_id", "reason"]].to_string(index=False))
-    if len(ok):
-        k, n = int(ok.k_ar_diff.iloc[0]), ok.groupby("session_id").venue.nunique().max()
-        if ok.n_obs.min() < 10 * n * (k + 1):
-            print(f"CẢNH BÁO: {int(ok.n_obs.min())} điểm/phiên cho {n} venue với k_ar_diff={k} là rất ít tham số/điểm; "
-                  "đọc IS live cẩn thận hoặc thử --k-ar-diff nhỏ hơn và hỏi TV5.")
-    return out
+    return run(a, deps or load_deps())
 
 
 if __name__ == "__main__":
