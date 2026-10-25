@@ -4,9 +4,9 @@ Chạy từ gốc repo:
     python -m streamlit run dashboard/app.py
 
 Đầu vào (đường dẫn sửa được ở thanh bên):
-    D3  data/fixtures/multi/panel_1m_wide.parquet   bảng rộng 1 phút (index ts_available, UTC)
+    D3  data/processed/panel_1m_wide.parquet        bảng rộng 1 phút (index ts_available, UTC)
     D6  outputs/tables/rolling_is.parquet           rolling IS/CS/ILS (tùy chọn, TV5)
-    D7  outputs/tables/gap_events.parquet           sự kiện gap (tùy chọn, TV6)
+    D7  outputs/tables/gap_events_historical.parquet sự kiện gap (tùy chọn, TV6)
 Chọn rõ file fixtures/synthetic hoặc historical/live; không tự chuyển nguồn khi thiếu file.
 
 Quy ước: giá USDT; gap theo bps; thời gian UTC; mỗi venue = {exchange}_{market_type}.
@@ -34,9 +34,9 @@ import streamlit.components.v1 as components
 from src.utils.io_utils import read_parquet
 from src.utils.schema import data_kind, venues_from_panel, validate_frame, VENUE_PATTERN
 
-PANEL_DEFAULT = ROOT / "data/fixtures/multi/panel_1m_wide.parquet"
+PANEL_DEFAULT = ROOT / "data/processed/panel_1m_wide.parquet"
 D6_DEFAULT = ROOT / "outputs/tables/rolling_is.parquet"
-D7_DEFAULT = ROOT / "outputs/tables/gap_events.parquet"
+D7_DEFAULT = ROOT / "outputs/tables/gap_events_historical.parquet"
 
 D6_COLS = ["window_start", "window_end", "available_at", "venue", "is_lower", "is_upper", "is_mid",
            "component_share", "ils", "leader", "status", "reason"]
@@ -315,39 +315,56 @@ p.classList.remove('tr-run');void p.offsetWidth;p.classList.add('tr-run')},30)},
 
 CHART_HTML = """<!doctype html><html><body style="margin:0;background:transparent;font-family:system-ui,Segoe UI,sans-serif;color:__TEXT__">
 <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px"><div id="lg" style="font-size:13px"></div>
-<button id="rp" style="background:__ACCENT__;color:#fff;border:0;border-radius:999px;padding:5px 14px;cursor:pointer;font-size:13px">Chạy lại</button></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:__MUTED__">Cuộn chuột: thu phóng · Kéo: lướt · Bấm đúp: đặt lại</span>
+<button id="rs" style="background:__SURFACE__;color:__TEXT__;border:1px solid __BORDER__;border-radius:999px;padding:5px 14px;cursor:pointer;font-size:13px">Đặt lại</button>
+<button id="rp" style="background:__ACCENT__;color:#fff;border:0;border-radius:999px;padding:5px 14px;cursor:pointer;font-size:13px">Chạy lại</button></div></div>
 <div id="b" style="position:relative;height:360px"></div>
 <div id="tp" style="position:fixed;display:none;pointer-events:none;background:__SURFACE__;border:1px solid __BORDER__;border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 6px 16px rgba(0,0,0,.2)"></div>
 <script>
-const D=__DATA__,C=__COLS__,ANIM=__ANIM__,H=360,P={l:50,r:16,t:14,b:30};
+const D=__DATA__,C=__COLS__,ANIM=__ANIM__,H=360,P={l:50,r:44,t:14,b:30},MINSPAN=5*60000;
 const N=Object.keys(D),box=document.getElementById('b'),tp=document.getElementById('tp');
 document.getElementById('lg').innerHTML=N.map((n,k)=>'<span style="margin-right:14px"><i style="display:inline-block;width:18px;height:3px;background:'+C[k]+';vertical-align:middle;margin-right:6px"></i>'+n+'</span>').join('');
 const A=[].concat(...N.map(n=>D[n])).filter(p=>p[1]!==null),x0=Math.min(...A.map(p=>p[0])),x1=Math.max(...A.map(p=>p[0]));
-let y1=Math.max(...A.map(p=>p[1]));const y0=0;if(!(y1>y0))y1=1;
-let lastW=0;
+let v0=x0,v1=x1,lastW=0,drag=null;
+const lb=(a,t)=>{let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;a[m][0]<t?lo=m+1:hi=m}return lo};
+const vis=a=>a.slice(Math.max(0,lb(a,v0)-1),Math.min(a.length,lb(a,v1+1)+1));
 const near=(a,t)=>{let lo=0,hi=a.length-1;while(hi-lo>1){const m=(lo+hi)>>1;a[m][0]<=t?lo=m:hi=m}return a[hi][0]<=t?a[hi]:a[lo][0]<=t?a[lo]:null};
 const fmt=t=>new Date(t).toISOString().slice(5,16).replace('T',' ');
+function clampView(){const span=Math.max(MINSPAN,Math.min(v1-v0,x1-x0));
+ if(v0<x0){v0=x0;v1=x0+span}if(v1>x1){v1=x1;v0=x1-span}v0=Math.max(x0,v0);v1=Math.min(x1,v1)}
 function draw(play){
  const W=box.clientWidth;if(!W){lastW=0;return}
- const sx=t=>P.l+(t-x0)/((x1-x0)||1)*(W-P.l-P.r),sy=v=>H-P.b-(v-y0)/(y1-y0)*(H-P.t-P.b);
- let s='<svg width="'+W+'" height="'+H+'">';
+ const shown=N.map(n=>vis(D[n])),vals=[].concat(...shown).filter(p=>p[1]!==null&&p[0]>=v0&&p[0]<=v1).map(p=>p[1]);
+ let y1=vals.length?Math.max(...vals)*1.05:1;const y0=0;if(!(y1>y0))y1=1;
+ const sx=t=>P.l+(t-v0)/((v1-v0)||1)*(W-P.l-P.r),sy=v=>H-P.b-(v-y0)/(y1-y0)*(H-P.t-P.b);
+ let s='<svg width="'+W+'" height="'+H+'"><defs><clipPath id="cp"><rect x="'+P.l+'" y="0" width="'+(W-P.l-P.r)+'" height="'+H+'"/></clipPath></defs>';
  for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4,y=sy(v);s+='<line x1="'+P.l+'" x2="'+(W-P.r)+'" y1="'+y+'" y2="'+y+'" stroke="__BORDER__"/><text x="'+(P.l-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="__MUTED__">'+v.toFixed(1)+'</text>'}
- for(let i=0;i<=5;i++){const t=x0+(x1-x0)*i/5;s+='<text x="'+sx(t)+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="__MUTED__">'+fmt(t)+'</text>'}
- N.forEach((n,k)=>{let pen=false;const d=D[n].map(p=>{if(p[1]===null){pen=false;return ''}const cmd=pen?'L':'M';pen=true;return cmd+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)}).join('');
+ for(let i=0;i<=5;i++){const t=v0+(v1-v0)*i/5;s+='<text x="'+sx(t)+'" y="'+(H-8)+'" text-anchor="'+(i==5?'end':'middle')+'" font-size="11" fill="__MUTED__">'+fmt(t)+'</text>'}
+ s+='<g clip-path="url(#cp)">';
+ N.forEach((n,k)=>{let pen=false;const d=shown[k].map(p=>{if(p[1]===null){pen=false;return ''}const cmd=pen?'L':'M';pen=true;return cmd+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)}).join('');
   s+='<path class="ln" d="'+d+'" fill="none" stroke="'+C[k]+'" stroke-width="1.8" stroke-linejoin="round"/>'});
- s+='<line id="cx" y1="'+P.t+'" y2="'+(H-P.b)+'" stroke="__MUTED__" stroke-dasharray="3 3" style="display:none"/><rect id="ov" x="'+P.l+'" y="'+P.t+'" width="'+(W-P.l-P.r)+'" height="'+(H-P.t-P.b)+'" fill="transparent"/></svg>';
+ s+='</g><line id="cx" y1="'+P.t+'" y2="'+(H-P.b)+'" stroke="__MUTED__" stroke-dasharray="3 3" style="display:none"/><rect id="ov" x="'+P.l+'" y="'+P.t+'" width="'+(W-P.l-P.r)+'" height="'+(H-P.t-P.b)+'" fill="transparent" style="cursor:grab"/></svg>';
  box.innerHTML=s;
  const run=ANIM&&(play||lastW===0);lastW=W;
  if(run)box.querySelectorAll('.ln').forEach((p,i)=>{const L=p.getTotalLength();p.style.strokeDasharray=L;p.style.strokeDashoffset=L;p.getBoundingClientRect();
   p.style.transition='stroke-dashoffset 1.8s cubic-bezier(.4,0,.2,1) '+(i*.3)+'s';p.style.strokeDashoffset=0});
  const ov=box.querySelector('#ov'),cx=box.querySelector('#cx');
- ov.onmousemove=e=>{const x=e.clientX-box.getBoundingClientRect().left,t=x0+(x-P.l)/(W-P.l-P.r)*(x1-x0);
+ ov.onmousemove=e=>{if(drag)return;const x=e.clientX-box.getBoundingClientRect().left,t=v0+(x-P.l)/(W-P.l-P.r)*(v1-v0);
   cx.setAttribute('x1',x);cx.setAttribute('x2',x);cx.style.display='';
   tp.innerHTML='<b>'+fmt(t)+' UTC</b>'+N.map((n,k)=>{const q=near(D[n],t);return '<br><span style="color:'+C[k]+'">&#9632;</span> '+n+': '+(q&&q[1]!==null?q[1].toFixed(2)+' bps ('+fmt(q[0])+' UTC)':'thiếu dữ liệu')}).join('');
   tp.style.display='block';tp.style.left=Math.min(e.clientX+14,innerWidth-170)+'px';tp.style.top=(e.clientY+10)+'px'};
  ov.onmouseleave=()=>{tp.style.display='none';cx.style.display='none'};
+ ov.addEventListener('wheel',e=>{e.preventDefault();const W2=box.clientWidth,x=e.clientX-box.getBoundingClientRect().left,
+  t=v0+(x-P.l)/(W2-P.l-P.r)*(v1-v0),f=e.deltaY<0?0.8:1.25;
+  v0=t-(t-v0)*f;v1=t+(v1-t)*f;clampView();draw(false)},{passive:false});
+ ov.addEventListener('mousedown',e=>{drag={x:e.clientX,a:v0,b:v1};tp.style.display='none'});
 }
-document.getElementById('rp').onclick=()=>draw(true);
+window.addEventListener('mousemove',e=>{if(!drag)return;const W=box.clientWidth,dt=(e.clientX-drag.x)/(W-P.l-P.r)*(drag.b-drag.a);
+ v0=drag.a-dt;v1=drag.b-dt;clampView();draw(false)});
+window.addEventListener('mouseup',()=>{drag=null});
+box.addEventListener('dblclick',()=>{v0=x0;v1=x1;draw(false)});
+document.getElementById('rs').onclick=()=>{v0=x0;v1=x1;draw(false)};
+document.getElementById('rp').onclick=()=>{v0=x0;v1=x1;draw(true)};
 new ResizeObserver(()=>{if(box.clientWidth!==lastW)draw(false)}).observe(box);
 </script></body></html>"""
 
@@ -453,6 +470,99 @@ def _load_table(source: str, mtime: float, required: tuple, time_cols: tuple,
     return df, None
 
 
+LIVE_DEFAULT = ROOT / "data/processed/live_quotes_long.parquet"
+LIVE_COLS = ["ts_grid_utc", "venue", "market_type", "bid", "ask", "mid", "spread_abs", "spread_bps",
+             "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "data_kind"]
+
+
+def live_latest(live: pd.DataFrame) -> pd.DataFrame:
+    """Báo giá live mới nhất của từng venue (ts_grid_utc lớn nhất) kèm spread trung vị và số quote của cả mẫu.
+    Không lấp, không nội suy: ô thiếu (ví dụ depth) để trống. Đơn vị: giá USDT, spread bps, depth USDT."""
+    ordered = live.sort_values(["venue", "ts_grid_utc"])
+    last = ordered.groupby("venue", sort=True).tail(1).set_index("venue")
+    stats = ordered.groupby("venue")["spread_bps"].agg(spread_bps_median="median", n_quotes="size")
+    cols = ["market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
+            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
+    return last[cols].join(stats).reset_index()
+
+
+@st.cache_data(show_spinner=False)
+def _load_live(source: str, mtime: float, venues: tuple = ()):
+    """Đọc live_quotes_long (D2). Trả về (DataFrame hoặc None, thông báo). Sai nguồn hoặc sai cột thì báo, không đoán."""
+    path = Path(source)
+    if not path.exists():
+        return None, f"Chờ file: {path.name}"
+    try:
+        df = pd.read_parquet(path)
+        missing = [c for c in LIVE_COLS if c not in df.columns]
+        if missing:
+            raise ValueError(f"thiếu cột {missing}")
+        if df.empty:
+            raise ValueError("file rỗng")
+        if df["data_kind"].isna().any() or set(df["data_kind"].unique()) != {"live"}:
+            raise ValueError("data_kind phải là 'live'")
+        df["ts_grid_utc"] = pd.to_datetime(df["ts_grid_utc"], utc=True)
+        if df["ts_grid_utc"].isna().any():
+            raise ValueError("ts_grid_utc có giá trị thiếu")
+        if venues and not df["venue"].isin(venues).all():
+            raise ValueError("venue không có trong panel")
+        if not df["venue"].str.rsplit("_", n=1).str[1].eq(df["market_type"]).all():
+            raise ValueError("venue không khớp market_type")
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        return None, f"Không dùng được {path.name}: {exc}"
+    return df[LIVE_COLS], None
+
+
+GLOSSARY = {
+    "venue": "Nơi giao dịch, ghi theo dạng sàn_loại hợp đồng. Ví dụ binance_spot là Binance giao ngay, binance_perp là Binance hợp đồng vĩnh viễn.",
+    "market_type": "Loại thị trường: spot (giao ngay) hoặc perp (hợp đồng vĩnh viễn). Chỉ so sánh các venue cùng loại.",
+    "close_usdt": "Giá đóng cửa của nến 1 phút ở phút cuối của panel, tính bằng USDT.",
+    "missing": "Có giá hay không ở phút cuối, False là có giá bình thường. True là sàn không có giá ở phút này (ô close_usdt để trống).",
+    "ts_grid_utc": "Mốc thời gian (UTC) trên lưới 5 giây mà quote này được gán vào.",
+    "bid": "Giá mua cao nhất đang chờ trong sổ lệnh, tính bằng USDT.",
+    "ask": "Giá bán thấp nhất đang chờ trong sổ lệnh, tính bằng USDT.",
+    "spread_bps": "Chênh lệch giữa giá bán và giá mua so với giá giữa, tính bằng bps. 1 bps = 0,01%. Càng nhỏ thì chi phí vào lệnh càng thấp.",
+    "spread_bps_median": "Trung vị của spread_bps trên toàn bộ mẫu live (một giá trị đại diện cho cả mẫu, không phải quote cuối).",
+    "n_quotes": "Số quote live của venue này trong mẫu.",
+    "depth_bid_10bps_usdt": "Tổng khối lượng mua đang chờ trong khoảng 10 bps dưới giá giữa, tính bằng USDT. Càng lớn thì lệnh lớn càng ít làm trượt giá.",
+    "depth_ask_10bps_usdt": "Tổng khối lượng bán đang chờ trong khoảng 10 bps trên giá giữa, tính bằng USDT.",
+    "is_lower": "Cận dưới của Information Share (phần venue này đóng góp vào việc hình thành giá chung), từ 0 đến 1. Cận được tính qua mọi thứ tự xếp các venue.",
+    "is_upper": "Cận trên của Information Share, từ 0 đến 1. Khoảng từ is_lower đến is_upper càng rộng thì càng khó nói venue này đóng góp bao nhiêu.",
+    "is_mid": "Trung điểm của hai cận (is_lower và is_upper). Chỉ dùng để xếp thứ tự tham khảo, không phải kết luận.",
+    "component_share": "Component Share: phần đóng góp của venue vào thành phần giá chung, tính theo tốc độ venue điều chỉnh về cân bằng dài hạn. Không bị ép vào khoảng 0 đến 1 nên có thể âm hoặc lớn hơn 1; tổng các venue trong một cửa sổ bằng 1.",
+    "ils": "Information Leadership Share: kết hợp Information Share và Component Share để tách venue phản ứng nhanh khỏi venue ít nhiễu. Ở đây là trung bình theo từng cặp venue nên cộng các dòng lại không bằng 1.",
+    "status": "ok nghĩa là mô hình ước lượng được cho cửa sổ này. Giá trị khác ok là cửa sổ lỗi; xem cột reason.",
+    "reason": "Lý do của kết luận hoặc của lỗi. overlapping_bounds nghĩa là các khoảng Information Share của các venue chồng lên nhau nên chưa phân biệt được venue nào dẫn giá.",
+    "su_kien": "Số sự kiện gap trong nhóm này. Một sự kiện gom các phút liên tiếp mà chênh lệch giá vượt ngưỡng.",
+    "trung_vi_bps": "Trung vị của gap trong nhóm, tính bằng bps (một nửa số sự kiện có gap lớn hơn số này).",
+    "thieu": "Số sự kiện chưa có giá trị gap (không được tính vào trung vị).",
+    "ts_start": "Thời điểm (UTC) sự kiện gap bắt đầu.",
+    "ts_end": "Thời điểm (UTC) sự kiện gap kết thúc.",
+    "duration_s": "Thời gian sự kiện tồn tại, tính bằng giây.",
+    "buy_exchange": "Sàn mua trong cặp (chân rẻ hơn).",
+    "sell_exchange": "Sàn bán trong cặp (chân đắt hơn).",
+    "gross_bps": "Chênh lệch giá giữa chân bán và chân mua, trước mọi chi phí, tính bằng bps.",
+    "net_bps": "Gap sau khi trừ phí taker hai chân, spread, slippage và chi phí khác (ước tính theo cấu hình của TV6), tính bằng bps. Dương nghĩa là còn lãi trong mô phỏng.",
+}
+QUOTE_COLS = ["venue", "market_type", "close_usdt", "missing"]
+LIVE_SHOWN_COLS = ["venue", "market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
+                   "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "spread_bps_median", "n_quotes"]
+RANK_COLS = ["venue", "is_lower", "is_upper", "is_mid", "component_share", "ils", "status", "reason"]
+GAP_SUMMARY_COLS = ["market_type", "su_kien", "trung_vi_bps", "thieu"]
+GAP_EVENT_COLS = ["ts_start", "ts_end", "duration_s", "market_type", "buy_exchange", "sell_exchange", "gross_bps"]
+
+
+def col_config(cols):
+    """Tooltip cho tên cột (rê chuột lên tiêu đề cột). Chỉ thêm chữ giải thích, tên cột và số liệu giữ nguyên."""
+    return {c: st.column_config.Column(help=GLOSSARY[c]) for c in cols if c in GLOSSARY}
+
+
+def explain(cols, title="Giải thích các cột"):
+    """Khung mở ra liệt kê ý nghĩa từng cột của bảng ngay phía trên."""
+    with st.expander(title):
+        st.markdown("\n".join(f"- **{c}**: {GLOSSARY[c]}" for c in cols if c in GLOSSARY))
+
+
 def _default_path(contract: Path) -> str:
     """Không tự chuyển provenance khi thiếu file; người dùng chọn nguồn rõ ràng."""
     return str(contract)
@@ -466,6 +576,7 @@ def main():
     source = st.sidebar.text_input("Panel Parquet (D3)", str(PANEL_DEFAULT))
     d6_path = st.sidebar.text_input("rolling_is (D6, tùy chọn)", _default_path(D6_DEFAULT))
     d7_path = st.sidebar.text_input("gap_events (D7, tùy chọn)", _default_path(D7_DEFAULT))
+    live_path = st.sidebar.text_input("live_quotes_long (tùy chọn)", str(LIVE_DEFAULT))
 
     st.sidebar.markdown("**Giao diện**")
     mode = st.sidebar.radio("Chế độ", list(MODES), horizontal=True, key="mode")
@@ -498,6 +609,7 @@ def main():
 
     d6, d6_msg = _load_table(d6_path, _mtime(d6_path), tuple(D6_COLS), tuple(D6_TIME), kind, tuple(venues))
     d7, d7_msg = _load_table(d7_path, _mtime(d7_path), tuple(D7_COLS), tuple(D7_TIME), kind, tuple(venues))
+    live, live_msg = _load_live(live_path, _mtime(live_path), tuple(venues))
     if d6 is not None:
         d6 = d6[(d6.window_start >= panel.index[0]) & (d6.available_at <= asof)].copy()
     if d7 is not None:
@@ -524,7 +636,19 @@ def main():
         c1.metric("Số venue", len(venues))
         c2.metric("Số phút trong panel", f"{len(panel):,}")
         c3.metric("Quan sát cuối (UTC)", f"{asof:%d/%m %H:%M}")
-        st.dataframe(quotes, hide_index=True)
+        st.dataframe(quotes, hide_index=True, column_config=col_config(QUOTE_COLS))
+        explain(QUOTE_COLS)
+        st.caption(f"close_usdt = giá đóng cửa nến 1 phút (USDT) của phút cuối panel; data_kind = {kind}; market_type tách spot và perp.")
+        st.markdown("**Báo giá live gần nhất (mẫu ngắn)**")
+        if live is None:
+            st.write(live_msg)
+        else:
+            st.dataframe(live_latest(live), hide_index=True, column_config=col_config(LIVE_SHOWN_COLS))
+            explain(LIVE_SHOWN_COLS)
+            st.caption(f"data_kind = live | mẫu {live['ts_grid_utc'].min():%Y-%m-%d %H:%M} → "
+                       f"{live['ts_grid_utc'].max():%Y-%m-%d %H:%M} UTC, {len(live):,} quote | bid, ask: USDT; "
+                       "spread_bps: bps; depth: USDT trong 10 bps quanh giá giữa. Mẫu live là một giai đoạn ngắn và KHÁC "
+                       "giai đoạn của panel, không so trực tiếp với giá đóng cửa ở trên.")
 
     # 2. Độ phân tán giá
     dispersions = {m: dispersion_bps(panel, venues, m) for m in ("spot", "perp")}
@@ -550,6 +674,10 @@ def main():
             components.html(anim_chart_html({m: thin(r) for m, r in raw.items()}, [accent, pal["text"]], effects, pal),
                             height=430)
             st.caption("Giữ đỉnh tại thời gian gốc; khoảng thiếu để ngắt đường. Hover ghi thời gian của điểm được giữ, không phải giá nội suy.")
+            with st.expander("Độ phân tán là gì?"):
+                st.markdown("Tại mỗi phút, lấy giá cao nhất trừ giá thấp nhất giữa các venue **cùng loại** (spot với spot, perp với perp), "
+                            "chia cho giá trung bình rồi nhân 10.000 để ra bps (1 bps = 0,01%). Số càng lớn nghĩa là các sàn càng lệch giá nhau "
+                            "ở phút đó. Phút nào thiếu giá của một venue trong nhóm thì để trống, không điền thay.")
 
     # 3 và 4. Venue dẫn, xếp hạng IS
     window = None
@@ -560,7 +688,7 @@ def main():
         window_msg = None if window is not None else "Chưa có cửa sổ rolling nào sẵn sàng tại thời điểm này."
     with tab_lead:
         st.markdown(wm_html("lead"), unsafe_allow_html=True)
-        st.caption(f"D6: {d6_path} | data_kind={kind} | chỉ kết quả đã sẵn sàng đến {asof:%Y-%m-%d %H:%M} UTC")
+        st.caption(f"D6: {Path(d6_path).name} | data_kind={kind} | chỉ kết quả đã sẵn sàng đến {asof:%Y-%m-%d %H:%M} UTC")
         st.subheader("3. Venue dẫn hiện tại")
         if window is None:
             st.write(window_msg)
@@ -573,18 +701,24 @@ def main():
             st.caption(f"Cửa sổ {window['window_start'].iloc[0]:%Y-%m-%d %H:%M} → "
                        f"{window['window_end'].iloc[0]:%Y-%m-%d %H:%M} UTC; sẵn sàng lúc "
                        f"{window['available_at'].iloc[0]:%Y-%m-%d %H:%M} UTC. Chỉ công nhận leader khi bounds không chồng nhau.")
+            stale = asof - window["window_end"].iloc[0]
+            if stale > pd.Timedelta(days=1):
+                st.warning(f"Đây là cửa sổ rolling mới nhất có trong D6, kết thúc {stale.days} ngày trước quan sát cuối của panel. "
+                           "D6 chỉ phủ mẫu phát triển và xác thực; chưa có kết quả cho mẫu kiểm tra cuối nên không có cửa sổ mới hơn.")
         st.subheader("4. Xếp hạng rolling IS")
         if window is None:
             st.write(window_msg)
         else:
-            st.dataframe(window.sort_values("is_mid", ascending=False)[
-                ["venue", "is_lower", "is_upper", "is_mid", "component_share", "ils", "status", "reason"]],
-                hide_index=True)
+            st.caption("Mỗi dòng là một venue trong cửa sổ rolling mới nhất. Information Share cho biết venue đóng góp bao nhiêu "
+                       "vào việc hình thành giá chung; khoảng [is_lower, is_upper] rộng và chồng lên nhau nghĩa là chưa phân biệt được venue dẫn.")
+            st.dataframe(window.sort_values("is_mid", ascending=False)[RANK_COLS], hide_index=True,
+                         column_config=col_config(RANK_COLS))
+            explain(RANK_COLS)
 
     # 5, 6, 7. Gap
     with tab_gap:
         st.markdown(wm_html("gap"), unsafe_allow_html=True)
-        st.caption(f"D7: {d7_path} | data_kind={kind} | sự kiện trong mẫu và ts_end ≤ {asof:%Y-%m-%d %H:%M} UTC")
+        st.caption(f"D7: {Path(d7_path).name} | data_kind={kind} | sự kiện trong mẫu và ts_end ≤ {asof:%Y-%m-%d %H:%M} UTC")
         for title in ("5. Gap gross (bps)", "6. Gap net ước tính (bps)", "7. Cờ arbitrage"):
             st.subheader(title)
             if d7 is None:
@@ -592,13 +726,14 @@ def main():
             elif d7.empty:
                 st.write("Không có sự kiện gap nào trong dữ liệu này.")
             elif title.startswith("5."):
-                st.dataframe(gap_summary(d7, "gross_bps"), hide_index=True)
+                st.dataframe(gap_summary(d7, "gross_bps"), hide_index=True, column_config=col_config(GAP_SUMMARY_COLS))
                 st.caption(f"{RECENT_EVENTS} sự kiện gần nhất; chỉ ghép cùng market_type.")
-                st.dataframe(d7.sort_values("ts_end", ascending=False).head(RECENT_EVENTS)[
-                    ["ts_start", "ts_end", "duration_s", "market_type", "buy_exchange", "sell_exchange", "gross_bps"]],
-                    hide_index=True)
+                st.dataframe(d7.sort_values("ts_end", ascending=False).head(RECENT_EVENTS)[GAP_EVENT_COLS],
+                             hide_index=True, column_config=col_config(GAP_EVENT_COLS))
+                explain(GAP_SUMMARY_COLS + GAP_EVENT_COLS)
             elif title.startswith("6."):
-                st.dataframe(gap_summary(d7, "net_bps"), hide_index=True)
+                st.dataframe(gap_summary(d7, "net_bps"), hide_index=True, column_config=col_config(GAP_SUMMARY_COLS))
+                explain(["net_bps", "trung_vi_bps"])
                 st.caption("Net = gross − phí − slippage − chi phí khác (ước tính theo cấu hình của TV6). "
                            "Funding rate không nằm trong net.")
             else:
