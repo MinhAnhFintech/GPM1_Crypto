@@ -178,10 +178,12 @@ def tidy_is(df: pd.DataFrame, a) -> tuple[pd.DataFrame, float | None, float | No
         out["is_width"] = (df["is_upper"].astype(float) - df["is_lower"].astype(float)).to_numpy()
     out = out.dropna(subset=["is_val"]).sort_values(["venue", "t"]).reset_index(drop=True)
 
+    # win = số quan sát 1 phút của cửa sổ (gồm CẢ phút đầu lẫn phút cuối): window_end - window_start = 1439 phút <=> 1440 quan sát.
+    # (--window-min cũng hiểu là số quan sát 1 phút.)
     win = a.window_min
     ws, we = pick(cols, ["window_start", "window_start_utc"]), pick(cols, ["window_end", "window_end_utc"])
     if win is None and ws and we:
-        win = float(((utc(df[we]) - utc(df[ws])).dt.total_seconds() / 60).median())
+        win = float(round(((utc(df[we]) - utc(df[ws])).dt.total_seconds() / 60).median())) + 1.0
     step = a.step_min
     if step is None:
         d = out.groupby("venue")["t"].diff().dt.total_seconds().div(60).dropna()
@@ -234,7 +236,8 @@ def tidy_features(df: pd.DataFrame, a) -> pd.DataFrame:
 
 
 def feature_windows(feat: pd.DataFrame, win: float) -> pd.DataFrame:
-    """vol_share trung bình trượt `win` phút kết thúc tại t (chỉ quá khứ); rv_60m lấy tại t (đã là độ lệch chuẩn 60 phút quá khứ)."""
+    """vol_share trung bình trượt `win` quan sát 1 phút kết thúc tại t, GỒM phút t và phút đầu cửa sổ (đúng `win` phút: cửa sổ
+    D6 có 1.440 quan sát thì lấy 1.440 phút, không phải 1.439); chỉ quá khứ. rv_60m lấy tại t (đã là độ lệch chuẩn 60 phút quá khứ)."""
     mp = max(1, int(math.ceil(MIN_COVER * win)))
     parts = []
     for v, g in feat.groupby("venue"):
@@ -252,8 +255,13 @@ def live_minutes(q: pd.DataFrame, band: int, exclude: list[str]) -> pd.DataFrame
         q = q[q["data_kind"].astype(str).eq("live")]
     if exclude:
         q = q[~q["session_id"].isin(exclude)]
-    tcol = "ts_grid_utc" if "ts_grid_utc" in q.columns else "ts_recv_utc"
-    q["t"] = utc(q[tcol]).dt.floor("min")
+    if "ts_recv_utc" not in q.columns:
+        raise SystemExit(f"live_quotes_long thiếu ts_recv_utc (thời điểm NHẬN quote); cột: {list(q.columns)}. "
+                         "Không dùng ts_grid_utc để gom phút: quote có thể bị đưa về phút trước khi thực sự nhận được.")
+    q["t"] = utc(q["ts_recv_utc"]).dt.floor("min")
+    # thứ tự xác định: mid cuối phút = quote nhận muộn nhất trong phút, không phụ thuộc thứ tự dòng của file D2
+    order = [c for c in ("ts_recv_utc", "ts_event_utc") if c in q.columns]
+    q = q.sort_values(["venue", "session_id", "t"] + order, kind="mergesort")
     if "spread_bps" not in q.columns:
         mid = (q["bid"] + q["ask"]) / 2
         q["spread_bps"] = (q["ask"] - q["bid"]) / mid * 1e4
@@ -312,10 +320,14 @@ def model_b_frame(li: pd.DataFrame, lm: pd.DataFrame, band: int) -> tuple[pd.Dat
     m["depth_level"] = np.exp(m["log_depth"])
     m["depth_share"] = m["depth_level"] / m.groupby("session_id")["depth_level"].transform("sum")   # chỉ hợp lệ khi đủ venue (xem dưới)
     excluded = {}
+    lm_venues = lm.groupby("session_id")["venue"].agg(set).to_dict()
     for s in sorted(set(lm["session_id"]) | set(li["session_id"])):
         sub = m[m["session_id"] == s]
+        miss_is = sorted(lm_venues.get(s, set()) - set(sub["venue"]))
         if sub.empty:
             excluded[s] = "không có dòng IS ok trong --live-is"
+        elif miss_is:
+            excluded[s] = f"thiếu IS của venue {miss_is} (depth_share cần đủ venue; không ước lượng với phiên thiếu venue)"
         elif sub["log_depth"].isna().any():
             excluded[s] = f"thiếu độ sâu ≤{band} bps (depth_cover_bps < {band} hoặc không có độ sâu)"
         elif sub["spread_bps"].isna().any():
@@ -481,7 +493,7 @@ def run(a) -> pd.DataFrame:
     width = f"; khoảng chặn IS rộng trung vị {is_df['is_width'].median():.2f}" if "is_width" in is_df.columns else ""
 
     feat_raw = read_any(a.features)
-    guard_input(feat_raw, "features_1m", a.out, required=False)
+    guard_input(feat_raw, "features_1m", a.out, required=not a.allow_unlabeled_features)
     fw = feature_windows(tidy_features(feat_raw, a), win)
     miss = sorted(set(is_df["venue"]) - set(fw["venue"]))
     if miss:
@@ -598,6 +610,8 @@ def main(argv=None):
                     help="IS tính trên từng phiên live (cột session_id, venue, is_mid hoặc is_lower/is_upper) cho mô hình B")
     ap.add_argument("--live-candles", type=Path, dest="live_candles",
                     help="nến 1 phút các venue trong thời gian live (ts_open_utc, venue, volume_base, data_kind=historical): thêm mô hình B_vol")
+    ap.add_argument("--allow-unlabeled-features", action="store_true",
+                    help="chấp nhận features_1m không có data_kind (chỉ in cảnh báo); mặc định: từ chối vì không kiểm được nguồn")
     ap.add_argument("--crosscheck", action="store_true", help="so HAC của một venue với statsmodels (nếu cài)")
     ap.add_argument("--exclude-sessions", default="", help="session_id loại khỏi mô hình B, cách nhau dấu phẩy (mặc định: không loại)")
     a = ap.parse_args(argv)
