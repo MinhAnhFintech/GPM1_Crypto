@@ -144,8 +144,8 @@ def test_cursor_only_when_effects_on():
 
 
 def test_hero_has_title_and_five_questions():
-    html = app.hero_html()
-    assert "Crypto Price Discovery" in html and html.count("<li><b>RQ") == 5
+    assert "Crypto Price Discovery" in app.hero_html()
+    assert app.rq_html().count("<li><b>RQ") == 5
 
 
 def test_to_csv_bytes_has_bom_and_keeps_nan_blank():
