@@ -13,12 +13,12 @@ except ImportError:                       # máy không có pyarrow: dùng CSV (
     EXT = "csv"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "analysis"))
-import liquidity_regression as lr  # noqa: E402
+from notebooks.tv3 import liquidity_regression as lr  # noqa: E402
 
 VENUES = ["binance_spot", "binance_perp", "okx_spot", "okx_perp"]
 SESSIONS = [("20261018_S1", "2026-10-18", 7), ("20261019_S1", "2026-10-19", 7), ("20261019_S2", "2026-10-19", 13),
             ("20261020_S1", "2026-10-20", 7), ("20261020_S2", "2026-10-20", 13), ("20261021_S1", "2026-10-21", 7),
-            ("20261021_S2", "2026-10-21", 13)]       # 18/10 S1 = phiên lệch đồng hồ, bị loại khỏi B
+            ("20261021_S2", "2026-10-21", 13)]       
 
 
 # ===================================================================== phần toán
@@ -146,7 +146,7 @@ def test_model_a_aligns_on_window_end_not_available_at_and_recovers_vol_share_ef
     assert code == 0
     t4 = pd.read_csv(out)
     a = t4[t4.model == "A"].set_index("term")
-    assert a.loc["vol_share_w (z)", "coef"] > 0 and a.loc["vol_share_w (z)", "p_normal"] < 0.01
+    assert a.loc["vol_share_w (z)", "coef"] > 0 and a.loc["vol_share_w (z)", "p_value"] < 0.01
     assert (t4.hac_lags == 24).all()                                    # cửa sổ 1439 / bước 60 -> 24
     assert set(t4.model) >= {"A", "A_fe", "A_ils", *[f"A_{v}" for v in VENUES]}
     assert a["n_obs"].iloc[0] == 4 * len(pd.date_range("2026-01-03", "2026-02-20 23:00", freq="60min")) # dòng status=error bị bỏ
@@ -175,7 +175,9 @@ def test_model_b_with_live_is_drops_skew_session(tmp_path):
     save(pd.read_csv(tmp_path / "live_is.csv") if EXT == "csv" else load(tmp_path, "live_is"), tmp_path, "live_is")
     t4 = pd.read_csv(run_cli(tmp_path, "--live-is", str(tmp_path / f"live_is.{EXT}"))[1])
     b = t4[t4.model == "B"]
-    assert b["n_obs"].iloc[0] == 24 and b["n_groups"].iloc[0] == 6         # 6 phiên (đã loại 18/10 S1) × 4 venue
+    # Giữ tất cả 7 phiên × 4 venues
+    assert b["n_obs"].iloc[0] == 28
+    assert b["n_groups"].iloc[0] == 7
     assert {"spread_bps (z)", "log_depth (z)", "is_perp"} <= set(b.term)
     assert (t4[t4.model == "B_no_spread"].term != "spread_bps (z)").all()
     t4k = pd.read_csv(run_cli(tmp_path, "--live-is", str(tmp_path / f"live_is.{EXT}"), "--keep-skew")[1])

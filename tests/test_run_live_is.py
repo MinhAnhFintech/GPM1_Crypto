@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "price_discovery"))
-import run_live_is as r  # noqa: E402
+import src.price_discovery.run_live_is as r  # noqa: E402
 
 VENUES = ["binance_spot", "binance_perp", "okx_spot", "okx_perp"]
 SPEC = {"venues": VENUES + ["coinbase_spot"], "k_ar_diff": 3, "coint_rank": 5, "deterministic": "co",
@@ -68,9 +68,16 @@ def run(q, shares=None, **kw):
 
 def test_skew_session_excluded_and_each_session_estimated_separately():
     out, shares = run(quotes())
-    assert set(out.session_id) == {"20261019_S1", "20261019_S2"}
-    assert (out.status == "ok").all() and out.groupby("session_id").venue.nunique().eq(4).all()
-    assert len(shares.specs) == 2                                  # một lần ước lượng cho mỗi phiên, không ghép
+    expected_sessions = {
+    "20261018_S1",
+    "20261019_S1",
+    "20261019_S2",
+    }
+
+    assert set(out["session_id"]) == expected_sessions
+    assert (out.status == "ok").all()
+    assert out.groupby("session_id").venue.nunique().eq(4).all()
+    assert len(shares.specs) == 3                               # một lần ước lượng cho mỗi phiên, không ghép
     assert out.n_obs.between(170, 181).all()
     out_keep, _ = run(quotes(), exclude=())
     assert out_keep.session_id.nunique() == 3
