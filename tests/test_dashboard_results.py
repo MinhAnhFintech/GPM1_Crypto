@@ -52,8 +52,8 @@ def test_split_label_reads_manifest_dates():
 
 
 def test_vietnamese_number_format_and_names():
-    assert app.vn(22805) == "22.805" and app.vn(-89.29, 2) == "−89,29"
-    assert app.venue_name("binance_perp") == "Binance · Vĩnh viễn" and app.venue_name("odd") == "odd"
+    assert app.vn(22805) == "22 805" and app.vn(-89.29, 2) == "−89,29"
+    assert app.venue_name("binance_perp") == "Binance · Vĩnh cửu" and app.venue_name("odd") == "odd"
 
 
 def test_every_glossary_column_has_a_vietnamese_label():

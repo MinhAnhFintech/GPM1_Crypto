@@ -64,12 +64,12 @@ MODES = {
                 invert="invert(0.92) hue-rotate(180deg)"),
 }
 # Màu cố định cho hai nhóm thị trường (đã kiểm độ tương phản), không đổi theo màu chủ đạo.
-# Ngoài màu còn phân biệt bằng nét: giao ngay nét liền, vĩnh viễn nét đứt.
+# Ngoài màu còn phân biệt bằng nét: giao ngay nét liền, vĩnh cửu nét đứt.
 SERIES = {"Sáng": {"spot": "#2a78d6", "perp": "#eb6834"}, "Tối": {"spot": "#3987e5", "perp": "#d95926"}}
 DASH = {"spot": [], "perp": [6, 4]}
 GOOD, BAD = "#1f9e6e", "#d6453d"
 
-MARKET_NAME = {"spot": "Giao ngay (spot)", "perp": "Vĩnh viễn (perp)"}
+MARKET_NAME = {"spot": "Giao ngay (spot)", "perp": "Tương lai vĩnh cửu (perp)"}
 EXCHANGE_NAME = {"binance": "Binance", "okx": "OKX", "bybit": "Bybit"}
 KIND_NAME = {"historical": "lịch sử", "live": "live", "synthetic": "giả lập"}
 STATUS_TEXT = {"ok": "Ước lượng được"}
@@ -149,17 +149,20 @@ def to_csv_bytes(df: pd.DataFrame) -> bytes:
 
 
 def vn(x, digits: int = 0) -> str:
-    """Số kiểu Việt Nam: dấu chấm ngăn hàng nghìn, dấu phẩy thập phân, dấu trừ thật (−)."""
-    s = f"{x:,.{digits}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    """Số kiểu báo cáo: khoảng trắng (không ngắt dòng) ngăn hàng nghìn, dấu phẩy thập phân, dấu trừ thật (−)."""
+    s = f"{x:,.{digits}f}".replace(",", " ").replace(".", ",")
     return s.replace("-", "−")
 
 
+MARKET_SHORT = {"spot": "Giao ngay", "perp": "Vĩnh cửu"}
+
+
 def venue_name(venue: str) -> str:
-    """binance_spot -> 'Binance · Giao ngay'. Tên lạ giữ nguyên để không che lỗi dữ liệu."""
+    """binance_spot -> 'Binance · Giao ngay', binance_perp -> 'Binance · Vĩnh cửu'. Tên lạ giữ nguyên."""
     exchange, _, market = str(venue).rpartition("_")
     if not exchange:
         return str(venue)
-    return f"{EXCHANGE_NAME.get(exchange, exchange)} · {MARKET_NAME.get(market, market).split(' (')[0]}"
+    return f"{EXCHANGE_NAME.get(exchange, exchange)} · {MARKET_SHORT.get(market, market)}"
 
 
 def duration_ccdf(d7: pd.DataFrame) -> pd.DataFrame:
@@ -177,7 +180,7 @@ def duration_ccdf(d7: pd.DataFrame) -> pd.DataFrame:
 
 WATERFALL_STEPS = [("mean_mid_gap_bps", "Chênh lệch lúc ra quyết định"), ("mean_fee_bps", "− Phí taker hai chân"),
                    ("mean_spread_bps", "− Nửa chênh lệch mua–bán"), ("mean_slippage_bps", "− Trượt giá"),
-                   ("mean_latency_bps", "− Giá chạy trong độ trễ")]
+                   ("mean_latency_bps", "− Giá biến động trong lúc chờ khớp")]
 
 
 def cost_waterfall(row: pd.Series) -> pd.DataFrame:
@@ -237,12 +240,12 @@ RANGES = {"1 ngày": 1, "7 ngày": 7, "30 ngày": 30, "Toàn bộ": None}
 RQS = [
     "Sàn nào đóng góp nhiều nhất vào giá chung (giá hiệu quả) của Bitcoin?",
     "Vai trò dẫn giá có phụ thuộc khối lượng, chênh lệch mua–bán và độ sâu sổ lệnh không?",
-    "Thị trường giao ngay (spot) hay hợp đồng vĩnh viễn (perp) dẫn giá?",
+    "Thị trường giao ngay (spot) hay hợp đồng tương lai vĩnh cửu (perp) dẫn giá?",
     "Chênh lệch giá giữa các sàn tồn tại bao lâu?",
     "Sau phí, chênh lệch mua–bán, trượt giá và độ trễ, còn bao nhiêu tín hiệu arbitrage có lãi?",
 ]
 INTRO = ("Nhóm so sánh giá Bitcoin (BTC/USDT) trên 6 thị trường: Binance, OKX và Bybit, mỗi sàn có giao ngay "
-         "và hợp đồng vĩnh viễn. Câu hỏi thứ nhất: giá chung hình thành ở sàn nào trước (đo bằng Information Share, "
+         "và hợp đồng tương lai vĩnh cửu (perpetual futures: hợp đồng tương lai không có ngày đáo hạn). Câu hỏi thứ nhất: giá chung hình thành ở sàn nào trước (đo bằng Information Share, "
          "Component Share và ILS). Câu hỏi thứ hai: khi giá các sàn lệch nhau, mua sàn rẻ bán sàn đắt có còn lãi "
          "sau phí, chênh lệch mua–bán và độ trễ không. Đây là mô phỏng nghiên cứu, không phải khuyến nghị giao dịch.")
 
@@ -320,6 +323,9 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 [data-baseweb="input"] input{color:__TEXT__!important}
 [data-testid="stMetric"]{background:__SURFACE__;border:1px solid __BORDER__;border-left:4px solid __ACCENT__;border-radius:12px;padding:10px 14px}
 [data-testid="stMetricValue"]{font-weight:700}
+[data-testid="stMetricLabel"],[data-testid="stMetricLabel"] *,[data-testid="stMetricValue"],[data-testid="stMetricValue"] *{
+ white-space:normal!important;overflow:visible!important;text-overflow:clip!important;line-height:1.25}
+[data-testid="stMetricValue"]{font-size:clamp(1.4rem,2.4vw,2.1rem)!important}
 [data-testid="stDataFrame"]{filter:__INVERT__;border:1px solid __BORDER__;border-radius:10px}
 [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]){border-radius:16px}
 [data-testid="stExpander"] details{background:__SURFACE__;border:1px solid __BORDER__;border-radius:12px}
@@ -766,7 +772,7 @@ def _load_manifest(kind: str):
 
 GLOSSARY = {
     "venue": "Thị trường giao dịch: tên sàn và loại hợp đồng. Ví dụ Binance · Giao ngay là BTC/USDT giao ngay trên Binance.",
-    "market_type": "Giao ngay (spot) hoặc hợp đồng vĩnh viễn (perp). Chỉ so sánh các sàn cùng loại với nhau.",
+    "market_type": "Giao ngay (spot) hoặc hợp đồng tương lai vĩnh cửu (perp: hợp đồng tương lai không có ngày đáo hạn, giá được neo về giá giao ngay bằng phí funding). Chỉ so sánh các sàn cùng loại với nhau.",
     "close_usdt": "Giá đóng cửa của nến 1 phút ở phút cuối của dữ liệu lịch sử, tính bằng USDT.",
     "missing": "Được đánh dấu khi sàn không có giá ở phút này (ô giá để trống, không điền thay).",
     "ts_grid_utc": "Mốc thời gian (UTC) trên lưới 5 giây mà báo giá này được gán vào.",
@@ -799,11 +805,11 @@ GLOSSARY = {
 COLUMN_SPECS = {
     "venue": ("Sàn", "text"), "market_type": ("Loại thị trường", "text"),
     "close_usdt": ("Giá đóng cửa (USDT)", "price"), "missing": ("Thiếu dữ liệu", "bool"),
-    "ts_grid_utc": ("Thời điểm (UTC)", "time_s"), "bid": ("Giá mua tốt nhất (USDT)", "price"),
-    "ask": ("Giá bán tốt nhất (USDT)", "price"), "spread_bps": ("Chênh lệch mua–bán (bps)", "bps"),
-    "spread_bps_median": ("Chênh lệch mua–bán trung vị (bps)", "bps"), "n_quotes": ("Số báo giá", "int"),
-    "depth_bid_10bps_usdt": ("Độ sâu bên mua ±0,1% (USDT)", "big"),
-    "depth_ask_10bps_usdt": ("Độ sâu bên bán ±0,1% (USDT)", "big"),
+    "ts_grid_utc": ("Thời điểm (UTC)", "time_s"), "bid": ("Giá mua (bid, USDT)", "price"),
+    "ask": ("Giá bán (ask, USDT)", "price"), "spread_bps": ("Chênh lệch mua–bán (bps)", "bps"),
+    "spread_bps_median": ("Chênh lệch trung vị (bps)", "bps"), "n_quotes": ("Số báo giá", "int"),
+    "depth_bid_10bps_usdt": ("Độ sâu mua ±0,1% (USDT)", "big"),
+    "depth_ask_10bps_usdt": ("Độ sâu bán ±0,1% (USDT)", "big"),
     "is_lower": ("Đóng góp – cận dưới", "share"), "is_upper": ("Đóng góp – cận trên", "share"),
     "is_mid": ("Đóng góp – điểm giữa", "share"), "component_share": ("Component Share (có dấu)", "num"),
     "ils": ("Chỉ số dẫn dắt ILS", "num"), "status": ("Trạng thái", "text"), "reason": ("Kết luận", "text"),
@@ -975,7 +981,7 @@ def main():
 
     st.markdown(theme_css(mode, accent, effects, cursor, transition, font, size_pt), unsafe_allow_html=True)
     st.markdown(f"<div class='brand'>{cursor_svg('Đồng Bitcoin', 24)}<span><b>BTC/USDT</b> · Binance · OKX · Bybit"
-                " · giao ngay và vĩnh viễn</span></div>", unsafe_allow_html=True)
+                " · giao ngay và tương lai vĩnh cửu</span></div>", unsafe_allow_html=True)
     st.iframe(transition_js(), height=1)
 
     try:
@@ -1085,7 +1091,7 @@ def main():
             st.caption("Đồ thị giữ đỉnh tại đúng thời điểm gốc; chỗ thiếu giá để ngắt đường, không nối thay.")
             with st.expander("Cách tính độ lệch giá"):
                 st.markdown("Tại mỗi phút, lấy giá cao nhất trừ giá thấp nhất giữa các sàn **cùng loại** (giao ngay với "
-                            "giao ngay, vĩnh viễn với vĩnh viễn), chia cho giá trung bình rồi nhân 10.000 để ra bps. "
+                            "giao ngay, vĩnh cửu với vĩnh cửu), chia cho giá trung bình rồi nhân 10.000 để ra bps. "
                             "Phút nào thiếu giá của một sàn trong nhóm thì để trống, không điền thay.")
 
     # 3 và 4. Sàn dẫn giá
@@ -1235,7 +1241,7 @@ def main():
                 pick = st.radio("Nhóm lệnh", list(names), horizontal=True, key="wf")
                 st.altair_chart(waterfall_chart(rows.loc[names[pick]], t), width="stretch", theme=None)
                 st.caption("Xanh: chênh lệch giá giữa hai sàn lúc ra quyết định. Đỏ: từng khoản chi phí, trong đó "
-                           "'giá chạy trong độ trễ' là phần chênh lệch mất đi trong lúc chờ khớp. Thanh cuối là lãi/lỗ "
+                           "'giá biến động trong lúc chờ khớp' là phần chênh lệch mất đi trong lúc chờ khớp. Thanh cuối là lãi/lỗ "
                            "ròng trung bình mỗi lệnh (đúng số trong T5).")
             ledger = res.get("ledger_a")
             if ledger is not None and ledger["status"].eq("filled").any():
