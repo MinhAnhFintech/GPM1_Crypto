@@ -6,7 +6,108 @@ Dự án kết hợp dữ liệu lịch sử tần suất **1 phút** với dữ
 
 ---
 
-## 1. Cấu trúc repository
+## 1. Chạy nhanh dự án
+
+Phần này dành cho người dùng muốn **khởi chạy trực tiếp dashboard để xem kết quả của dự án** mà không cần chạy lại toàn bộ pipeline nghiên cứu.
+
+### 1.1. Tải mã nguồn
+
+Tải repository dưới dạng **ZIP** và giải nén.
+
+Sau đó mở PowerShell hoặc Terminal tại **thư mục gốc của dự án**, tức thư mục chứa:
+
+```text
+run_all.py
+requirements.txt
+config/
+data/
+outputs/
+dashboard/
+```
+
+> Nếu file ZIP sau khi giải nén tạo thêm một thư mục lồng bên trong, cần chuyển vào đúng thư mục chứa `run_all.py` trước khi chạy các lệnh bên dưới.
+
+Dự án sử dụng **Python 3.12**.
+
+Có thể kiểm tra Python bằng:
+
+**Windows:**
+
+```powershell
+py --version
+```
+
+**macOS / Linux:**
+
+```bash
+python3 --version
+```
+
+---
+
+### 1.2. Windows – PowerShell
+
+Tạo virtual environment:
+
+```powershell
+py -m venv tmp\venv-req
+```
+
+Cài toàn bộ thư viện:
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe" -m pip install -r requirements.txt
+```
+
+Khởi chạy dashboard:
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe" -m streamlit run dashboard/app.py
+```
+
+---
+
+### 1.3. macOS / Linux
+
+Tạo virtual environment:
+
+```bash
+python3 -m venv tmp/venv-req
+```
+
+Cài toàn bộ thư viện:
+
+```bash
+./tmp/venv-req/bin/python -m pip install -r requirements.txt
+```
+
+Khởi chạy dashboard:
+
+```bash
+./tmp/venv-req/bin/python -m streamlit run dashboard/app.py
+```
+
+---
+
+### 1.4. Mở dashboard
+
+Sau khi Streamlit khởi động thành công, terminal sẽ hiển thị địa chỉ local, thông thường:
+
+```text
+Local URL: http://localhost:8501
+```
+
+Mở địa chỉ này trên trình duyệt để sử dụng dashboard.
+
+Repository đã chứa các dữ liệu và kết quả cần thiết trong `data/` và `outputs/` để phục vụ việc trình bày dashboard.
+
+**Nếu mục đích chỉ là xem và đánh giá sản phẩm, không cần chạy lại toàn bộ pipeline nghiên cứu.**
+
+Nếu muốn tái lập quá trình xử lý dữ liệu và tạo lại các kết quả nghiên cứu, xem **Mục 5 – Tái lập kết quả nghiên cứu**.
+
+---
+
+## 2. Cấu trúc repository
 
 ```text
 GPM1_Crypto/
@@ -62,67 +163,33 @@ GPM1_Crypto/
 
 Trong đó:
 
-- `run_all.py`: điều phối các bước nền của pipeline.
+- `run_all.py`: điều phối các bước chính của pipeline.
 - `config/`: lưu cấu hình sàn, phí giao dịch, sự kiện, phiên live và các tham số nghiên cứu.
 - `docs/`: tài liệu về cấu trúc dữ liệu, nguồn dữ liệu và quy ước của dự án.
 - `data/`: chứa dữ liệu thô, dữ liệu trung gian, dữ liệu đã xử lý và dữ liệu giả lập.
 - `src/`: mã nguồn chính cho thu thập, đồng bộ, price discovery, mô hình chi phí, backtest và evaluation.
 - `scripts/`: các script hỗ trợ tạo đặc trưng, bảng và hình.
-- `notebooks/`: chứa các script phân tích và trực quan hóa bổ sung.
+- `notebooks/`: các script phân tích và trực quan hóa bổ sung.
 - `dashboard/`: ứng dụng Streamlit dùng để trực quan hóa kết quả.
 - `tests/`: các kiểm thử của dự án.
 - `outputs/`: chứa bảng, hình và các kết quả được tạo từ pipeline.
 
 ---
 
-## 2. Yêu cầu môi trường
+## 3. Môi trường và dữ liệu nghiên cứu
 
-Dự án sử dụng **Python 3.12**.
+### 3.1. Môi trường
 
-Có thể kiểm tra phiên bản Python bằng:
-
-```bash
-python --version
-```
-
-Tùy hệ điều hành và cách cài đặt Python, lệnh gọi trình thông dịch có thể khác nhau:
+Dự án sử dụng:
 
 ```text
-Windows        : python hoặc py
-macOS / Linux  : python3 hoặc python
+Python 3.12
 ```
 
-Các lệnh trong README sử dụng `python` làm quy ước chung. Nếu máy không nhận lệnh `python`, có thể thay `python` bằng `py` trên Windows hoặc `python3` trên macOS/Linux.
-
-Ví dụ:
-
-```bash
-# Cách viết được sử dụng trong README
-python -m pytest -q
-
-# Windows nếu không nhận "python"
-py -m pytest -q
-
-# macOS/Linux nếu sử dụng "python3"
-python3 -m pytest -q
-```
-
-Các thư viện cần thiết được khai báo trong:
+Các dependencies được khai báo trong:
 
 ```text
 requirements.txt
-```
-
-Từ thư mục gốc của repository, cài đặt bằng:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Ví dụ, trên Windows nếu máy chỉ nhận Python Launcher:
-
-```bash
-py -m pip install -r requirements.txt
 ```
 
 Seed sử dụng cho các bước có yếu tố ngẫu nhiên là:
@@ -133,16 +200,18 @@ Seed sử dụng cho các bước có yếu tố ngẫu nhiên là:
 
 và được đọc từ `config/config.yaml`.
 
+README sử dụng trực tiếp Python executable bên trong virtual environment thay vì yêu cầu activate môi trường. Cách này giúp hạn chế khác biệt giữa PowerShell, Command Prompt, macOS và Linux.
+
 ---
 
-## 3. Dữ liệu đầu vào
+### 3.2. Dữ liệu nghiên cứu
 
-Ba bộ dữ liệu chính được sử dụng trong nghiên cứu:
+Nghiên cứu sử dụng ba nhóm dữ liệu chính:
 
 | Dữ liệu | Đường dẫn |
-|---|---|
-| D1 – Nến 1 phút của 6 venue | `data/interim/ohlcv_1m_long.parquet` |
-| D2 – Báo giá live của 13 phiên | `data/processed/live_quotes_long.parquet` |
+| --- | --- |
+| D1 – OHLCV 1 phút của 6 venue | `data/interim/ohlcv_1m_long.parquet` |
+| D2 – Báo giá bid/ask live của 13 phiên | `data/processed/live_quotes_long.parquet` |
 | D9 – Funding rate và Open Interest | `data/processed/funding_oi.parquet` |
 
 Dữ liệu lịch sử bao gồm sáu venue:
@@ -156,9 +225,13 @@ okx_spot
 okx_perp
 ```
 
-Dữ liệu thật không được đưa trực tiếp lên Git. Trước khi chạy pipeline, cần đặt các file dữ liệu vào đúng đường dẫn tương ứng.
+Các file OHLCV nguồn theo từng venue được đặt tại:
 
-Các file trung gian quan trọng được tạo trong quá trình xử lý gồm:
+```text
+data/raw/ohlcv/
+```
+
+Các file trung gian quan trọng gồm:
 
 ```text
 data/processed/panel_1m_wide.parquet
@@ -168,68 +241,109 @@ data/processed/regime_flags.parquet
 data/processed/live_session_is.parquet
 ```
 
-Không thay thế dữ liệu nghiên cứu bằng dữ liệu tải lại tại thời điểm khác nếu mục tiêu là tái lập chính xác kết quả trong báo cáo.
+Để tái lập chính xác kết quả trong báo cáo, cần sử dụng đúng phiên bản dữ liệu nghiên cứu đã được bàn giao. Không nên thay thế bằng dữ liệu tải lại tại thời điểm khác vì coverage và dữ liệu live có thể thay đổi.
 
 ---
 
 ## 4. Kiểm tra mã nguồn
 
-Trước khi chạy các bước nghiên cứu, có thể kiểm tra toàn bộ test bằng:
+Sau khi cài đặt môi trường, có thể chạy toàn bộ test.
 
-```bash
-python -m pytest -q
+### Windows
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe" -m pytest -q
 ```
 
-Các test kiểm tra những thành phần như:
+### macOS / Linux
 
-- đồng bộ thời gian;
-- schema dữ liệu;
-- chia mẫu;
-- Information Share và ILS;
-- mô hình chi phí;
-- ledger backtest;
-- điều phối pipeline;
-- các hàm tạo bảng và hình.
+```bash
+./tmp/venv-req/bin/python -m pytest -q
+```
+
+Các test kiểm tra những thành phần chính như đồng bộ thời gian, schema dữ liệu, chia mẫu, Information Share và ILS, mô hình chi phí, ledger backtest, pipeline và các hàm tạo bảng/hình.
 
 ---
 
-## 5. Kiểm chứng trên dữ liệu giả lập
+## 5. Tái lập kết quả nghiên cứu
 
-Dữ liệu giả lập được sử dụng để kiểm tra pipeline trong trường hợp venue dẫn giá được xác định trước.
+> Nếu mục đích chỉ là **mở dashboard để xem và đánh giá sản phẩm**, không cần thực hiện phần này.
 
-### 5.1. Kiểm chứng tổng quát
+Các bước dưới đây dành cho việc kiểm tra hoặc tái lập pipeline nghiên cứu.
+
+### 5.1. Chạy toàn bộ pipeline
+
+Nếu bắt đầu từ các file OHLCV nguồn trong:
+
+```text
+data/raw/ohlcv/
+```
+
+chạy:
+
+```bash
+python run_all.py --mode raw --config config/config.yaml
+```
+
+`raw` mode sẽ chuẩn hóa dữ liệu OHLCV nguồn, tạo D1 và thực hiện các stage được đăng ký trong pipeline.
+
+Nếu D1 đã được chuẩn bị tại:
+
+```text
+data/interim/ohlcv_1m_long.parquet
+```
+
+có thể chạy toàn bộ historical pipeline bằng:
+
+```bash
+python run_all.py --mode historical --config config/config.yaml
+```
+
+Pipeline thực hiện các stage nghiên cứu được cấu hình trong `config/config.yaml` và **không tự động mở hoặc chạy lại final test**.
+
+Trên Windows, nếu sử dụng virtual environment được tạo ở Mục 1, có thể thay `python` bằng:
+
+```text
+& ".\tmp\venv-req\Scripts\python.exe"
+```
+
+Trên macOS/Linux:
+
+```text
+./tmp/venv-req/bin/python
+```
+
+---
+
+### 5.2. Kiểm chứng trên dữ liệu giả lập
 
 ```bash
 python run_all.py --mode synthetic --verify
 ```
 
-### 5.2. Trường hợp spot–perpetual
+Trường hợp spot–perpetual:
 
 ```bash
 python run_all.py --mode synthetic --fixture-case spot_perp
 ```
 
-### 5.3. Pipeline giả lập nhiều venue
+Pipeline giả lập nhiều venue:
 
 ```bash
 python run_all.py --mode synthetic --config config/pipeline.synthetic.example.yaml --fixture-case multi --data-dir outputs/synthetic/integrated/multi/data --output-dir outputs/synthetic/integrated/multi
 ```
 
-Các kết quả giả lập được lưu riêng tại:
+Kết quả synthetic được lưu riêng tại:
 
 ```text
 outputs/synthetic/
 ```
 
-để tránh nhầm lẫn với kết quả nghiên cứu trên dữ liệu thật.
-
 ---
 
-## 6. Chuẩn bị và kiểm tra dữ liệu thật
+### 5.3. Kiểm tra chất lượng dữ liệu
 
-### 6.1. Kiểm tra chất lượng dữ liệu OHLCV lịch sử
-
-Chạy:
+OHLCV lịch sử:
 
 ```bash
 python src/features/ohlcv_quality.py
@@ -241,19 +355,7 @@ python src/features/ohlcv_quality.py
 outputs/tables/T0_data_quality.csv
 ```
 
-Bảng T0 kiểm tra chất lượng dữ liệu OHLCV 1 phút của từng venue, bao gồm mức độ bao phủ dữ liệu, timestamp, giá trị thiếu, tính nhất quán của OHLC và các vấn đề chất lượng dữ liệu liên quan.
-
-Bước này có mục đích kiểm tra và báo cáo chất lượng dữ liệu, không tự động chỉnh sửa dữ liệu nguồn.
-
-### 6.2. Kiểm tra coverage dữ liệu live
-
-Dữ liệu live được thu theo phiên từ cấu hình `config/live_sessions.yaml`. Dữ liệu theo từng phiên được lưu trong:
-
-```text
-data/raw/live/
-```
-
-Để tạo lại báo cáo coverage từ dữ liệu live đã thu, chạy:
+Coverage dữ liệu live:
 
 ```bash
 python src/collectors/live/collect_live.py coverage --csv-report outputs/tables/T0b_live_coverage.csv
@@ -265,36 +367,25 @@ python src/collectors/live/collect_live.py coverage --csv-report outputs/tables/
 outputs/tables/T0b_live_coverage.csv
 ```
 
-T0b thống kê coverage theo `session × exchange × market_type`, bao gồm số quan sát kỳ vọng, số quan sát thực tế, duplicate/off-grid rows, coverage, gap, latency và các thông tin liên quan đến depth.
+Không cần thu thập lại dữ liệu live để tái lập T0b; sử dụng dữ liệu live đã được lưu trong nghiên cứu.
 
-Không cần chạy lại quá trình thu thập live để tái lập T0b; chỉ cần sử dụng dữ liệu live đã được lưu.
+---
 
-### 6.3. Xây dựng historical foundation
+### 5.4. Historical foundation và D3/D4 handoff
 
-Từ thư mục gốc của repository, chạy:
+Nếu chỉ muốn chạy historical foundation:
 
 ```bash
 python run_all.py --mode historical --config config/config.yaml --foundation-only
 ```
 
-Bước này thực hiện các xử lý nền từ D1, bao gồm:
-
-- xây dựng panel 1 phút đồng bộ;
-- tạo `panel_1m_wide.parquet`;
-- tạo hoặc kiểm tra `split_manifest.json`;
-- chia dữ liệu theo thời gian;
-- thực hiện phân tích lead–lag nền;
-- tạo các đầu ra nền liên quan.
-
-Sau đó có thể kiểm tra dữ liệu bàn giao bằng:
+Kiểm tra dữ liệu bàn giao:
 
 ```bash
 python -m src.utils.check_handoff --input data/processed/panel_1m_wide.parquet --schema D3 --expected-kind historical --config config/config.yaml --manifest data/processed/split_manifest.json --report outputs/D3_D4_handoff.json
 ```
 
-Nếu `split_manifest.json` đã tồn tại, chương trình sử dụng lại manifest sau khi kiểm tra fingerprint và ranh giới mẫu thay vì tự tạo lại.
-
-Thiết kế chia mẫu của nghiên cứu gồm:
+Thiết kế chia mẫu:
 
 ```text
 Development : 60%
@@ -306,62 +397,36 @@ Final test được giữ riêng và không được sử dụng trong quá trì
 
 ---
 
-## 7. Chạy các bước nghiên cứu
+### 5.5. Tạo đặc trưng và market regime
 
-Sau khi hoàn tất phần chuẩn bị dữ liệu, chạy các bước dưới đây theo thứ tự.
-
-### 7.1. Tạo đặc trưng 1 phút
+Tạo đặc trưng 1 phút:
 
 ```bash
 python scripts/build_features_1m.py
 ```
 
-Đầu ra:
-
-```text
-data/processed/features_1m.parquet
-```
-
-File này chứa các đặc trưng được sử dụng cho các bước sau như log return, realized volatility và volume share.
-
-### 7.2. Xác định market regime
+Xác định market regime:
 
 ```bash
 python -m src.features.regime_flags
 ```
 
-Đầu ra:
+Đầu ra chính:
 
 ```text
+data/processed/features_1m.parquet
 data/processed/regime_flags.parquet
 ```
 
-Các regime được sử dụng trong nghiên cứu gồm:
+---
 
-- weekend / weekday;
-- high / low volatility;
-- bull / bear;
-- event / normal.
-
-### 7.3. Price discovery
+### 5.6. Price discovery
 
 ```bash
 python -m src.price_discovery.run_price_discovery --data-dir data/processed --output-dir outputs --config config/config.yaml --workers 8
 ```
 
-Bước này thực hiện các phân tích chính về price discovery, bao gồm:
-
-- kiểm định tính dừng;
-- kiểm định đồng liên kết;
-- VECM;
-- Information Share;
-- Component Share;
-- Information Leadership Share;
-- rolling Information Share;
-- sensitivity analysis;
-- so sánh spot và perpetual.
-
-Các đầu ra chính gồm:
+Các đầu ra chính:
 
 ```text
 outputs/tables/T2_*.csv
@@ -373,19 +438,13 @@ outputs/tables/T3d_ils_summary.csv
 outputs/tables/rolling_is.parquet
 ```
 
-Các phân tích này sử dụng development và validation theo thiết kế nghiên cứu, không sử dụng final test để lựa chọn mô hình.
+Các phân tích sử dụng development và validation theo thiết kế nghiên cứu, không sử dụng final test để lựa chọn mô hình.
 
-### 7.4. Hồi quy thanh khoản và vai trò dẫn giá
+---
 
-Mô hình T4 đánh giá mối liên hệ giữa Information Share và các đặc điểm thanh khoản/thị trường.
+### 5.7. Hồi quy thanh khoản và vai trò dẫn giá
 
-Có thể kiểm tra trước các file đầu vào bằng:
-
-```bash
-python notebooks/tv3/liquidity_regression.py --inspect
-```
-
-Chạy mô hình trên mẫu lịch sử:
+Historical:
 
 ```bash
 python notebooks/tv3/liquidity_regression.py
@@ -397,61 +456,26 @@ python notebooks/tv3/liquidity_regression.py
 outputs/tables/T4_leadership_determinants.csv
 ```
 
-Mô hình lịch sử sử dụng các biến như:
-
-```text
-vol_share
-rv_60m
-is_perp
-```
-
-Các biến liên tục được chuẩn hóa trước khi ước lượng. Kết quả được diễn giải là **mối liên hệ**, không phải quan hệ nhân quả.
-
-#### T4 – mô hình live
-
-Để tái lập mô hình live, trước tiên tạo Information Share theo từng phiên live bằng:
+Đối với dữ liệu live, trước tiên tạo Information Share theo phiên:
 
 ```bash
 python -m src.price_discovery.run_live_is
 ```
 
-Bước này tạo:
-
-```text
-data/processed/live_session_is.parquet
-```
-
-Sau khi file trên được tạo, chạy:
+Sau đó chạy:
 
 ```bash
 python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
 ```
 
-Phần live sử dụng các biến được xây dựng trực tiếp từ dữ liệu live như:
+Do số phiên live có giới hạn, kết quả phần này được xem là bằng chứng thăm dò.
 
-```text
-rv_live
-depth_share
-spread_bps
-log_depth
-is_perp
-```
+---
 
-Nếu có dữ liệu nến 1 phút tương ứng với các phiên live, có thể truyền thêm `--live-candles` để ước lượng mô hình mở rộng có `vol_share`.
-
-Do mẫu live ngắn, kết quả phần này được xem là bằng chứng thăm dò.
-
-### 7.5. Phân tích Information Share theo market regime
+### 5.8. Information Share theo market regime
 
 ```bash
 python -m src.evaluation.stress_regime
-```
-
-Đầu vào:
-
-```text
-outputs/tables/rolling_is.parquet
-data/processed/regime_flags.parquet
 ```
 
 Đầu ra:
@@ -460,20 +484,11 @@ data/processed/regime_flags.parquet
 outputs/tables/T6_stress.csv
 ```
 
-Bảng T6 so sánh rolling Information Share giữa các trạng thái:
+---
 
-```text
-weekend vs weekday
-high vs low volatility
-bull vs bear
-event vs normal
-```
+### 5.9. Phân tích price gap
 
-Regime được gắn với mỗi cửa sổ rolling IS theo thông tin đã có tại thời điểm cửa sổ kết thúc để tránh sử dụng thông tin tương lai.
-
-### 7.6. Xác định gap trên dữ liệu lịch sử
-
-Gap lịch sử được xác định từ panel 1 phút:
+Historical:
 
 ```bash
 python -m src.cost_model.run_gap_events --panel data/processed/panel_1m_wide.parquet
@@ -485,11 +500,7 @@ python -m src.cost_model.run_gap_events --panel data/processed/panel_1m_wide.par
 outputs/tables/gap_events_historical.parquet
 ```
 
-Phân tích lịch sử sử dụng dữ liệu 1 phút nên thời gian tồn tại của gap được đo theo độ phân giải của panel lịch sử.
-
-### 7.7. Xác định gap trên dữ liệu live
-
-Gap live được xác định trực tiếp từ dữ liệu bid/ask:
+Live:
 
 ```bash
 python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long.parquet --config config/config.yaml
@@ -501,112 +512,74 @@ python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long
 outputs/tables/gap_events.parquet
 ```
 
-Không chạy `run_gap_events` mà không truyền `--panel` hoặc `--quotes` khi tái lập kết quả nghiên cứu, vì chế độ không có input thật có thể sử dụng dữ liệu fixture/synthetic.
+> Khi tái lập kết quả nghiên cứu, không chạy `run_gap_events` mà không truyền `--panel` hoặc `--quotes`.
 
-### 7.8. Backtest A – dữ liệu lịch sử
+---
 
-Chạy:
+### 5.10. Backtest arbitrage
+
+Backtest A – historical:
 
 ```bash
 python -m src.backtest.run_backtest_a
 ```
 
-Backtest A sử dụng **development split** của panel lịch sử 1 phút. Half-spread được hiệu chỉnh từ dữ liệu live D2 trước khi chạy backtest.
+Backtest A sử dụng development split. Runner chỉ cho phép `dev` hoặc `val`; final test không được đọc trong Backtest A.
 
-Các đầu ra được lưu trong:
-
-```text
-outputs/tables/
-```
-
-với prefix:
-
-```text
-backtest_a_dev_L{latency}
-```
-
-bao gồm:
-
-```text
-backtest_a_dev_L{latency}_ledger.parquet
-backtest_a_dev_L{latency}_summary.csv
-backtest_a_dev_L{latency}_params.json
-half_spread_calibration.csv
-```
-
-Trong đó `{latency}` được lấy từ `backtest_a.latency_min` trong `config/config.yaml` nếu không được ghi đè bằng `--latency-min`.
-
-Runner chỉ cho phép sử dụng `dev` hoặc `val`; **final test không được đọc trong Backtest A**.
-
-Tên ledger, summary, params và file hiệu chỉnh half-spread được tạo trực tiếp theo prefix của split và latency.
-
-### 7.9. Backtest B – dữ liệu live
+Backtest B – live:
 
 ```bash
 python -m src.backtest.run_backtest_b
 ```
 
-Backtest B sử dụng dữ liệu bid/ask live để đánh giá khả năng thực hiện arbitrage trong điều kiện gần với giao dịch thực tế hơn.
-
-Đầu ra chính:
-
-```text
-outputs/tables/trades_ledger.parquet
-```
-
-Ledger này thuộc **Backtest B/live** và được tách biệt với ledger của Backtest A.
-
-### 7.10. Tổng hợp kết quả arbitrage sau chi phí
+Tổng hợp T5:
 
 ```bash
 python -m src.backtest.make_t5
 ```
 
-Đầu ra:
+Các đầu ra chính:
 
 ```text
+outputs/tables/backtest_a_dev_L{latency}_ledger.parquet
+outputs/tables/backtest_a_dev_L{latency}_summary.csv
+outputs/tables/backtest_a_dev_L{latency}_params.json
+outputs/tables/half_spread_calibration.csv
+outputs/tables/trades_ledger.parquet
 outputs/tables/T5_arbitrage_net.csv
 ```
 
-Bảng T5 tổng hợp kết quả arbitrage sau khi tính các thành phần chi phí được đưa vào mô hình.
+---
 
-### 7.11. Phân tích độ nhạy chi phí T5b – không chạy lại
+### 5.11. T5b – Final test
 
-T5b sử dụng **final test** một lần theo thiết kế nghiên cứu.
+T5b đã sử dụng final test một lần theo thiết kế nghiên cứu.
 
-Lệnh đã được sử dụng trước đó là:
-
-```bash
-python -m src.backtest.run_t5b --split test
-```
-
-Tuy nhiên, **không chạy lại lệnh này khi tái lập repository hiện tại**.
-
-Trạng thái:
+Trạng thái hiện tại:
 
 ```text
 test_consumed = true
 ```
 
-được lưu trong:
-
-```text
-data/processed/split_manifest.json
-```
-
-và cơ chế khóa `.test.lock` được sử dụng để ngăn final test bị mở lại.
-
-Đầu ra đã được lưu:
+Kết quả đã được lưu tại:
 
 ```text
 outputs/tables/T5b_cost_sensitivity.csv
 ```
 
-Khi tái lập kết quả, giữ nguyên file T5b hiện có và chuyển sang bước tiếp theo.
+Không:
 
-**Không xóa `.test.lock`, không chỉnh `test_consumed` về `false` và không chạy lại T5b trên final test.**
+```text
+xóa file test lock
+chỉnh test_consumed về false
+chạy lại T5b trên final test
+```
 
-### 7.12. Phân tích gap theo regime
+chỉ để tái tạo output đã tồn tại.
+
+---
+
+### 5.12. Gap theo regime
 
 ```bash
 python -m src.backtest.make_t6b
@@ -618,9 +591,11 @@ python -m src.backtest.make_t6b
 outputs/tables/T6b_gap_by_regime.csv
 ```
 
-T6b mô tả tần suất và thời gian tồn tại của gap trong các trạng thái thị trường khác nhau.
+---
 
-### 7.13. Tạo F1 và F2
+### 5.13. Tạo figures
+
+F1 và F2:
 
 ```bash
 python -m notebooks.tv2.plot_c2_05
@@ -633,28 +608,10 @@ outputs/figures/F1_synchronized_prices.png
 outputs/figures/F2_price_dispersion.png
 ```
 
-F1 trình bày giá đã được đồng bộ giữa các venue.
-
-F2 trình bày độ phân tán giá giữa các sàn theo bps, tách riêng spot và perpetual.
-
-Price dispersion được xác định theo:
-
-```text
-(max price - min price) / mean price × 10,000
-```
-
-Nếu bất kỳ venue nào thuộc market đang xét bị thiếu giá tại một thời điểm, dispersion của market đó tại thời điểm tương ứng được giữ là missing thay vì nội suy.
-
-### 7.14. Tạo F3 – Rolling Information Share
+F3 – Rolling Information Share:
 
 ```bash
 python scripts/make_figure_f3.py
-```
-
-Đầu vào:
-
-```text
-outputs/tables/rolling_is.parquet
 ```
 
 Đầu ra:
@@ -663,32 +620,13 @@ outputs/tables/rolling_is.parquet
 outputs/figures/F3_rolling_is_bounds.png
 ```
 
-F3 trình bày rolling Information Share và khoảng cận dưới/cận trên theo từng venue.
-
-Các cửa sổ có trạng thái khác `ok` được để trống, không nội suy.
-
-### 7.15. Tạo F4, F5 và đối chiếu ledger
+F4 và F5:
 
 ```bash
 python -m src.backtest.make_figures
-python -m src.backtest.reconcile
 ```
 
-Các đầu ra chính gồm:
-
-```text
-outputs/figures/F4_*.png
-outputs/figures/F5_*.png
-outputs/tables/T5c_*
-```
-
-F4 mô tả thời gian tồn tại của gap trên dữ liệu lịch sử và live.
-
-F5 trình bày P&L tích lũy của các backtest.
-
-Bước reconcile được sử dụng để đối chiếu ledger và các kết quả tổng hợp.
-
-### 7.16. Tạo F6 – Lead–lag
+F6 – Lead–lag:
 
 ```bash
 python scripts/make_figure_f6.py
@@ -700,28 +638,10 @@ python scripts/make_figure_f6.py
 outputs/figures/F6_leadlag_xcorr.png
 ```
 
-F6 sử dụng log return 1 phút trên development sample để mô tả tương quan lead–lag giữa các cặp venue.
-
-Quy ước:
-
-```text
-corr(ret_A(t), ret_B(t + lag))
-```
-
-Lag dương nghĩa là venue A đứng trước venue B theo quy ước của hình.
-
-F6 mang tính mô tả; tương quan tại lag 0 thường chiếm ưu thế ở dữ liệu tần suất 1 phút nên không được sử dụng riêng để kết luận venue dẫn giá.
-
-### 7.17. Tạo F7 – Spot và perpetual
+F7 – Spot và perpetual:
 
 ```bash
 python scripts/make_figure_f7.py
-```
-
-Đầu vào:
-
-```text
-outputs/tables/T3c_spot_perp.csv
 ```
 
 Đầu ra:
@@ -730,11 +650,17 @@ outputs/tables/T3c_spot_perp.csv
 outputs/figures/F7_spot_perp_is_ils.png
 ```
 
-F7 so sánh Information Share và Information Leadership Share giữa spot và perpetual trong cùng một sàn trên development và validation.
+---
 
-Khi khoảng Information Share của hai thị trường chồng nhau, kết quả không được diễn giải như bằng chứng chắc chắn rằng một bên dẫn bên còn lại.
+### 5.14. Đối chiếu backtest
 
-### 7.18. Đặc điểm venue
+```bash
+python -m src.backtest.reconcile
+```
+
+---
+
+### 5.15. Đặc điểm venue – T1
 
 ```bash
 python -m scripts.exchange_characteristics --ohlcv data/interim/ohlcv_1m_long.parquet --live data/processed/live_quotes_long.parquet --funding data/processed/funding_oi.parquet --manifest data/processed/split_manifest.json --fees config/fees.yaml --out outputs/tables/T1_exchange_characteristics.csv --sample dev_val
@@ -746,114 +672,11 @@ python -m scripts.exchange_characteristics --ohlcv data/interim/ohlcv_1m_long.pa
 outputs/tables/T1_exchange_characteristics.csv
 ```
 
-Bảng T1 tổng hợp các đặc điểm chính của các venue được sử dụng trong nghiên cứu.
-
-Nếu D1, D2 hoặc các dữ liệu đầu vào liên quan được cập nhật hoặc điều chỉnh, T1 cần được chạy lại trên phiên bản dữ liệu tương ứng để đảm bảo kết quả đồng nhất với dữ liệu nghiên cứu.
+T1 được tạo từ phiên bản dữ liệu cuối cùng của nghiên cứu, bao gồm D2 đủ 13 phiên live.
 
 ---
 
-## 8. Thứ tự tái lập kết quả
-
-Từ một môi trường mới đã có đầy đủ dữ liệu đầu vào, có thể chạy toàn bộ historical pipeline bằng một lệnh:
-
-```bash
-python run_all.py --mode historical --config config/config.yaml
-```
-
-Lệnh trên chạy toàn bộ các bước được điều phối trong historical pipeline và không mở lại final test. Danh sách bên dưới được giữ lại để có thể tái lập hoặc kiểm tra từng bước riêng lẻ.
-
-```bash
-# 1. Cài thư viện
-python -m pip install -r requirements.txt
-
-# 2. Kiểm tra mã nguồn
-python -m pytest -q
-
-# 3. Kiểm tra chất lượng OHLCV lịch sử
-python src/features/ohlcv_quality.py
-
-# 4. Tạo báo cáo coverage dữ liệu live đã thu
-python src/collectors/live/collect_live.py coverage --csv-report outputs/tables/T0b_live_coverage.csv
-
-# 5. Kiểm chứng synthetic
-python run_all.py --mode synthetic --verify
-
-# 6. Xây dựng historical foundation
-python run_all.py --mode historical --config config/config.yaml --foundation-only
-
-# 7. Kiểm tra D3/D4
-python -m src.utils.check_handoff --input data/processed/panel_1m_wide.parquet --schema D3 --expected-kind historical --config config/config.yaml --manifest data/processed/split_manifest.json --report outputs/D3_D4_handoff.json
-
-# 8. Tạo features
-python scripts/build_features_1m.py
-
-# 9. Tạo market regimes
-python -m src.features.regime_flags
-
-# 10. Price discovery
-python -m src.price_discovery.run_price_discovery --data-dir data/processed --output-dir outputs --config config/config.yaml --workers 8
-
-# 11. Liquidity regression – historical
-python notebooks/tv3/liquidity_regression.py
-
-# 12. Tạo Information Share theo phiên live
-python -m src.price_discovery.run_live_is
-
-# 13. Liquidity regression – live
-python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
-
-# 14. Stress/regime analysis
-python -m src.evaluation.stress_regime
-
-# 15. Historical gap
-python -m src.cost_model.run_gap_events --panel data/processed/panel_1m_wide.parquet
-
-# 16. Live gap
-python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long.parquet --config config/config.yaml
-
-# 17. Backtest A
-python -m src.backtest.run_backtest_a
-
-# 18. Backtest B
-python -m src.backtest.run_backtest_b
-
-# 19. Tổng hợp T5
-python -m src.backtest.make_t5
-
-# T5b KHÔNG được chạy lại vì final test đã được sử dụng và khóa.
-
-# 20. Gap theo regime
-python -m src.backtest.make_t6b
-
-# 21. F1 và F2
-python -m notebooks.tv2.plot_c2_05
-
-# 22. F3
-python scripts/make_figure_f3.py
-
-# 23. F4 và F5
-python -m src.backtest.make_figures
-
-# 24. F6
-python scripts/make_figure_f6.py
-
-# 25. F7
-python scripts/make_figure_f7.py
-
-# 26. Đối chiếu ledger
-python -m src.backtest.reconcile
-
-# 27. Đặc điểm venue
-python -m scripts.exchange_characteristics --ohlcv data/interim/ohlcv_1m_long.parquet --live data/processed/live_quotes_long.parquet --funding data/processed/funding_oi.parquet --manifest data/processed/split_manifest.json --fees config/fees.yaml --out outputs/tables/T1_exchange_characteristics.csv --sample dev_val
-```
-
-Nếu môi trường không nhận `python`, thay toàn bộ tiền tố `python` trong chuỗi lệnh trên bằng `py` trên Windows hoặc `python3` trên macOS/Linux.
-
-T5b không thuộc chuỗi chạy lại vì final test đã được sử dụng một lần và khóa theo thiết kế nghiên cứu.
-
----
-
-## 9. Các bảng kết quả chính
+## 6. Các bảng kết quả chính
 
 Các bảng nghiên cứu được lưu tại:
 
@@ -896,11 +719,9 @@ T5b_cost_sensitivity.csv
 T6b_gap_by_regime.csv
 ```
 
-Tên file cụ thể có thể phụ thuộc vào bước phân tích và tham số được sử dụng, nhưng toàn bộ kết quả nghiên cứu thật được lưu ngoài `outputs/synthetic/`.
-
 ---
 
-## 10. Các hình chính
+## 7. Các hình kết quả chính
 
 Các hình nghiên cứu được lưu tại:
 
@@ -920,115 +741,185 @@ F6_leadlag_xcorr.png
 F7_spot_perp_is_ils.png
 ```
 
-Trong đó:
-
-- **F1**: giá BTC/USDT đã đồng bộ giữa các venue;
-- **F2**: độ phân tán giá giữa các sàn;
-- **F3**: rolling Information Share và khoảng cận;
-- **F4**: thời gian tồn tại của gap;
-- **F5**: P&L tích lũy của backtest;
-- **F6**: tương quan lead–lag;
-- **F7**: so sánh spot và perpetual bằng IS và ILS.
-
 ---
 
-## 11. Kiểm chứng Information Share và ILS
+## 8. Kiểm chứng Information Share và ILS
 
-Các hàm Information Share và Information Leadership Share được kiểm chứng bằng dữ liệu giả lập có venue dẫn giá được xác định trước.
-
-Hai trường hợp chính gồm:
-
-```text
-multi
-spot_perp
-```
-
-Trong trường hợp `multi`, `binance_spot` được thiết lập là venue dẫn.
-
-Trong trường hợp `spot_perp`, `binance_perp` được thiết lập là venue dẫn.
-
-Có thể chạy kiểm chứng chuyên biệt bằng:
+Các hàm Information Share và Information Leadership Share được kiểm chứng bằng dữ liệu giả lập có venue dẫn giá được xác định trước:
 
 ```bash
 python -m pytest tests/test_info_share_synthetic.py --require-tv5 -q
 ```
 
-Tùy chọn `--require-tv5` yêu cầu test thất bại nếu thiếu các hàm price discovery cần thiết thay vì bỏ qua kiểm tra.
-
-IS, CS và ILS được sử dụng đồng thời vì các thước đo phản ánh những khía cạnh khác nhau của quá trình price discovery. Không kết luận vai trò dẫn giá chỉ dựa trên một chỉ số duy nhất.
+IS, CS và ILS phản ánh các khía cạnh khác nhau của quá trình price discovery. Không nên kết luận vai trò dẫn giá chỉ dựa trên một chỉ số duy nhất.
 
 ---
 
-## 12. Dashboard
+## 9. Dashboard
 
-Dashboard của dự án được xây dựng bằng Streamlit tại:
+Dashboard được xây dựng bằng Streamlit tại:
 
 ```text
 dashboard/app.py
 ```
 
-Sau khi các bước nghiên cứu đã tạo đầy đủ đầu ra trong `outputs/`, khởi động dashboard từ thư mục gốc của repository bằng:
-
-```bash
-python -m streamlit run dashboard/app.py
-```
-
-Dashboard sử dụng các đầu ra của pipeline để trình bày:
+Dashboard sử dụng các dữ liệu và outputs của dự án để trực quan hóa các nội dung chính như:
 
 - báo giá và trạng thái dữ liệu;
-- độ phân tán giá;
+- độ phân tán giá giữa các venue;
 - rolling Information Share;
-- venue dẫn giá;
-- gap giữa các sàn;
+- vai trò dẫn giá;
+- price gap giữa các sàn;
 - kết quả arbitrage sau chi phí.
 
-Dashboard là lớp trực quan hóa các kết quả đã được pipeline tạo ra, không thay thế các bước phân tích nghiên cứu.
+Dashboard là lớp trực quan hóa các kết quả của pipeline và không thay thế các bước phân tích nghiên cứu.
+
+Để khởi chạy dashboard, sử dụng hướng dẫn **Chạy nhanh dự án tại Mục 1**.
 
 ---
 
-## 13. Lưu ý về khả năng tái lập
+## 10. Xử lý lỗi thường gặp
 
-### 13.1. Dữ liệu lịch sử
+### 10.1. `python` hoặc `py` không được nhận diện
+
+Trên Windows, thử:
+
+```powershell
+py --version
+```
+
+Trên macOS/Linux:
+
+```bash
+python3 --version
+```
+
+Đảm bảo Python 3.12 đã được cài đặt và có thể gọi từ terminal.
+
+---
+
+### 10.2. `No module named streamlit`
+
+Lỗi này thường xảy ra khi dependencies chưa được cài bằng đúng Python environment.
+
+Windows:
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe" -m pip install -r requirements.txt
+& ".\tmp\venv-req\Scripts\python.exe" -m streamlit --version
+```
+
+macOS/Linux:
+
+```bash
+./tmp/venv-req/bin/python -m pip install -r requirements.txt
+./tmp/venv-req/bin/python -m streamlit --version
+```
+
+Sau đó chạy lại dashboard.
+
+---
+
+### 10.3. Không tìm thấy `dashboard/app.py` hoặc `requirements.txt`
+
+Kiểm tra terminal đang đứng tại **thư mục gốc của repository**.
+
+Thư mục hiện tại phải chứa tối thiểu:
+
+```text
+run_all.py
+requirements.txt
+dashboard/
+data/
+outputs/
+```
+
+---
+
+### 10.4. PowerShell chặn `Activate.ps1`
+
+README không yêu cầu activate virtual environment.
+
+Thay vì:
+
+```powershell
+.\tmp\venv-req\Scripts\Activate.ps1
+```
+
+hãy gọi trực tiếp:
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe"
+```
+
+Do đó không cần thay đổi PowerShell Execution Policy chỉ để chạy dự án.
+
+---
+
+### 10.5. Port 8501 đang được sử dụng
+
+Có thể chạy Streamlit trên port khác.
+
+Windows:
+
+```powershell
+& ".\tmp\venv-req\Scripts\python.exe" -m streamlit run dashboard/app.py --server.port 8502
+```
+
+macOS/Linux:
+
+```bash
+./tmp/venv-req/bin/python -m streamlit run dashboard/app.py --server.port 8502
+```
+
+Sau đó truy cập:
+
+```text
+http://localhost:8502
+```
+
+---
+
+### 10.6. Dashboard mở nhưng thiếu dữ liệu hoặc kết quả
+
+Kiểm tra repository được giải nén đầy đủ và các thư mục sau vẫn tồn tại:
+
+```text
+data/
+outputs/
+```
+
+Nếu mục đích là xem phiên bản kết quả đã bàn giao, không cần xóa hoặc tạo lại các file trong hai thư mục này.
+
+Nếu muốn tái lập toàn bộ historical pipeline từ raw OHLCV, sử dụng hướng dẫn tại **Mục 5.1**.
+
+---
+
+## 11. Lưu ý về khả năng tái lập
+
+### 11.1. Dữ liệu lịch sử
 
 D1 sử dụng trong nghiên cứu là phiên bản đã được kiểm tra và điều chỉnh đơn vị `volume_base` của OKX spot từ USDT sang BTC.
 
-Khi tái lập kết quả báo cáo, cần sử dụng đúng phiên bản dữ liệu đã bàn giao thay vì tải lại dữ liệu lịch sử và giả định hai bộ dữ liệu hoàn toàn giống nhau.
+Khi tái lập kết quả báo cáo, cần sử dụng đúng phiên bản dữ liệu đã bàn giao.
 
-Các bảng và hình phụ thuộc vào D1 cần được tạo từ cùng phiên bản dữ liệu để đảm bảo tính nhất quán.
-
-### 13.2. Dữ liệu live
+### 11.2. Dữ liệu live
 
 D2 được thu trong **13 phiên live** và phụ thuộc vào thời điểm thu thập thực tế.
 
-Dữ liệu bid/ask, spread và market depth không thể được tái tạo chính xác bằng cách chạy collector ở một thời điểm khác.
+Dữ liệu bid/ask, spread và các thông tin thị trường live không thể được tái tạo chính xác bằng cách chạy collector tại một thời điểm khác. Vì vậy, tái lập kết quả live phải sử dụng dữ liệu đã lưu trong nghiên cứu.
 
-Vì vậy, tái lập kết quả live phải sử dụng dữ liệu đã lưu trong nghiên cứu. Báo cáo T0b có thể được tạo lại từ raw live bằng chế độ `coverage`; không cần thu lại dữ liệu thị trường.
+### 11.3. Funding rate và Open Interest
 
-`live_session_is.parquet` được tạo từ dữ liệu live đã lưu bằng `src.price_discovery.run_live_is` và được sử dụng làm đầu vào cho mô hình T4 live.
+Funding rate và Open Interest phụ thuộc vào giới hạn lịch sử và khả năng cung cấp dữ liệu của từng sàn. Việc tải lại tại thời điểm khác có thể tạo ra khoảng dữ liệu khác với bộ dữ liệu được sử dụng trong nghiên cứu.
 
-### 13.3. Funding rate và Open Interest
-
-Funding rate và Open Interest phụ thuộc vào giới hạn lịch sử và khả năng cung cấp dữ liệu của từng sàn.
-
-Việc tải lại tại thời điểm khác có thể tạo ra khoảng dữ liệu khác với bộ dữ liệu được sử dụng trong nghiên cứu.
-
-### 13.4. Final test
+### 11.4. Final test
 
 Final test đã được sử dụng một lần cho T5b.
 
-Repository hiện tại giữ trạng thái final test đã consumed và không tự mở lại tập này.
+Không xóa file lock, không chỉnh `test_consumed` về `false` và không chạy lại T5b chỉ để tái tạo output đã tồn tại.
 
-Không:
-
-```text
-xóa .test.lock
-chỉnh test_consumed về false
-chạy lại T5b trên final test
-```
-
-chỉ để tái tạo lại một file output đã tồn tại.
-
-### 13.5. Historical và live không hoàn toàn tương đương
+### 11.5. Historical và live không hoàn toàn tương đương
 
 Dữ liệu lịch sử có tần suất 1 phút, trong khi dữ liệu live sử dụng bid/ask thực tế với độ phân giải cao hơn.
 
@@ -1037,13 +928,13 @@ Do đó:
 - gap duration của historical và live không có cùng độ phân giải;
 - historical backtest sử dụng proxy từ dữ liệu nến;
 - live backtest sử dụng báo giá thực tế;
-- spread và market depth lịch sử không được quan sát trực tiếp.
+- spread lịch sử không được quan sát trực tiếp như dữ liệu live.
 
 Các kết quả giữa hai nguồn dữ liệu cần được diễn giải theo đúng thiết kế này.
 
 ---
 
-## 14. Quy ước chính
+## 12. Quy ước chính
 
 - Biến, hàm và tên cột sử dụng `snake_case`.
 - Lớp sử dụng `PascalCase`.
@@ -1053,7 +944,7 @@ Các kết quả giữa hai nguồn dữ liệu cần được diễn giải the
 - Giá được biểu diễn bằng **USDT**.
 - Khối lượng cơ sở được biểu diễn bằng **BTC**.
 - Thời gian sử dụng **UTC**.
-- Giá trị thiếu được giữ dưới dạng `NaN`; dữ liệu không được tự động nội suy nếu thiết kế không cho phép.
+- Giá trị thiếu được giữ dưới dạng `NaN`.
 - Các cặp arbitrage ghi venue mua trước và venue bán sau.
 - Kết quả synthetic được lưu riêng dưới `outputs/synthetic/`.
 - Development và validation được sử dụng cho phát triển và kiểm tra độ ổn định của mô hình.
@@ -1061,15 +952,12 @@ Các kết quả giữa hai nguồn dữ liệu cần được diễn giải the
 
 ---
 
-## 15. Luồng nghiên cứu
-
-Luồng xử lý chính của dự án có thể tóm tắt như sau:
+## 13. Luồng nghiên cứu
 
 ```text
 Historical OHLCV
       │
       ├──► T0 – Data quality
-      │
       ▼
 D1 – Historical data
       │
@@ -1079,61 +967,44 @@ Synchronization
       ▼
 D3 – panel_1m_wide
       │
-      ├──────────────► D3b – features_1m
-      │                        │
-      │                        ▼
-      │                  regime_flags
+      ├──► features_1m
+      │       │
+      │       └──► regime_flags
       │
       ▼
 Price Discovery
       │
-      ├── T2
-      ├── T3 / T3b / T3c / T3d
-      ├── rolling_is
-      │       │
-      │       ├──► T4 – Liquidity regression (historical)
-      │       ├──► T6 – Stress/regime analysis
-      │       ├──► F3 – Rolling IS
-      │       └──► F7 – Spot vs perpetual
-      │
+      ├──► T2
+      ├──► T3 / T3b / T3c / T3d
+      ├──► rolling_is
+      │       ├──► T4
+      │       ├──► T6
+      │       ├──► F3
+      │       └──► F7
       ├──► F1 / F2
-      └──► F6 – Lead–lag
-
+      └──► F6
 
 Raw live quotes
       │
-      ├──► T0b – Live coverage
-      │
+      ├──► T0b
       ▼
 D2 – live_quotes_long
       │
-      ├──► Session-level Information Share
-      │          │
-      │          ▼
-      │    live_session_is.parquet
-      │          │
-      │          └──► T4 – Liquidity regression (live)
-      │
-      ├──────────────► Half-spread calibration
-      │                         │
-      │                         ▼
-Historical panel ─────────► Backtest A
-      │
-      └──► Historical gap ──────────────┐
-                                        │
-D2 – Live quotes ─► Live gap ─► Backtest B
-                                        │
-                                        ├──► T5 / T5b / T5c
-                                        │
-regime_flags ───────────────────────────└──► T6b
+      ├──► live_session_is ──► T4 live
+      ├──► Half-spread calibration ──► Backtest A
+      ├──► Live gap
+      └──► Backtest B
+                │
+                ├──► T5 / T5b
+                └──► F5
 
-Historical + live gap ──► F4
-Backtest results ───────► F5
+Historical gap + Live gap ──► F4
+Regime flags + Gap ─────────► T6b
 ```
 
 ---
 
-## 16. Kết quả và phạm vi sử dụng
+## 14. Phạm vi sử dụng
 
 Dự án được xây dựng cho mục đích nghiên cứu về:
 
