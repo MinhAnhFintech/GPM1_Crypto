@@ -1,0 +1,4 @@
+# Keep released data byte-identical to the hashes in data/README_DATA.md (no CRLF conversion on Windows).
+data/processed/split_manifest.json -text
+data/processed/split_manifest.json.test.lock -text
+*.parquet binary

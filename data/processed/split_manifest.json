@@ -1,0 +1,38 @@
+{
+  "contract_version": "1.0",
+  "data_kind": "historical",
+  "fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
+  "fingerprint_method": "sha256:pandas_hash_values+schema+index+attrs",
+  "n_obs": 501119,
+  "ratios": [
+    0.6,
+    0.2,
+    0.2
+  ],
+  "counts": {
+    "dev": 300671,
+    "val": 100223,
+    "test": 100225
+  },
+  "test_policy": "single_final_evaluation",
+  "test_consumed": true,
+  "dev_start": "2025-10-18T00:01:00+00:00",
+  "dev_end": "2026-05-14T19:11:00+00:00",
+  "val_start": "2026-05-14T19:12:00+00:00",
+  "val_end": "2026-07-23T09:34:00+00:00",
+  "test_start": "2026-07-23T09:35:00+00:00",
+  "test_end": "2026-09-30T23:59:00+00:00",
+  "frozen_config_sha256": "69803409f6c88224b8bffb2a885b3866e5c5b882b8576b2e4bead4ef8d29a2a8",
+  "final_test_import": {
+    "origin": "TV6 PR #26",
+    "reviewed_head": "e38c6594fd5d90a2448b9a3f0e5a6503b813abe0",
+    "result": "outputs/tables/T5b_cost_sensitivity.csv",
+    "author_frozen_config_sha256": "69803409f6c88224b8bffb2a885b3866e5c5b882b8576b2e4bead4ef8d29a2a8",
+    "source_receipt_file_sha256_local": "869a1d03a9cd80ae9c02fa106285b8e2e05a71943486eef7b31455b57352db46",
+    "result_file_sha256_local": "386c58889750015d25fd783d64e433430e4821af5e61b8d220c02f44198db104",
+    "imported_at_utc": "2026-10-24T05:43:56.036488+00:00",
+    "executed_on_this_machine": false,
+    "manifest_before_sha256": "efbee9c667548243f9d8e7140853b500e9908abad07adca7c20d813b02484ff0",
+    "before_backup": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\tmp\\review\\accepted-final-prs-20261024\\split_manifest.before_import.json"
+  }
+}

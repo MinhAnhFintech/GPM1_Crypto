@@ -5,11 +5,19 @@ data/raw/ohlcv/*
 data/raw/live/*
 !data/raw/ohlcv/.gitkeep
 !data/raw/live/.gitkeep
+# Data release for reproduction (data/README_DATA.md): raw OHLCV that rebuilds D1 A162...09F3, D2, D9, D3/D4.
+# D1 (112 MB) exceeds the GitHub file limit and is rebuilt from the raw files.
+!data/raw/ohlcv/*_BTCUSDT_1m.parquet
 .venv/
 data/interim/*
 !data/interim/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/panel_1m_wide.parquet
+!data/processed/live_quotes_long.parquet
+!data/processed/funding_oi.parquet
+!data/processed/split_manifest.json
+!data/processed/split_manifest.json.test.lock
 tmp/
 __pycache__/
 *.py[cod]
