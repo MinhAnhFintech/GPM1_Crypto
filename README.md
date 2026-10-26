@@ -42,6 +42,7 @@ GPM1_Crypto/
 │   ├── price_discovery/
 │   ├── cost_model/
 │   ├── backtest/
+│   ├── evaluation/
 │   └── utils/
 │
 ├── scripts/
@@ -65,7 +66,7 @@ Trong đó:
 - `config/`: lưu cấu hình sàn, phí giao dịch, sự kiện, phiên live và các tham số nghiên cứu.
 - `docs/`: tài liệu về cấu trúc dữ liệu, nguồn dữ liệu và quy ước của dự án.
 - `data/`: chứa dữ liệu thô, dữ liệu trung gian, dữ liệu đã xử lý và dữ liệu giả lập.
-- `src/`: mã nguồn chính cho thu thập, đồng bộ, price discovery, mô hình chi phí và backtest.
+- `src/`: mã nguồn chính cho thu thập, đồng bộ, price discovery, mô hình chi phí, backtest và evaluation.
 - `scripts/`: các script hỗ trợ tạo đặc trưng, bảng và hình.
 - `notebooks/`: chứa các script phân tích và trực quan hóa bổ sung.
 - `dashboard/`: ứng dụng Streamlit dùng để trực quan hóa kết quả.
@@ -78,6 +79,34 @@ Trong đó:
 
 Dự án sử dụng **Python 3.12**.
 
+Có thể kiểm tra phiên bản Python bằng:
+
+```bash
+python --version
+```
+
+Tùy hệ điều hành và cách cài đặt Python, lệnh gọi trình thông dịch có thể khác nhau:
+
+```text
+Windows        : python hoặc py
+macOS / Linux  : python3 hoặc python
+```
+
+Các lệnh trong README sử dụng `python` làm quy ước chung. Nếu máy không nhận lệnh `python`, có thể thay `python` bằng `py` trên Windows hoặc `python3` trên macOS/Linux.
+
+Ví dụ:
+
+```bash
+# Cách viết được sử dụng trong README
+python -m pytest -q
+
+# Windows nếu không nhận "python"
+py -m pytest -q
+
+# macOS/Linux nếu sử dụng "python3"
+python3 -m pytest -q
+```
+
 Các thư viện cần thiết được khai báo trong:
 
 ```text
@@ -88,6 +117,12 @@ Từ thư mục gốc của repository, cài đặt bằng:
 
 ```bash
 python -m pip install -r requirements.txt
+```
+
+Ví dụ, trên Windows nếu máy chỉ nhận Python Launcher:
+
+```bash
+py -m pip install -r requirements.txt
 ```
 
 Seed sử dụng cho các bước có yếu tố ngẫu nhiên là:
@@ -130,6 +165,7 @@ data/processed/panel_1m_wide.parquet
 data/processed/split_manifest.json
 data/processed/features_1m.parquet
 data/processed/regime_flags.parquet
+data/processed/live_session_is.parquet
 ```
 
 Không thay thế dữ liệu nghiên cứu bằng dữ liệu tải lại tại thời điểm khác nếu mục tiêu là tái lập chính xác kết quả trong báo cáo.
@@ -370,13 +406,21 @@ is_perp
 
 Các biến liên tục được chuẩn hóa trước khi ước lượng. Kết quả được diễn giải là **mối liên hệ**, không phải quan hệ nhân quả.
 
-Nếu đã có Information Share tính theo từng phiên live tại:
+#### T4 – mô hình live
+
+Để tái lập mô hình live, trước tiên tạo Information Share theo từng phiên live bằng:
+
+```bash
+python -m src.price_discovery.run_live_is
+```
+
+Bước này tạo:
 
 ```text
 data/processed/live_session_is.parquet
 ```
 
-có thể chạy thêm phần live bằng:
+Sau khi file trên được tạo, chạy:
 
 ```bash
 python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
@@ -399,7 +443,7 @@ Do mẫu live ngắn, kết quả phần này được xem là bằng chứng th
 ### 7.5. Phân tích Information Share theo market regime
 
 ```bash
-python notebooks/tv3/stress_regime.py
+python -m src.evaluation.stress_regime
 ```
 
 Đầu vào:
@@ -578,7 +622,7 @@ T6b mô tả tần suất và thời gian tồn tại của gap trong các trạ
 ### 7.13. Tạo F1 và F2
 
 ```bash
-python notebooks/tv2/plot_c2_05.py
+python -m notebooks.tv2.plot_c2_05
 ```
 
 Đầu ra:
@@ -745,56 +789,58 @@ python -m src.price_discovery.run_price_discovery --data-dir data/processed --ou
 # 11. Liquidity regression – historical
 python notebooks/tv3/liquidity_regression.py
 
-# 12. Stress/regime analysis
-python notebooks/tv3/stress_regime.py
+# 12. Tạo Information Share theo phiên live
+python -m src.price_discovery.run_live_is
 
-# 13. Historical gap
+# 13. Liquidity regression – live
+python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
+
+# 14. Stress/regime analysis
+python -m src.evaluation.stress_regime
+
+# 15. Historical gap
 python -m src.cost_model.run_gap_events --panel data/processed/panel_1m_wide.parquet
 
-# 14. Live gap
+# 16. Live gap
 python -m src.cost_model.run_gap_events --quotes data/processed/live_quotes_long.parquet --config config/config.yaml
 
-# 15. Backtest A
+# 17. Backtest A
 python -m src.backtest.run_backtest_a
 
-# 16. Backtest B
+# 18. Backtest B
 python -m src.backtest.run_backtest_b
 
-# 17. Tổng hợp T5
+# 19. Tổng hợp T5
 python -m src.backtest.make_t5
 
 # T5b KHÔNG được chạy lại vì final test đã được sử dụng và khóa.
 
-# 18. Gap theo regime
+# 20. Gap theo regime
 python -m src.backtest.make_t6b
 
-# 19. F1 và F2
-python notebooks/tv2/plot_c2_05.py
+# 21. F1 và F2
+python -m notebooks.tv2.plot_c2_05
 
-# 20. F3
+# 22. F3
 python scripts/make_figure_f3.py
 
-# 21. F4 và F5
+# 23. F4 và F5
 python -m src.backtest.make_figures
 
-# 22. F6
+# 24. F6
 python scripts/make_figure_f6.py
 
-# 23. F7
+# 25. F7
 python scripts/make_figure_f7.py
 
-# 24. Đối chiếu ledger
+# 26. Đối chiếu ledger
 python -m src.backtest.reconcile
 
-# 25. Đặc điểm venue
+# 27. Đặc điểm venue
 python -m scripts.exchange_characteristics
 ```
 
-Nếu cần tái lập phần live của T4 và đã có `live_session_is.parquet`, chạy thêm:
-
-```bash
-python notebooks/tv3/liquidity_regression.py --live-is data/processed/live_session_is.parquet
-```
+Nếu môi trường không nhận `python`, thay toàn bộ tiền tố `python` trong chuỗi lệnh trên bằng `py` trên Windows hoặc `python3` trên macOS/Linux.
 
 T5b không thuộc chuỗi chạy lại vì final test đã được sử dụng một lần và khóa theo thiết kế nghiên cứu.
 
@@ -826,6 +872,7 @@ T3d_ils.csv
 rolling_is.parquet
 
 T4_leadership_determinants.csv
+T6_stress.csv
 
 gap_events_historical.parquet
 gap_events.parquet
@@ -838,8 +885,6 @@ half_spread_calibration.csv
 trades_ledger.parquet
 T5_arbitrage_net.csv
 T5b_cost_sensitivity.csv
-
-T6_stress.csv
 T6b_gap_by_regime.csv
 ```
 
@@ -951,6 +996,8 @@ Dữ liệu bid/ask, spread và market depth không thể được tái tạo ch
 
 Vì vậy, tái lập kết quả live phải sử dụng dữ liệu đã lưu trong nghiên cứu. Báo cáo T0b có thể được tạo lại từ raw live bằng chế độ `coverage`; không cần thu lại dữ liệu thị trường.
 
+`live_session_is.parquet` được tạo từ dữ liệu live đã lưu bằng `src.price_discovery.run_live_is` và được sử dụng làm đầu vào cho mô hình T4 live.
+
 ### 13.3. Funding rate và Open Interest
 
 Funding rate và Open Interest phụ thuộc vào giới hạn lịch sử và khả năng cung cấp dữ liệu của từng sàn.
@@ -1036,7 +1083,7 @@ Price Discovery
       ├── T3 / T3b / T3c / T3d
       ├── rolling_is
       │       │
-      │       ├──► T4 – Liquidity regression
+      │       ├──► T4 – Liquidity regression (historical)
       │       ├──► T6 – Stress/regime analysis
       │       ├──► F3 – Rolling IS
       │       └──► F7 – Spot vs perpetual
@@ -1051,6 +1098,13 @@ Raw live quotes
       │
       ▼
 D2 – live_quotes_long
+      │
+      ├──► Session-level Information Share
+      │          │
+      │          ▼
+      │    live_session_is.parquet
+      │          │
+      │          └──► T4 – Liquidity regression (live)
       │
       ├──────────────► Half-spread calibration
       │                         │
