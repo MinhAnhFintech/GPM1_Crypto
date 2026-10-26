@@ -1,0 +1,56 @@
+{
+  "check": "C4.12 raw -> D1 rebuild",
+  "verified_at_utc": "2026-10-26T16:25:47+00:00",
+  "raw_source": "Google Drive crypto/raw_ohlcv_D1_A162, uploaded by Ny (TV2, C2.01-C2.03) on 2026-10-26",
+  "raw_files": [
+    {
+      "file": "binance_perp_BTCUSDT_1m.parquet",
+      "bytes": 19798908,
+      "sha256": "92046757ab9ecb6cafdf96d742ac5910199e83b7352eead3abbcead8a2ddc837"
+    },
+    {
+      "file": "binance_spot_BTCUSDT_1m.parquet",
+      "bytes": 22355001,
+      "sha256": "60a3b27d0a780a2e8799ca0261e31007a1f5d3e4a66f1e8baa60d625688affab"
+    },
+    {
+      "file": "bybit_perp_BTCUSDT_1m.parquet",
+      "bytes": 19104522,
+      "sha256": "be944388cbb75dce54110d28c42d75b767d8a955234af6af4ee0f4871630a0d1"
+    },
+    {
+      "file": "bybit_spot_BTCUSDT_1m.parquet",
+      "bytes": 21615225,
+      "sha256": "84ac666793db22ba909a012d31f52a17534055d5484e551240aac58c20437ff7"
+    },
+    {
+      "file": "okx_perp_BTCUSDT_1m.parquet",
+      "bytes": 20464367,
+      "sha256": "2ce1fbbfe73c34a95846a24dd6c3de5ead11025bea5a671b2b07c13106c4686c"
+    },
+    {
+      "file": "okx_spot_BTCUSDT_1m.parquet",
+      "bytes": 21417814,
+      "sha256": "29d42f08b4500ebe12215cab82bc15fc40937969a08e4ed6abf2ddfcb87a4ea5"
+    }
+  ],
+  "sender_hash_prefixes_matched": true,
+  "code_commit": "26e60b9a5f00bb4b0bd537998edf9cd8c2e10214",
+  "command": "python src/features/ohlcv_long.py --raw-dir data/raw/ohlcv --out <tmp>",
+  "rebuilt_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+  "rebuilt_d1_rows": 3006714,
+  "rebuilt_venues": [
+    "binance_perp",
+    "binance_spot",
+    "bybit_perp",
+    "bybit_spot",
+    "okx_perp",
+    "okx_spot"
+  ],
+  "canonical_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+  "expected_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+  "byte_identical_to_canonical": true,
+  "run_all_raw_loader_equal_values": true,
+  "raw_rebuild_verified": true,
+  "note": "Earlier receipts dated 2026-10-21 (raw_rebuild_verified=false) are kept as history; this file supersedes that field. The pre-A162 local raw lacked volume_quote and had one month of binance_spot, so it is archived, not used."
+}
