@@ -369,6 +369,7 @@ outputs/tables/T3_*.csv
 outputs/tables/T3b_sensitivity.csv
 outputs/tables/T3c_spot_perp.csv
 outputs/tables/T3d_ils.csv
+outputs/tables/T3d_ils_summary.csv
 outputs/tables/rolling_is.parquet
 ```
 
@@ -736,7 +737,7 @@ Khi khoảng Information Share của hai thị trường chồng nhau, kết qu�
 ### 7.18. Đặc điểm venue
 
 ```bash
-python -m scripts.exchange_characteristics
+python -m scripts.exchange_characteristics --ohlcv data/interim/ohlcv_1m_long.parquet --live data/processed/live_quotes_long.parquet --funding data/processed/funding_oi.parquet --manifest data/processed/split_manifest.json --fees config/fees.yaml --out outputs/tables/T1_exchange_characteristics.csv --sample dev_val
 ```
 
 Đầu ra:
@@ -747,13 +748,19 @@ outputs/tables/T1_exchange_characteristics.csv
 
 Bảng T1 tổng hợp các đặc điểm chính của các venue được sử dụng trong nghiên cứu.
 
-Nếu D1 được cập nhật hoặc điều chỉnh, T1 cần được chạy lại trên phiên bản D1 tương ứng để đảm bảo kết quả đồng nhất với dữ liệu nghiên cứu.
+Nếu D1, D2 hoặc các dữ liệu đầu vào liên quan được cập nhật hoặc điều chỉnh, T1 cần được chạy lại trên phiên bản dữ liệu tương ứng để đảm bảo kết quả đồng nhất với dữ liệu nghiên cứu.
 
 ---
 
 ## 8. Thứ tự tái lập kết quả
 
-Từ một môi trường mới đã có đầy đủ dữ liệu đầu vào, thứ tự chạy đề xuất là:
+Từ một môi trường mới đã có đầy đủ dữ liệu đầu vào, có thể chạy toàn bộ historical pipeline bằng một lệnh:
+
+```bash
+python run_all.py --mode historical --config config/config.yaml
+```
+
+Lệnh trên chạy toàn bộ các bước được điều phối trong historical pipeline và không mở lại final test. Danh sách bên dưới được giữ lại để có thể tái lập hoặc kiểm tra từng bước riêng lẻ.
 
 ```bash
 # 1. Cài thư viện
@@ -837,7 +844,7 @@ python scripts/make_figure_f7.py
 python -m src.backtest.reconcile
 
 # 27. Đặc điểm venue
-python -m scripts.exchange_characteristics
+python -m scripts.exchange_characteristics --ohlcv data/interim/ohlcv_1m_long.parquet --live data/processed/live_quotes_long.parquet --funding data/processed/funding_oi.parquet --manifest data/processed/split_manifest.json --fees config/fees.yaml --out outputs/tables/T1_exchange_characteristics.csv --sample dev_val
 ```
 
 Nếu môi trường không nhận `python`, thay toàn bộ tiền tố `python` trong chuỗi lệnh trên bằng `py` trên Windows hoặc `python3` trên macOS/Linux.
@@ -869,6 +876,7 @@ T3_*.csv
 T3b_sensitivity.csv
 T3c_spot_perp.csv
 T3d_ils.csv
+T3d_ils_summary.csv
 rolling_is.parquet
 
 T4_leadership_determinants.csv
