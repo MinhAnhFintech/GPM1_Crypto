@@ -76,6 +76,12 @@ def panel_file():
     return FIXTURE_PANEL
 
 
+def visit(at, page):
+    """Chọn một trang ở thanh điều hướng bên trái rồi chạy lại."""
+    at.radio(key="nav").set_value(page)
+    return at.run()
+
+
 def test_app_runs_without_optional_tables(panel_file, tmp_path):
     pytest.importorskip("streamlit.testing.v1")
     from streamlit.testing.v1 import AppTest
@@ -84,10 +90,17 @@ def test_app_runs_without_optional_tables(panel_file, tmp_path):
     at.sidebar.text_input[1].set_value(str(tmp_path / "khong_co_d6.parquet"))
     at.sidebar.text_input[2].set_value(str(tmp_path / "khong_co_d7.parquet"))
     at.run()
-    assert not at.exception
-    assert not at.error, [e.value for e in at.error]
-    assert [s.value for s in at.subheader][0].startswith("1.") and len(at.subheader) == 7
-    assert any("Chờ file" in m.value for m in at.markdown)  # ô chưa có nguồn ghi 'chờ', không bịa số
+    waiting = []
+    for page in app.TAB_LABELS:                       # mỗi trang ở thanh bên đều chạy được khi thiếu D6/D7
+        visit(at, page)
+        assert not at.exception, page
+        assert not at.error, (page, [e.value for e in at.error])
+        waiting += [m.value for m in at.markdown if "Chờ file" in m.value]
+        if page == "Giá & độ phân tán":
+            assert at.subheader[0].value == "Giá BTC trên từng thị trường"
+        if page == "Sàn dẫn giá":
+            assert [s.value[:3] for s in at.subheader] == ["RQ1", "RQ3", "RQ2"]
+    assert waiting                                    # ô chưa có nguồn ghi 'chờ', không bịa số
 
 
 def test_app_missing_panel_shows_error(tmp_path):
@@ -126,9 +139,12 @@ def test_app_with_rolling_and_gap_tables(panel_file, tmp_path):
     at.sidebar.text_input[1].set_value(str(p6))
     at.sidebar.text_input[2].set_value(str(p7))
     at.run()
+    visit(at, "Sàn dẫn giá")
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
     assert any("overlapping_bounds" in w.value for w in at.warning)      # leader trống hiển thị đúng lý do
+    visit(at, "Chênh lệch giá & lợi nhuận")
+    assert not at.exception
     spot, perp = [m.value for m in at.metric if "còn lãi" in m.label]
     assert (spot, perp) == ("1", "0")                                      # NaN net không tính là cơ hội
 
@@ -144,8 +160,8 @@ def test_cursor_only_when_effects_on():
 
 
 def test_hero_has_title_and_five_questions():
-    html = app.hero_html()
-    assert "Crypto Price Discovery" in html and html.count("<li><b>RQ") == 5
+    assert "Crypto Price Discovery" in app.hero_html()
+    assert app.rq_html().count("<li><b>RQ") == 5
 
 
 def test_to_csv_bytes_has_bom_and_keeps_nan_blank():
@@ -162,12 +178,6 @@ def test_range_mask_windows():
     assert app.range_mask(idx, "Tùy chọn", (d, d)).sum() == 1440
 
 
-def test_anim_chart_embeds_data_and_colors():
-    s = pd.Series([1.0, 2.0], index=pd.date_range("2026-01-01", periods=2, freq="1min", tz="UTC"))
-    html = app.anim_chart_html({"spot": s}, ["#3A6FD8"], True, app.palette("Sáng", "#3A6FD8"))
-    assert '"spot"' in html and "#3A6FD8" in html and "__DATA__" not in html
-
-
 def test_font_and_size_in_css():
     css = app.theme_css("Sáng", "#3A6FD8", False, font="Georgia", size_pt=14)
     assert "Georgia" in css and "18.7px" in css
@@ -180,8 +190,17 @@ def test_app_runs_in_dark_mode_with_custom_color(panel_file, tmp_path):
     at.sidebar.text_input[0].set_value(str(panel_file))
     at.sidebar.text_input[1].set_value(str(tmp_path / "khong_co_d6.parquet"))
     at.sidebar.text_input[2].set_value(str(tmp_path / "khong_co_d7.parquet"))
-    at.sidebar.radio[0].set_value("Tối")
-    at.sidebar.selectbox[0].set_value("Tùy chỉnh")
+    at.radio(key="mode").set_value("Tối")
+    at.selectbox(key="preset").set_value("Tùy chỉnh")
+    at.selectbox(key="cursor").set_value("Ethereum")
     at.run()
     assert not at.exception and not at.error
-    assert len(at.tabs) == 6 and len(at.subheader) == 7
+    for page in app.TAB_LABELS:
+        visit(at, page)
+        assert not at.exception and not at.error, page
+
+
+def test_page_header_and_deco_have_no_unescaped_text():
+    html = app.page_header("Sàn dẫn giá", "A <b>", "x & y")
+    assert "A &lt;b&gt;" in html and "x &amp; y" in html
+    assert app.deco_html("#3A6FD8").count("<svg") == 3

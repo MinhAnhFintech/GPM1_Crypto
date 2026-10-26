@@ -115,6 +115,8 @@ def test_future_gap_events_not_shown_or_counted(tmp_path):
     at.sidebar.text_input[1].set_value(str(tmp_path / "absent.parquet"))
     at.sidebar.text_input[2].set_value(str(path))
     at.run()
+    at.radio(key="nav").set_value("Chênh lệch giá & lợi nhuận")   # các ô "còn lãi" nằm ở trang này
+    at.run()
     assert not at.exception
     assert not any(m.label.endswith("còn lãi sau chi phí") and m.value == "1" for m in at.metric)
 

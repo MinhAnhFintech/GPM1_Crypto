@@ -8,5 +8,6 @@ ccxt==4.5.88
 matplotlib==3.11.2
 statsmodels==0.15.0
 streamlit==1.66.0
+plotly==7.1.0
 pytest==9.1.1
 tzdata==2026.5

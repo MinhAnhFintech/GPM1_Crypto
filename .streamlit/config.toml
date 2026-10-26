@@ -1,0 +1,10 @@
+[client]
+# Ẩn nút Deploy và menu kỹ thuật khi demo
+toolbarMode = "viewer"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+# Màu nhấn cho thanh trượt, nút chọn: cùng xanh với giao diện
+primaryColor = "#3A6FD8"
