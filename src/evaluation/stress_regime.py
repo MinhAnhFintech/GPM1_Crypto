@@ -37,6 +37,7 @@ REGIME_COLUMNS = {
     "flag_weekend": "weekend_vs_weekday",
     "flag_high_vol": "high_vs_low_volatility",
     "regime_bull_bear": "bull_vs_bear",
+    "flag_event": "event_vs_normal",
 }
 
 
@@ -144,6 +145,13 @@ def _normalise_regime_values(flags: pd.DataFrame) -> pd.DataFrame:
         )
         flags["flag_high_vol"] = flags["flag_high_vol"].replace({"true": "high_volatility", "false": "low_volatility", "1.0": "high_volatility", "0.0": "low_volatility", "high": "high_volatility", "low": "low_volatility"})
 
+    if "flag_event" in flags.columns:
+        s = flags["flag_event"]
+        if s.dtype == object or str(s.dtype) in ("string", "boolean"):
+            s = s.astype("string").str.strip().str.lower().map({"true": True, "false": False, "1": True, "0": False})
+        flags["flag_event"] = s.map(lambda x: "event" if x is True or (pd.notna(x) and x == 1)
+                                    else "normal" if x is False or (pd.notna(x) and x == 0) else np.nan)
+
     if "regime_bull_bear" in flags.columns:
         flags["regime_bull_bear"] = flags["regime_bull_bear"].astype("string").str.strip().str.lower().replace({
             "bullish": "bull", "bearish": "bear", "bull_market": "bull", "bear_market": "bear",
@@ -183,6 +191,7 @@ def _make_regime_summary(merged: pd.DataFrame) -> pd.DataFrame:
         ("weekend_vs_weekday", "flag_weekend", "weekend", "weekday"),
         ("high_vs_low_volatility", "flag_high_vol", "high_volatility", "low_volatility"),
         ("bull_vs_bear", "regime_bull_bear", "bull", "bear"),
+        ("event_vs_normal", "flag_event", "event", "normal"),
     ]
     for comparison, col, group_a, group_b in comparisons:
         if col not in merged.columns:
