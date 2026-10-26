@@ -103,6 +103,8 @@ Ba bộ dữ liệu chính được sử dụng gồm:
 
 Dữ liệu thật không được đưa trực tiếp lên Git. Trước khi chạy pipeline, cần đặt các file dữ liệu vào đúng đường dẫn tương ứng.
 
+Các lệnh trong phần **Chạy các bước nghiên cứu** được sử dụng cho dữ liệu thật. Dữ liệu trong `data/fixtures/` chỉ phục vụ kiểm thử và không được sử dụng để tạo các bảng, hình hoặc kết quả nghiên cứu chính thức.
+
 ---
 
 ## 4. Kiểm tra mã nguồn
@@ -119,7 +121,7 @@ Các test được sử dụng để kiểm tra các bước như đồng bộ t
 
 ## 5. Chạy trên dữ liệu giả lập
 
-Dữ liệu giả lập được sử dụng để kiểm tra pipeline trên trường hợp có venue dẫn giá được xác định trước.
+Dữ liệu giả lập được sử dụng để kiểm tra pipeline trên trường hợp có venue dẫn giá được xác định trước. Kết quả của phần này không được sử dụng làm kết quả nghiên cứu.
 
 Chạy kiểm chứng tổng quát:
 
@@ -145,7 +147,7 @@ Các kết quả giả lập được lưu riêng trong:
 outputs/synthetic/
 ```
 
-để tránh nhầm lẫn với kết quả nghiên cứu trên dữ liệu thật.
+Việc tách riêng thư mục này nhằm tránh nhầm lẫn giữa kết quả kiểm thử synthetic và kết quả nghiên cứu trên dữ liệu thật.
 
 ---
 
@@ -157,9 +159,9 @@ Từ thư mục gốc của repository, chạy:
 python run_all.py --mode historical --config config/config.yaml --foundation-only
 ```
 
-Bước này thực hiện các xử lý nền từ D1, bao gồm xây dựng panel dữ liệu đồng bộ, chia mẫu, phân tích lead–lag và tạo các đầu ra liên quan.
+Bước này thực hiện các xử lý nền từ D1, bao gồm xây dựng panel dữ liệu đồng bộ, chia mẫu và các đầu ra nền cần thiết cho các bước nghiên cứu tiếp theo.
 
-Sau đó có thể kiểm tra dữ liệu bàn giao bằng:
+Sau đó kiểm tra dữ liệu bàn giao bằng:
 
 ```bash
 python -m src.utils.check_handoff --input data/processed/panel_1m_wide.parquet --schema D3 --expected-kind historical --config config/config.yaml --manifest data/processed/split_manifest.json --report outputs/D3_D4_handoff.json
@@ -171,7 +173,7 @@ Nếu `split_manifest.json` đã tồn tại, chương trình sử dụng lại 
 
 ## 7. Chạy các bước nghiên cứu
 
-Sau khi phần nền hoàn tất, chạy các bước theo thứ tự sau.
+Sau khi phần nền hoàn tất, chạy các bước dưới đây theo thứ tự.
 
 ### 7.1. Tạo đặc trưng 1 phút
 
@@ -203,7 +205,7 @@ data/processed/regime_flags.parquet
 python -m src.price_discovery.run_price_discovery --data-dir data/processed --output-dir outputs --config config/config.yaml --workers 8
 ```
 
-Bước này tạo các kết quả liên quan đến kiểm định, VECM, IS, CS, ILS, rolling và phân tích spot–perpetual.
+Bước này thực hiện các phân tích chính về kiểm định, VECM, Information Share, Component Share, Information Leadership Share, rolling price discovery và so sánh spot–perpetual.
 
 Các đầu ra chính gồm:
 
@@ -216,17 +218,27 @@ T3d
 rolling_is.parquet
 ```
 
-### 7.4. Xác định các sự kiện gap
+Các kết quả price discovery được sử dụng tiếp cho phân tích thanh khoản, trạng thái thị trường và các hình trực quan liên quan.
 
-```bash
-python -m src.cost_model.run_gap_events
+### 7.4. Tạo các sự kiện gap trên dữ liệu thật
+
+Bước tạo gap của nghiên cứu phải sử dụng dữ liệu nghiên cứu đã xử lý, không sử dụng dữ liệu trong `data/fixtures/`.
+
+Không sử dụng lệnh mặc định nếu lệnh đó trỏ tới fixture hoặc cấu hình synthetic.
+
+Chạy module tạo gap với cấu hình và đường dẫn dữ liệu thật của dự án. Sau khi chạy, cần kiểm tra đầu ra được tạo trong khu vực kết quả nghiên cứu, không phải:
+
+```text
+outputs/synthetic/
 ```
 
-Đầu ra chính:
+Đầu ra nghiên cứu:
 
 ```text
 gap_events.parquet
 ```
+
+Kết quả đúng trên dữ liệu thật phải tương ứng với bộ gap của nghiên cứu; nếu đầu ra có 852 sự kiện synthetic thì đang chạy nhầm fixture và không được sử dụng cho các bước tiếp theo.
 
 ### 7.5. Backtest A
 
@@ -234,7 +246,7 @@ gap_events.parquet
 python -m src.backtest.run_backtest_a
 ```
 
-Backtest A sử dụng proxy giá đóng cửa trên tập development.
+Backtest A sử dụng proxy giá đóng cửa một phút trên dữ liệu lịch sử.
 
 ### 7.6. Backtest B
 
@@ -242,7 +254,7 @@ Backtest A sử dụng proxy giá đóng cửa trên tập development.
 python -m src.backtest.run_backtest_b
 ```
 
-Backtest B sử dụng dữ liệu báo giá live.
+Backtest B sử dụng dữ liệu báo giá bid/ask live.
 
 Đầu ra chính:
 
@@ -262,19 +274,21 @@ python -m src.backtest.make_t5
 T5_arbitrage_net.csv
 ```
 
-### 7.8. Phân tích độ nhạy chi phí
+### 7.8. T5b – Final test
 
-```bash
-python -m src.backtest.run_t5b --split test
-```
+T5b sử dụng tập `final test` đã được khóa trước khi đánh giá.
 
-Đầu ra:
+Kết quả chính:
 
 ```text
 T5b_cost_sensitivity.csv
 ```
 
-**Lưu ý:** bước này sử dụng `final test` và chỉ được thực hiện một lần theo thiết kế của nghiên cứu. Sau khi `final test` đã được sử dụng, pipeline không tự mở lại tập dữ liệu này.
+**Không chạy lại bước T5b trong quy trình tái lập thông thường.**
+
+`Final test` của nghiên cứu đã được sử dụng một lần. Theo thiết kế chống look-ahead của pipeline, trạng thái này được lưu lại và tập test không tự được mở khóa. Vì vậy, lệnh đánh giá T5b không được đưa vào chuỗi lệnh chạy lại từ đầu.
+
+Khi tái lập dự án, sử dụng kết quả T5b đã được lưu cùng các đầu ra nghiên cứu để đối chiếu. Việc pipeline dừng nếu cố chạy lại final test là hành vi đúng theo thiết kế, không phải lỗi.
 
 ### 7.9. Phân tích gap theo regime
 
@@ -288,14 +302,20 @@ python -m src.backtest.make_t6b
 T6b_gap_by_regime.csv
 ```
 
-### 7.10. Tạo hình và đối chiếu ledger
+### 7.10. Tạo hình arbitrage và đối chiếu ledger
 
 ```bash
 python -m src.backtest.make_figures
 python -m src.backtest.reconcile
 ```
 
-Các đầu ra chính gồm F4, F5 và T5c.
+Các đầu ra chính gồm:
+
+```text
+F4
+F5
+T5c
+```
 
 ### 7.11. Đặc điểm venue
 
@@ -321,11 +341,77 @@ python scripts/make_figure_f6.py
 F6_leadlag_xcorr.png
 ```
 
+### 7.13. Các bảng và hình nghiên cứu còn lại
+
+Bộ kết quả hoàn chỉnh của nghiên cứu còn bao gồm:
+
+```text
+T4 – Mối liên hệ giữa price leadership và thanh khoản
+T6 – Information Share theo trạng thái thị trường
+
+F1 – Diễn biến giá
+F2 – Phân phối gap
+F3 – Rolling Information Share
+F7 – So sánh spot và perpetual
+```
+
+Các đầu ra này phải được tạo từ dữ liệu thật và lưu trong:
+
+```text
+outputs/tables/
+outputs/figures/
+```
+
+Không sử dụng file từ `outputs/synthetic/` thay thế cho các kết quả nghiên cứu trên dữ liệu thật.
+
+> **Lưu ý cho người tái lập:** tên lệnh cụ thể tạo T4, T6, F1, F2, F3 và F7 cần khớp với các script/module hiện có trong phiên bản repository được sử dụng. Không tự thay bằng fixture hoặc pipeline synthetic nếu script yêu cầu đầu vào nghiên cứu thật.
+
 ---
 
-## 8. Cách đọc kết quả
+## 8. Kiểm tra đầu ra sau khi chạy
 
-Các kết quả nghiên cứu được lưu chủ yếu trong:
+Sau khi hoàn tất pipeline nghiên cứu, kiểm tra tối thiểu các nhóm đầu ra sau.
+
+### Bảng
+
+```text
+T1
+T2
+T3
+T3b
+T3c
+T3d
+T4
+T5
+T5b
+T5c
+T6
+T6b
+```
+
+### Hình
+
+```text
+F1
+F2
+F3
+F4
+F5
+F6
+F7
+```
+
+### Dữ liệu trung gian và kết quả chính
+
+```text
+data/processed/features_1m.parquet
+data/processed/regime_flags.parquet
+rolling_is.parquet
+gap_events.parquet
+trades_ledger.parquet
+```
+
+Các đầu ra nghiên cứu được lưu chủ yếu trong:
 
 ```text
 outputs/
@@ -336,9 +422,9 @@ outputs/
 
 Trong đó:
 
-- `outputs/tables/`: các bảng kết quả nghiên cứu, ký hiệu T1, T2, T3, T5,...
-- `outputs/figures/`: các hình trực quan, ký hiệu F1, F4, F5, F6,...
-- `outputs/synthetic/`: kết quả kiểm chứng bằng dữ liệu giả lập.
+- `outputs/tables/`: các bảng kết quả nghiên cứu.
+- `outputs/figures/`: các hình trực quan của nghiên cứu.
+- `outputs/synthetic/`: chỉ chứa kết quả kiểm chứng bằng dữ liệu giả lập.
 
 Các file dữ liệu trung gian và dữ liệu đã xử lý được lưu trong `data/interim/` và `data/processed/`.
 
@@ -381,11 +467,57 @@ Dashboard của dự án được xây dựng bằng Streamlit tại:
 dashboard/app.py
 ```
 
-Dashboard sử dụng các đầu ra của pipeline để trình bày báo giá, độ phân tán giá, venue dẫn giá theo rolling IS, gap giữa các sàn và kết quả arbitrage sau chi phí.
+Từ thư mục gốc của repository, khởi động dashboard bằng:
+
+```bash
+python -m streamlit run dashboard/app.py
+```
+
+Sau khi khởi động, Streamlit sẽ hiển thị địa chỉ local của dashboard trong terminal. Giữ terminal đang chạy trong thời gian sử dụng dashboard.
+
+Dashboard đọc các đầu ra đã được tạo từ pipeline và trình bày:
+
+- báo giá;
+- độ phân tán giá;
+- venue dẫn giá theo rolling IS;
+- gap giữa các sàn;
+- ước lượng gap sau chi phí;
+- kết quả arbitrage;
+- các bảng và hình nghiên cứu liên quan.
+
+Dashboard không thay thế các bước tính toán của pipeline. Vì vậy, cần tạo đầy đủ các đầu ra nghiên cứu trước khi sử dụng dashboard.
 
 ---
 
-## 11. Lưu ý về khả năng tái lập
+## 11. Trình tự tái lập khuyến nghị
+
+Với môi trường mới, trình tự thực hiện gồm:
+
+```text
+1. Cài requirements.txt
+2. Đặt D1, D2 và D9 vào đúng đường dẫn
+3. Chạy toàn bộ test
+4. Chạy phần nền trên dữ liệu thật
+5. Kiểm tra D3/D4 handoff
+6. Tạo features_1m
+7. Tạo regime flags
+8. Chạy price discovery
+9. Tạo T4, T6 và các hình price discovery
+10. Tạo gap trên dữ liệu thật
+11. Chạy backtest A và backtest B
+12. Tạo T5, T6b, F4, F5 và T5c
+13. Tạo T1 và F6
+14. Kiểm tra đầy đủ T1–T6/T6b và F1–F7
+15. Khởi động dashboard
+```
+
+**Không chạy lại T5b/final test trong chuỗi tái lập này**, vì tập final test đã được sử dụng và khóa theo thiết kế của nghiên cứu.
+
+Kết quả T5b đã lưu được dùng để đối chiếu với các đầu ra còn lại.
+
+---
+
+## 12. Lưu ý về khả năng tái lập
 
 D1 sử dụng trong nghiên cứu là phiên bản đã điều chỉnh đơn vị khối lượng của OKX spot từ USDT sang BTC.
 
@@ -393,11 +525,13 @@ D2 phụ thuộc vào 13 phiên thu dữ liệu live nên không thể thu lại
 
 Funding rate và open interest phụ thuộc vào giới hạn dữ liệu lịch sử của từng sàn. Việc tải lại tại một thời điểm khác có thể tạo ra khoảng dữ liệu khác so với bộ dữ liệu sử dụng trong nghiên cứu.
 
-`Final test` đã được sử dụng một lần cho phân tích độ nhạy chi phí T5b. Theo thiết kế của pipeline, các lần chạy sau không tự mở lại tập này.
+`Final test` đã được sử dụng một lần cho phân tích độ nhạy chi phí T5b. Theo thiết kế của pipeline, các lần chạy sau không tự mở lại tập này. Vì vậy, tái lập thông thường không bao gồm việc chạy lại T5b.
+
+Kết quả synthetic và kết quả nghiên cứu thật phải được lưu tách biệt. Trước khi sử dụng một đầu ra trong báo cáo hoặc dashboard, cần kiểm tra rằng file đó được tạo từ dữ liệu thật và không nằm trong `outputs/synthetic/`.
 
 ---
 
-## 12. Quy ước chính
+## 13. Quy ước chính
 
 - Biến, hàm và tên cột sử dụng `snake_case`.
 - Lớp sử dụng `PascalCase`.
