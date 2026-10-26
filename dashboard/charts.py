@@ -46,7 +46,8 @@ def apply_palette(mode: str, accent: str) -> dict:
 PNG = {"F2": "F2_price_dispersion", "F3": "F3_rolling_is_bounds", "F4": "F4_gap_duration", "F5": "F5_cumulative_pnl",
        "F6": "F6_leadlag_xcorr", "T5": "T5_cost_waterfall", "T6b": "T6b_gap_by_regime", "IS": "IS_midpoint_over_time",
        "RQ1": "RQ1_leader_share", "VOL": "T1_volume_by_venue", "SHARE": "volume_share_daily",
-       "PREM": "price_premium_by_venue", "PX": "exchange_price"}
+       "PREM": "price_premium_by_venue", "PX": "exchange_price", "F3b": "F3_rolling_is_bounds_panels",
+       "F6b": "F6_leadlag_xcorr_panels"}
 
 
 def png_config(code: str) -> dict:
@@ -75,10 +76,10 @@ def layout(fig: go.Figure, t: dict, height: int = 340, title: str | None = None,
         hoverlabel=dict(bgcolor=t["surface"], font=dict(color=t["text"], family=FONT), bordercolor=t["border"]))
     if title:
         fig.update_layout(title=dict(text=title, x=0, font=dict(size=15)))
-    fig.update_xaxes(showgrid=False, zeroline=False, linecolor=t["border"], tickfont=dict(color=t["muted"], size=12),
-                     title_font=dict(color=t["muted"], size=12), automargin=True)
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor=t["border"], tickfont=dict(color=t["text"], size=13),
+                     title_font=dict(color=t["text"], size=13), automargin=True)
     fig.update_yaxes(gridcolor=t["border"], zeroline=False, linecolor="rgba(0,0,0,0)", automargin=True,
-                     tickfont=dict(color=t["muted"], size=12), title_font=dict(color=t["muted"], size=12))
+                     tickfont=dict(color=t["text"], size=13), title_font=dict(color=t["text"], size=13))
     return fig
 
 
@@ -93,7 +94,8 @@ def signed(x: float, digits: int = 2) -> str:
 def hourly_band(series: pd.Series) -> pd.DataFrame:
     """Trung vị và dải p10–p90 theo giờ của độ phân tán (chỉ gom nhóm để vẽ, không đổi số liệu)."""
     r = series.dropna().resample("1h")
-    return pd.DataFrame({"median": r.median(), "p10": r.quantile(0.10), "p90": r.quantile(0.90)}).dropna()
+    return pd.DataFrame({"median": r.median(), "p10": r.quantile(0.10), "p90": r.quantile(0.90),
+                         "max": r.max()}).dropna()
 
 
 def dispersion_fig(bands: dict, mode: str, t: dict, raw: bool = False) -> go.Figure:
@@ -115,13 +117,17 @@ def dispersion_fig(bands: dict, mode: str, t: dict, raw: bool = False) -> go.Fig
             fig.add_trace(go.Scatter(x=data.index, y=data["p10"], mode="lines", line=dict(width=0), fill="tonexty",
                                      fillcolor=_alpha(color, 0.22), name="Dải p10–p90" if i == 1 else None,
                                      showlegend=False, hoverinfo="skip"), i, 1)
+            fig.add_trace(go.Scatter(x=data.index, y=data["max"], mode="lines", showlegend=False,
+                                     line=dict(color=_alpha(color, 0.5), width=0.8), name="Cực đại theo giờ",
+                                     hovertemplate="%{x|%d/%m/%Y %H:%M} UTC<br>Cực đại trong giờ %{y:,.2f} bps<extra></extra>"),
+                          i, 1)
             fig.add_trace(go.Scatter(x=data.index, y=data["median"], mode="lines", name=MARKET_NAME[m],
                                      showlegend=False, line=dict(color=color, width=2, dash=DASH[m]),
                                      customdata=np.stack([data["p10"], data["p90"]], axis=-1),
                                      hovertemplate="%{x|%d/%m/%Y %H:%M} UTC<br>Trung vị %{y:,.2f} bps<br>"
                                                    "p10–p90: %{customdata[0]:,.2f} – %{customdata[1]:,.2f} bps"
                                                    "<extra></extra>"), i, 1)
-            top = max(top, float(data["p90"].max()))
+            top = max(top, float(data["max"].max()))
     layout(fig, t, height=170 * len(markets) + 60, legend=False)
     fig.update_yaxes(range=[0, top * 1.08], title_text="bps", tickformat=",.1f")
     fig.update_xaxes(tickformat="%d/%m/%Y", nticks=6)
@@ -244,7 +250,7 @@ def ccdf_fig(ccdf: pd.DataFrame, mode: str, t: dict, step_s: int) -> go.Figure:
     fig.add_shape(type="line", xref="x", yref="paper", x0=step_s, x1=step_s, y0=0, y1=1,
                   line=dict(color=t["muted"], dash="dot", width=1))
     fig.add_annotation(x=np.log10(step_s), y=0.02, xref="x", yref="paper", text=f"1 quan sát = {fmt.num(step_s)} giây",
-                       showarrow=False, xanchor="left", font=dict(size=11, color=t["muted"]))
+                       showarrow=False, xanchor="left", font=dict(size=12, color=t["text"]))
     return fig
 
 
@@ -286,7 +292,7 @@ def pnl_fig(pnl: pd.DataFrame, mode: str, t: dict) -> go.Figure:
                           "<extra>" + MARKET_NAME[market] + "</extra>"))
     layout(fig, t, height=330)
     fig.add_hline(y=0, line=dict(color=t["muted"], dash="dot", width=1), annotation_text="0 (hòa vốn)",
-                  annotation_position="top left", annotation_font=dict(size=11, color=t["muted"]))
+                  annotation_position="top left", annotation_font=dict(size=12, color=t["text"]))
     fig.update_xaxes(tickformat="%d/%m/%Y", nticks=6, tickangle=0)
     fig.update_yaxes(title_text="Lãi/lỗ cộng dồn (USDT)", tickformat=",.0f")
     return fig
@@ -309,7 +315,7 @@ def t6b_fig(regime: pd.DataFrame, mode: str, t: dict) -> go.Figure:
     fig.update_layout(barmode="group")
     fig.add_vline(x=1, line=dict(color=t["text"], width=1.5))
     fig.add_annotation(x=1, y=1, xref="x", yref="paper", xanchor="left", xshift=6, yanchor="top", showarrow=False,
-                       text="1,0 = bằng mức tham chiếu", font=dict(size=11, color=t["muted"]))
+                       text="1,0 = bằng mức tham chiếu", font=dict(size=12, color=t["text"]))
     fig.update_xaxes(title_text="Số sự kiện mỗi 1.000 phút so với mức tham chiếu (lần)", rangemode="tozero",
                      showgrid=True, gridcolor=t["border"], tickformat=",.1f")
     fig.update_yaxes(autorange="reversed", showgrid=False)
@@ -477,4 +483,85 @@ def t3c_fig(t3c: pd.DataFrame, mode: str, t: dict) -> go.Figure:
     for a in fig.layout.annotations:
         if a.text in titles:
             a.update(font=dict(size=14, color=t["text"]))
+    return fig
+
+
+def is_panels_fig(d6: pd.DataFrame, mode: str, t: dict, lock=None) -> go.Figure:
+    """Kiểu hình F3: mỗi thị trường một ô (hàng trên Spot, hàng dưới Perp). Dải = khoảng IS [cận dưới, cận trên],
+    đường = IS điểm giữa, đều là trung bình theo ngày; đường chấm dọc = thời điểm khóa đặc tả (cuối tập phát triển)."""
+    daily = (d6.assign(day=d6["window_end"].dt.floor("D")).groupby(["venue", "day"], as_index=False)
+             [["is_lower", "is_upper", "is_mid"]].mean())
+    venues = [f"{e}_{m}" for m in ("spot", "perp") for e in ("binance", "bybit", "okx")
+              if f"{e}_{m}" in set(daily["venue"])]
+    cols = 3
+    rows = -(-len(venues) // cols)
+    fig = make_subplots(rows=rows, cols=cols, shared_xaxes=True, shared_yaxes=True, vertical_spacing=0.1,
+                        horizontal_spacing=0.03, subplot_titles=[venue_label(v) for v in venues])
+    for k, venue in enumerate(venues):
+        r, c = k // cols + 1, k % cols + 1
+        g = daily[daily["venue"] == venue].sort_values("day")
+        style = venue_style(venue, mode)
+        fig.add_trace(go.Scatter(x=g["day"], y=g["is_upper"], mode="lines", line=dict(width=0), showlegend=False,
+                                 hoverinfo="skip"), r, c)
+        fig.add_trace(go.Scatter(x=g["day"], y=g["is_lower"], mode="lines", line=dict(width=0), fill="tonexty",
+                                 fillcolor=_alpha(style["color"], 0.18), showlegend=False, hoverinfo="skip"), r, c)
+        fig.add_trace(go.Scatter(
+            x=g["day"], y=g["is_mid"], mode="lines", showlegend=False, line=dict(width=1.8, **style),
+            customdata=np.stack([g["is_lower"], g["is_upper"]], axis=-1),
+            hovertemplate="%{x|%d/%m/%Y}<br>Điểm giữa %{y:.1%}; khoảng %{customdata[0]:.0%} – %{customdata[1]:.0%}"
+                          "<extra>" + venue_label(venue) + "</extra>"), r, c)
+        if lock is not None:
+            x = pd.Timestamp(lock)
+            fig.add_shape(type="line", x0=x, x1=x, y0=0, y1=1, line=dict(color=t["muted"], dash="dot", width=1),
+                          row=r, col=c)
+    layout(fig, t, height=210 * rows + 90, legend=False)
+    fig.update_layout(margin=dict(t=60))
+    fig.update_yaxes(range=[0, 1], tickformat=".0%")
+    fig.update_xaxes(tickformat="%m/%Y", nticks=4)
+    for a in fig.layout.annotations:
+        a.update(font=dict(size=13, color=t["text"]))
+    return fig
+
+
+def leadlag_panels_fig(xcorr: pd.DataFrame, mode: str, t: dict) -> go.Figure:
+    """Kiểu hình F6: 9 cặp (Spot–Perp cùng sàn; Spot–Spot; Perp–Perp). Cột = tương quan lợi suất ở độ trễ −5…+5 phút
+    (độ trễ dương: thị trường đứng trước đi trước thị trường đứng sau); độ trễ 0 không vẽ, ghi ρ(0) trong ô."""
+    pairs = []
+    for ex in ("binance", "bybit", "okx"):
+        pairs.append((f"{ex}_perp", f"{ex}_spot"))
+    for m in ("spot", "perp"):
+        for a, b in (("binance", "bybit"), ("binance", "okx"), ("bybit", "okx")):
+            pairs.append((f"{a}_{m}", f"{b}_{m}"))
+    present = []
+    for a, b in pairs:
+        g = xcorr[((xcorr["venue_a"] == a) & (xcorr["venue_b"] == b))]
+        if not g.empty:
+            present.append((a, b, g.sort_values("lag")))
+    rows = -(-len(present) // 3)
+    fig = make_subplots(rows=rows, cols=3, shared_yaxes=True, shared_xaxes=True, vertical_spacing=0.1,
+                        horizontal_spacing=0.03,
+                        subplot_titles=[f"{venue_label(a)} → {venue_label(b)}" for a, b, _ in present])
+    top = 0.0
+    for k, (a, b, g) in enumerate(present):
+        r, c = k // 3 + 1, k % 3 + 1
+        nz = g[g["lag"] != 0]
+        color = SERIES[mode]["perp" if a.endswith("_perp") and b.endswith("_spot") else a.rsplit("_", 1)[1]]
+        fig.add_trace(go.Bar(x=nz["lag"], y=nz["correlation"], marker_color=_alpha(color, 0.8), showlegend=False,
+                             hovertemplate="Độ trễ %{x} phút<br>tương quan %{y:.4f}<extra></extra>"), r, c)
+        top = max(top, float(nz["correlation"].abs().max()))
+        r0 = g.loc[g["lag"] == 0, "correlation"]
+        r_pos, r_neg = (g.loc[g["lag"] == s_, "correlation"] for s_ in (1, -1))
+        text = f"ρ(0) = {fmt.num(r0.iloc[0], 3)}" if len(r0) else ""
+        if len(r_pos) and len(r_neg):
+            text += f"<br>ρ(+1) − ρ(−1) = {signed(r_pos.iloc[0] - r_neg.iloc[0], 3)}"
+        fig.add_annotation(row=r, col=c, xref="x domain", yref="y domain", x=0.5, y=0.98, yanchor="top",
+                           showarrow=False, text=text, font=dict(size=12, color=t["text"]))
+        fig.add_hline(y=0, line=dict(color=t["muted"], width=1), row=r, col=c)
+    layout(fig, t, height=210 * rows + 110, legend=False)
+    fig.update_layout(margin=dict(t=60), bargap=0.3)
+    fig.update_yaxes(range=[-top * 1.25, top * 1.25], tickformat=".3f")
+    fig.update_xaxes(dtick=1, title_text=None)
+    for a_ in fig.layout.annotations:
+        if "→" in a_.text:
+            a_.update(font=dict(size=12, color=t["text"]))
     return fig

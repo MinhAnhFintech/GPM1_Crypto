@@ -355,7 +355,9 @@ def theme_css(mode: str, accent: str, effects: bool, cursor: str = "Đồng Bitc
     s = SERIES[mode]
     dark = mode == "Tối"
     accent2 = _mix(accent, NEON[mode], 0.55)
-    glass = _rgba(t["surface"], 0.58 if dark else 0.74)
+    glass = _rgba(t["surface"], 0.995)       # khung nội dung gần như đặc: họa tiết nền không lộ xuyên qua biểu đồ
+    sideglass = _rgba(t["surface"], 0.58 if dark else 0.74)
+    soft = _rgba(t["surface"], 0.40 if dark else 0.55)           # khối chữ không chứa biểu đồ: trong, thấy họa tiết nền
     css = """@import url('__FONTS__');
 html{font-size:__PX__px}
 html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,input,select,textarea,
@@ -370,7 +372,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
   background-attachment:fixed;color:__TEXT__}
 [data-testid="stHeader"]{background:transparent}
 [data-testid="stMain"] .block-container{position:relative;z-index:1;padding-top:1.6rem!important;max-width:1320px}
-.deco{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.deco{position:fixed;inset:0;pointer-events:none;z-index:-1;overflow:hidden}
 .deco .coin{position:absolute;opacity:__COINOP__;filter:drop-shadow(0 0 18px __ACCENT__)}
 .deco .c1{width:300px;right:-70px;top:70px;transform:rotate(-16deg)}
 .deco .c2{width:210px;left:250px;bottom:-60px;transform:rotate(12deg)}
@@ -380,7 +382,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 .deco .s1{width:62vw;left:18vw;top:22vh;transform:rotate(-14deg)}
 .deco .s2{width:48vw;left:40vw;top:64vh;transform:rotate(-14deg);opacity:calc(__STREAKOP__ * .7)}
 .deco .s3{width:30vw;left:22vw;top:84vh;transform:rotate(-14deg);opacity:calc(__STREAKOP__ * .5)}
-[data-testid="stSidebar"]{background:__GLASS__;backdrop-filter:blur(18px) saturate(140%);border-right:1px solid __BORDER__}
+[data-testid="stSidebar"]{background:__SIDEGLASS__;backdrop-filter:blur(18px) saturate(140%);border-right:1px solid __BORDER__}
 [data-testid="stSidebar"] .sb-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.05rem;margin:0 0 14px;color:__TEXT__}
 [data-testid="stSidebar"] .sb-brand small{display:block;font-weight:500;font-size:.72rem;color:__MUTED__}
 .st-key-navbox [role="radiogroup"]{gap:4px;width:100%}
@@ -402,10 +404,10 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 [data-baseweb="select"]>div{background:__SURFACE__!important}
 [data-baseweb="popover"] [role="listbox"],[data-baseweb="popover"] li{background:__SURFACE__!important;color:__TEXT__!important}
 [data-testid="stExpander"] summary,[data-testid="stExpander"] summary *{background:transparent!important;color:__TEXT__!important}
-[data-testid="stMetric"],[data-testid="stExpander"] details,
-[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]){background:__GLASS__;
-  backdrop-filter:blur(14px) saturate(140%);border:1px solid __BORDER__!important;border-radius:18px;box-shadow:__SHADOW__}
-[data-testid="stMetric"]{border-left:4px solid __ACCENT__!important;padding:12px 16px;border-radius:14px}
+[data-testid="stExpander"] details,
+[data-testid="stVerticalBlock"][data-test-wrap]{background:__GLASS__;border:1px solid __BORDER__!important;border-radius:18px;box-shadow:__SHADOW__}
+[data-testid="stMetric"]{background:__SOFT__;backdrop-filter:blur(3px);border:1px solid __BORDER__!important;
+  border-left:4px solid __ACCENT__!important;padding:12px 16px;border-radius:14px;box-shadow:__SHADOW__}
 [data-testid="stMetricLabel"],[data-testid="stMetricLabel"] *,[data-testid="stMetricValue"],[data-testid="stMetricValue"] *{
  white-space:normal!important;overflow:visible!important;text-overflow:clip!important;line-height:1.25}
 [data-testid="stMetricValue"]{font-weight:700;font-size:clamp(1.35rem,2.3vw,2rem)!important}
@@ -414,7 +416,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 .stDownloadButton button p{color:#fff!important}
 .stDownloadButton button:hover{filter:brightness(.92)}
 .phead{position:relative;overflow:hidden;border-radius:22px;padding:26px 30px;margin:0 0 18px;min-height:132px;
-  background:__GLASS__;backdrop-filter:blur(14px);border:1px solid __BORDER__;box-shadow:__SHADOW__}
+  background:__SOFT__;backdrop-filter:blur(3px);border:1px solid __BORDER__;box-shadow:__SHADOW__}
 .phead .img{position:absolute;inset:0 0 0 48%;background-size:cover;background-position:center;opacity:__IMGOP__;
   -webkit-mask-image:linear-gradient(to right,transparent,#000 60%);mask-image:linear-gradient(to right,transparent,#000 60%)}
 .phead .glow{position:absolute;right:-60px;top:-80px;width:340px;height:340px;border-radius:50%;
@@ -426,7 +428,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 .phead .sub{color:__MUTED__;line-height:1.6;max-width:66ch}
 @media (max-width:800px){.phead .img{inset:0;opacity:.14}.phead{padding:20px 18px}}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:6px 0 10px}
-.card{background:__GLASS__;backdrop-filter:blur(14px);border:1px solid __BORDER__;border-radius:18px;padding:16px 18px 14px;box-shadow:__SHADOW__}
+.card{background:__SOFT__;backdrop-filter:blur(3px);border:1px solid __BORDER__;border-radius:18px;padding:16px 18px 14px;box-shadow:__SHADOW__}
 .card .rq{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:__ACCENT__;font-weight:700}
 .card .q{font-size:.9rem;color:__MUTED__;margin:4px 0 10px;line-height:1.4}
 .card .big{font-size:2.1rem;font-weight:800;line-height:1.05;color:__TEXT__;letter-spacing:-.02em}
@@ -434,7 +436,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 .card .lbl{font-weight:600;margin-top:4px;line-height:1.35}
 .card .note{color:__MUTED__;font-size:.85rem;margin-top:8px;line-height:1.45}
 .ex-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:4px 0 14px}
-.ex-card{background:__GLASS__;backdrop-filter:blur(14px);border:1px solid __BORDER__;border-radius:20px;overflow:hidden;box-shadow:__SHADOW__}
+.ex-card{background:__SOFT__;backdrop-filter:blur(3px);border:1px solid __BORDER__;border-radius:20px;overflow:hidden;box-shadow:__SHADOW__}
 .ex-card .cover{position:relative;height:150px;background-size:cover;background-position:center}
 .ex-card .cover::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,var(--brand) 0%,transparent 75%);opacity:.8}
 .ex-card .cover .name{position:absolute;left:18px;bottom:14px;z-index:1;font-size:1.7rem;font-weight:800;color:#fff;
@@ -448,12 +450,12 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
  border:1px solid __BORDER__;background:__GLASS__;color:__TEXT__;margin:0 6px 6px 0}
 .badge.hist{border-color:__SPOT__;color:__SPOT__}.badge.live{border-color:__PERP__;color:__PERP__}
 .badge.warn{border-color:__BAD__;color:__BAD__}
-.verdict{border-radius:18px;padding:18px 22px;margin:8px 0 14px;border:1px solid __BORDER__;background:__GLASS__;backdrop-filter:blur(14px)}
+.verdict{border-radius:18px;padding:18px 22px;margin:8px 0 14px;border:1px solid __BORDER__;background:__SOFT__;backdrop-filter:blur(3px)}
 .verdict .head{font-size:1.45rem;font-weight:800;line-height:1.2}
 .verdict.no .head{color:__BAD__}
 .verdict p{margin:.4rem 0 0;color:__TEXT__}
 .rq{list-style:none;margin:4px 0 12px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px}
-.rq li{background:__GLASS__;border:1px solid __BORDER__;border-radius:12px;padding:9px 14px;line-height:1.4}
+.rq li{background:__SOFT__;border:1px solid __BORDER__;border-radius:12px;padding:9px 14px;line-height:1.4}
 .rq b{color:__ACCENT__;margin-right:8px}
 .method{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
 .method .card h5{margin:0 0 6px;font-size:1rem;font-weight:700;color:__TEXT__}
@@ -463,10 +465,10 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
   opacity:.95;-webkit-mask-image:none;mask-image:none}
 .tbl-wrap{overflow-x:auto;background:__GLASS__;backdrop-filter:blur(14px);border:1px solid __BORDER__;border-radius:16px;
   padding:4px 10px;margin:6px 0 12px;box-shadow:__SHADOW__}
-.tbl{width:100%;border-collapse:collapse;font-size:.9rem;font-variant-numeric:tabular-nums}
-.tbl th{text-align:left;font-weight:600;color:__MUTED__;padding:13px 14px;font-size:.8rem;white-space:nowrap}
+.tbl{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}
+.tbl th{text-align:left;font-weight:600;color:__MUTED__;padding:12px 10px;font-size:.78rem;white-space:nowrap}
 .tbl th[title]{cursor:help}
-.tbl td{padding:11px 14px;color:__TEXT__;border-top:1px solid __ROWLINE__;white-space:nowrap}
+.tbl td{padding:10px 10px;color:__TEXT__;border-top:1px solid __ROWLINE__;white-space:nowrap}
 .tbl tbody tr:hover td{background:__HOVER__}
 .tbl .r{text-align:right}.tbl .bad{color:__BAD__;font-weight:600}.tbl .muted{color:__MUTED__}
 [data-testid="stButtonGroup"] button{border-radius:999px!important;border:1px solid __BORDER__!important;
@@ -486,22 +488,27 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stSidebar"],button,in
 .ex-hero p{color:#f1f1f1!important;line-height:1.6;margin:0}
 .figpng{border-radius:16px;overflow:hidden;border:1px solid __BORDER__;margin:4px 0 10px}
 .figpng img{display:block;width:100%;height:auto;filter:__FIGFILTER__}
-.guide{background:__GLASS__;border:1px solid __BORDER__;border-left:4px solid __ACCENT__;border-radius:14px;padding:14px 18px;margin:8px 0}
+.guide{background:__SOFT__;border:1px solid __BORDER__;border-left:4px solid __ACCENT__;border-radius:14px;padding:14px 18px;margin:8px 0}
 .guide .g-title{font-weight:700;margin-bottom:6px;color:__TEXT__}
 .guide ol{margin:0 0 0 1.1rem;padding:0}.guide li{margin:.25rem 0;line-height:1.55;color:__TEXT__}
 .guide .g-take{margin-top:10px;padding:10px 12px;border-radius:10px;background:__HOVER__;color:__TEXT__}
+[data-testid="stFullScreenFrame"]:has(.modebar-btn[data-title="Close fullscreen"]){background:__BG__!important;padding:12px 18px;z-index:1000000!important;
+  background-image:radial-gradient(900px 520px at 6% -8%,__GLOW1__,transparent 70%),radial-gradient(760px 520px at 104% 12%,__GLOW2__,transparent 70%)!important}
+.stApp:has(.modebar-btn[data-title="Close fullscreen"]) [data-testid="stHeader"],.stApp:has(.modebar-btn[data-title="Close fullscreen"]) [data-testid="stHeader"] *,
+.stApp:has(.modebar-btn[data-title="Close fullscreen"]) [data-testid="stSidebar"],.stApp:has(.modebar-btn[data-title="Close fullscreen"]) [data-testid="stSidebar"] *{visibility:hidden!important;backdrop-filter:none!important;background:transparent!important;border:0!important}
+.phead .img.art.wide{inset:0 0 0 70%}
 @keyframes page-in{from{opacity:0}to{opacity:1}}
-[data-testid="stMain"] .block-container{animation:page-in .45s ease-out both}
+[data-testid="stMain"] .block-container{animation:page-in .45s ease-out backwards}
 @media (prefers-reduced-motion:reduce){[data-testid="stMain"] .block-container{animation:none}}
 """
     for key, value in {"__FONTS__": FONTS, "__BG__": t["bg"], "__SURFACE__": t["surface"], "__TEXT__": t["text"],
                        "__MUTED__": t["muted"], "__BORDER__": _rgba(t["border"], .9), "__INVERT__": t["invert"],
                        "__ACCENT2__": accent2, "__ACCENT__": accent, "__ACCENT_DARK__": _shade(accent, 0.7),
-                       "__GLASS__": glass, "__HOVER__": _rgba(accent, .12), "__ROWLINE__": _rgba(t["border"], .5), "__FIGFILTER__": "invert(.9) hue-rotate(180deg) saturate(1.2)" if dark else "none",
+                       "__GLASS__": glass, "__SIDEGLASS__": sideglass, "__SOFT__": soft, "__HOVER__": _rgba(accent, .12), "__ROWLINE__": _rgba(t["border"], .5), "__FIGFILTER__": "invert(.9) hue-rotate(180deg) saturate(1.2)" if dark else "none",
                        "__GLOW1__": _rgba(accent, .34 if dark else .20), "__GLOW2__": _rgba(accent2, .30 if dark else .16),
                        "__GLOW3__": _rgba(accent, .22 if dark else .12), "__GLOWBTN__": _rgba(accent2, .45 if dark else .30),
                        "__SHADOW__": "0 10px 32px rgba(0,0,0,.35)" if dark else "0 10px 30px rgba(30,40,80,.08)",
-                       "__COINOP__": ".16" if dark else ".11", "__STREAKOP__": ".55" if dark else ".35",
+                       "__COINOP__": ".14" if dark else ".10", "__STREAKOP__": ".38" if dark else ".24",
                        "__IMGOP__": ".42" if dark else ".5",
                        "__SPOT__": s["spot"], "__PERP__": s["perp"], "__BAD__": BAD,
                        "__BODYFONT__": FONT_STACKS.get(font, FONT_STACKS["Be Vietnam Pro"]),
@@ -534,7 +541,8 @@ PAGE_IMAGES = {"Tổng quan": "hero_coins.avif", "Các sàn giao dịch": "coin_
 
 def page_header(page: str, title: str, sub: str, eyebrow: str = "", big: bool = False) -> str:
     """Dải tiêu đề của mỗi trang: chữ bên trái, ảnh minh họa mờ bên phải (chỉ trong dải này, không đè nội dung)."""
-    img = f"<div class='img art' style=\"background-image:url({art_svg(PAGE_ART.get(page, 'home'))})\"></div>"
+    img = (f"<div class='img art{' wide' if big else ''}' "
+           f"style=\"background-image:url({art_svg(PAGE_ART.get(page, 'home'))})\"></div>")
     return (f"<div class='phead'>{img}<div class='glow'></div><div class='body'>"
             + (f"<div class='eyebrow'>{escape(eyebrow)}</div>" if eyebrow else "")
             + f"<h1 class='{'big' if big else ''}'>{escape(title)}</h1><div class='sub'>{escape(sub)}</div></div></div>")
@@ -659,24 +667,28 @@ def _load_table(source: str, mtime: float, required: tuple, time_cols: tuple,
 
 
 LIVE_DEFAULT = ROOT / "data/processed/live_quotes_long.parquet"
-LIVE_COLS = ["ts_grid_utc", "venue", "market_type", "bid", "ask", "mid", "spread_abs", "spread_bps",
-             "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "data_kind"]
+LIVE_COLS = ["ts_recv_utc", "ts_grid_utc", "venue", "market_type", "bid", "ask", "mid", "spread_abs", "spread_bps",
+             "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "data_kind"]
+DEPTH_COLS = ["depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
 
 
 def live_latest(live: pd.DataFrame) -> pd.DataFrame:
-    """Báo giá live mới nhất của từng venue (ts_grid_utc lớn nhất) kèm spread trung vị và số quote của cả mẫu.
+    """Báo giá live mới nhất của từng venue THEO GIỜ NHẬN (ts_recv_utc lớn nhất, giờ thông tin thật sự có sẵn),
+    không theo giờ lưới ts_grid_utc. Kèm cờ depth bị cắt của đúng báo giá đó, spread trung vị và số quote của cả mẫu.
     Không lấp, không nội suy: ô thiếu (ví dụ depth) để trống. Đơn vị: giá USDT, spread bps, depth USDT."""
-    ordered = live.sort_values(["venue", "ts_grid_utc"])
+    ordered = live.sort_values(["venue", "ts_recv_utc"])
     last = ordered.groupby("venue", sort=True).tail(1).set_index("venue")
     stats = ordered.groupby("venue")["spread_bps"].agg(spread_bps_median="median", n_quotes="size")
-    cols = ["market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
-            "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
+    cols = ["market_type", "ts_recv_utc", "bid", "ask", "spread_bps", "depth_bid_10bps_usdt",
+            "depth_ask_10bps_usdt", "depth_truncated"]
     return last[cols].join(stats).reset_index()
 
 
 @st.cache_data(show_spinner=False)
 def _load_live(source: str, mtime: float, venues: tuple = ()):
-    """Đọc live_quotes_long (D2). Trả về (DataFrame hoặc None, thông báo). Sai nguồn hoặc sai cột thì báo, không đoán."""
+    """Đọc live_quotes_long (D2). Trả về (DataFrame hoặc None, thông báo). Sai nguồn hoặc sai cột thì báo, không đoán.
+    Từ chối: metadata hoặc cột data_kind không phải 'live' (kể cả synthetic), giờ không có múi giờ, giá bid/ask không
+    dương, sổ lệnh chéo (bid > ask)."""
     path = Path(source)
     if not path.exists():
         return None, f"Chờ file: {path.name}"
@@ -687,11 +699,25 @@ def _load_live(source: str, mtime: float, venues: tuple = ()):
             raise ValueError(f"thiếu cột {missing}")
         if df.empty:
             raise ValueError("file rỗng")
+        meta = df.attrs.get("data_kind")
+        if meta is not None and meta != "live":
+            raise ValueError(f"metadata data_kind={meta!r}, phải là 'live'")
         if df["data_kind"].isna().any() or set(df["data_kind"].unique()) != {"live"}:
             raise ValueError("data_kind phải là 'live'")
-        df["ts_grid_utc"] = pd.to_datetime(df["ts_grid_utc"], utc=True)
-        if df["ts_grid_utc"].isna().any():
-            raise ValueError("ts_grid_utc có giá trị thiếu")
+        for col in ("ts_recv_utc", "ts_grid_utc"):
+            if not isinstance(df[col].dtype, pd.DatetimeTZDtype):
+                raise ValueError(f"{col} phải có múi giờ (UTC), không tự coi giờ trần là UTC")
+            if df[col].isna().any():
+                raise ValueError(f"{col} có giá trị thiếu")
+            df[col] = df[col].dt.tz_convert("UTC")
+        for col in ("bid", "ask"):
+            if not (df[col] > 0).all():
+                raise ValueError(f"{col} phải dương và đủ (có giá âm, bằng 0 hoặc thiếu)")
+        if (df["bid"] > df["ask"]).any():
+            raise ValueError("sổ lệnh chéo: có báo giá bid > ask")
+        if df["depth_truncated"].isna().any():
+            raise ValueError("depth_truncated có giá trị thiếu")
+        df["depth_truncated"] = df["depth_truncated"].astype(bool)
         if venues and not df["venue"].isin(venues).all():
             raise ValueError("venue không có trong panel")
         if not df["venue"].str.rsplit("_", n=1).str[1].eq(df["market_type"]).all():
@@ -706,6 +732,22 @@ T5_COLS = ["backtest", "data_kind", "market_type", "latency", "n_signals", "n_fi
 T5B_COLS = ["backtest", "sample", "market_type", "fee_multiplier", "latency", "slippage_bps", "qty_btc",
             "n_signals", "n_net_positive"]
 LEDGER_COLS = ["signal_id", "ts_fill", "market_type", "pnl_usdt", "status"]
+REAL_KINDS = {"historical", "live"}
+
+
+def kind_problem(df: pd.DataFrame, name: str, allowed=REAL_KINDS, required: bool = False):
+    """Thông báo lỗi nếu cột data_kind của một bảng kết quả không phải dữ liệu thật (ví dụ synthetic); None nếu hợp lệ.
+    required=True: bảng phải có cột data_kind. Với T5, backtest A phải là historical và B phải là live."""
+    if "data_kind" not in df.columns:
+        return f"{name} thiếu cột data_kind" if required else None
+    kinds = set(df["data_kind"].dropna().astype(str))
+    if df["data_kind"].isna().any() or not kinds or not kinds <= set(allowed):
+        return f"{name} có data_kind={sorted(kinds) or 'trống'}; chỉ nhận {sorted(allowed)}, không nhận dữ liệu giả lập"
+    if "backtest" in df.columns:
+        want = df["backtest"].astype(str).str[:1].map({"A": "historical", "B": "live"})
+        if (want.notna() & (want != df["data_kind"].astype(str))).any():
+            return f"{name}: backtest A phải là historical và backtest B phải là live"
+    return None
 
 
 def _results_mtime(folder: str) -> float:
@@ -729,14 +771,16 @@ def _load_results(folder: str, mtime: float) -> dict:
                                 "t0": ("T0_data_quality.csv", ["venue", "missing_pct"])}.items():
         try:
             df = pd.read_csv(base / name)
-            if all(c in df.columns for c in needed):
+            if all(c in df.columns for c in needed) and kind_problem(df, key.upper()) is None:
                 out[key] = df
         except (OSError, ValueError):
             pass
     found = sorted(base.glob(T3C_GLOB))
     if found:
         try:
-            out["t3c"] = pd.read_csv(found[0])
+            t3c = pd.read_csv(found[0])
+            if kind_problem(t3c, "T3c", {"historical"}) is None:
+                out["t3c"] = t3c
         except (OSError, ValueError):
             pass
     try:
@@ -744,6 +788,9 @@ def _load_results(folder: str, mtime: float) -> dict:
         missing = [c for c in T5_COLS if c not in t5.columns]
         if missing:
             raise ValueError(f"T5 thiếu cột {missing}")
+        problem = kind_problem(t5, "T5", required=True)
+        if problem:
+            raise ValueError(problem)
         out["t5"] = t5
     except (OSError, ValueError) as exc:
         out["msg"] = f"Chờ kết quả backtest (T5_arbitrage_net.csv): {exc}"
@@ -760,7 +807,7 @@ def _load_results(folder: str, mtime: float) -> dict:
         minutes = int(pd.Timedelta(rows_a["latency"].iloc[0]).total_seconds() // 60)
         try:
             ledger = pd.read_parquet(base / f"backtest_a_dev_L{minutes}_ledger.parquet")
-            if all(c in ledger.columns for c in LEDGER_COLS):
+            if all(c in ledger.columns for c in LEDGER_COLS) and kind_problem(ledger, "Sổ lệnh A", {"historical"}) is None:
                 out["ledger_a"] = ledger
         except (OSError, ValueError):
             pass
@@ -782,13 +829,15 @@ GLOSSARY = {
     "close_usdt": "Giá đóng cửa của nến 1 phút ở phút cuối của dữ liệu lịch sử, tính bằng USDT.",
     "missing": "Được đánh dấu khi sàn không có giá ở phút này (ô giá để trống, không điền thay).",
     "ts_grid_utc": "Mốc thời gian (UTC) trên lưới 5 giây mà báo giá này được gán vào.",
+    "ts_recv_utc": "Thời điểm (UTC) máy thu nhận được báo giá. Báo giá 'mới nhất' luôn chọn theo mốc này, không theo lưới 5 giây.",
+    "depth_truncated": "Sổ lệnh quan sát bị cắt trước khi đủ ±0,1% quanh giá giữa, nên độ sâu chỉ là cận dưới (hiện kèm dấu ≥).",
     "bid": "Giá mua cao nhất đang chờ trong sổ lệnh, tính bằng USDT.",
     "ask": "Giá bán thấp nhất đang chờ trong sổ lệnh, tính bằng USDT.",
     "spread_bps": "Chênh lệch giữa giá bán và giá mua so với giá giữa, tính bằng bps (1 bps = 0,01%). Càng nhỏ thì vào lệnh càng rẻ.",
     "spread_bps_median": "Trung vị chênh lệch mua–bán trên toàn bộ mẫu live (đại diện cho cả mẫu, không phải báo giá cuối).",
     "n_quotes": "Số báo giá live của sàn này trong mẫu.",
-    "depth_bid_10bps_usdt": "Tổng giá trị lệnh mua đang chờ trong khoảng 0,1% dưới giá giữa, tính bằng USDT. Càng lớn thì lệnh lớn càng ít trượt giá.",
-    "depth_ask_10bps_usdt": "Tổng giá trị lệnh bán đang chờ trong khoảng 0,1% trên giá giữa, tính bằng USDT.",
+    "depth_bid_10bps_usdt": "Tổng giá trị lệnh mua đang chờ trong khoảng 0,1% dưới giá giữa, tính bằng USDT. Càng lớn thì lệnh lớn càng ít trượt giá. Dấu ≥: sổ lệnh quan sát bị cắt nên đây chỉ là cận dưới.",
+    "depth_ask_10bps_usdt": "Tổng giá trị lệnh bán đang chờ trong khoảng 0,1% trên giá giữa, tính bằng USDT. Dấu ≥: sổ lệnh quan sát bị cắt nên đây chỉ là cận dưới.",
     "is_lower": "Cận dưới của Information Share (IS): phần tối thiểu sàn này đóng góp vào việc hình thành giá chung (0 đến 100%). Tính qua mọi thứ tự xếp các sàn.",
     "is_upper": "Cận trên của Information Share. Khoảng giữa hai cận càng rộng thì càng khó nói sàn này đóng góp bao nhiêu.",
     "is_mid": "Điểm giữa của hai cận. Chỉ để xếp thứ tự tham khảo, không phải kết luận.",
@@ -811,7 +860,8 @@ GLOSSARY = {
 COLUMN_SPECS = {
     "venue": ("Thị trường", "text"), "market_type": ("Loại thị trường", "text"),
     "close_usdt": ("Giá đóng cửa (USDT)", "price"), "missing": ("Dữ liệu", "bool"),
-    "ts_grid_utc": ("Thời điểm (UTC)", "time_s"), "bid": ("Giá mua (USDT)", "price"),
+    "ts_grid_utc": ("Thời điểm lưới (UTC)", "time_s"), "ts_recv_utc": ("Nhận lúc (UTC)", "time_s"),
+    "depth_truncated": ("Độ sâu bị cắt", "text"), "bid": ("Giá mua (USDT)", "price"),
     "ask": ("Giá bán (USDT)", "price"), "spread_bps": ("Mua–bán (bps)", "bps"),
     "spread_bps_median": ("Mua–bán TV (bps)", "bps"), "n_quotes": ("Số báo giá", "int"),
     "depth_bid_10bps_usdt": ("Độ sâu ±0,1% (mua)", "big"),
@@ -825,8 +875,8 @@ COLUMN_SPECS = {
     "gross_bps": ("Trước phí (bps)", "bps"), "net_bps": ("Sau phí (bps)", "bps"),
 }
 QUOTE_COLS = ["venue", "market_type", "close_usdt", "missing"]
-LIVE_SHOWN_COLS = ["venue", "market_type", "ts_grid_utc", "bid", "ask", "spread_bps",
-                   "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "spread_bps_median", "n_quotes"]
+LIVE_SHOWN_COLS = ["venue", "market_type", "ts_recv_utc", "bid", "ask", "spread_bps",
+                   "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "spread_bps_median", "n_quotes"]
 RANK_COLS = ["venue", "is_lower", "is_upper", "is_mid", "component_share", "ils", "status", "reason"]
 GAP_SUMMARY_COLS = ["market_type", "su_kien", "trung_vi_bps", "thieu"]
 GAP_EVENT_COLS = ["ts_start", "duration_s", "market_type", "buy_exchange", "sell_exchange", "gross_bps", "net_bps"]
@@ -875,16 +925,21 @@ def pretty(df: pd.DataFrame) -> pd.DataFrame:
         out["missing"] = out["missing"].map(lambda m: "Thiếu" if m is True or m == 1 else ("Đủ" if m is False or m == 0 else "–"))
     formats = {"price": lambda v: fmt.num(v, 1), "bps": fmt.bps, "num": lambda v: fmt.num(v, 3), "share": fmt.pct,
                "big": fmt.usdt_big, "int": lambda v: fmt.num(v)}
+    cut = out["depth_truncated"].fillna(False).astype(bool) if "depth_truncated" in out else None
     for col in out.columns:
         kind = COLUMN_SPECS.get(col, ("", ""))[1]
-        if kind in formats:
+        if col in DEPTH_COLS and cut is not None:     # sổ lệnh bị cắt: độ sâu chỉ là cận dưới
+            out[col] = [("–" if pd.isna(v) else ("≥ " if c else "") + fmt.usdt_big(v)) for v, c in zip(out[col], cut)]
+        elif kind in formats:
             out[col] = out[col].map(formats[kind])
+    if "depth_truncated" in out:
+        out["depth_truncated"] = ["Bị cắt" if c else "Đủ" for c in cut]
     return out
 
 
 def table(df: pd.DataFrame, cols: list):
     """Bảng gọn kiểu thẻ: tên cột tiếng Việt, rê chuột lên tiêu đề để xem giải thích, số căn phải."""
-    shown = pretty(df[cols])
+    shown = pretty(df)[cols]
     right = [c for c in cols if COLUMN_SPECS.get(c, ("", ""))[1] in ("price", "bps", "num", "share", "big", "int")]
     st.markdown(html_table(shown, right, {c: GLOSSARY[c] for c in cols if c in GLOSSARY},
                            {c: label_of(c) for c in cols}), unsafe_allow_html=True)
@@ -967,20 +1022,64 @@ def premium_bps(panel: pd.DataFrame, venues: list, market: str):
     return out
 
 
-def rank_table(t1: pd.DataFrame, d6, t0) -> pd.DataFrame:
-    """Bảng xếp hạng 6 thị trường: khối lượng (cao tốt), chênh lệch mua–bán live (thấp tốt), phí taker (thấp tốt),
-    IS điểm giữa trung bình (tham khảo), tỷ lệ phút thiếu dữ liệu. Hạng 1 = tốt nhất theo từng tiêu chí."""
-    out = t1[["venue", "avg_daily_volume_usdt", "median_spread_bps_live", "fee_taker_bps"]].copy()
+def live_spread_median(live, t1):
+    """(Series theo venue, nguồn). Ưu tiên D2 (live) đã nạp vì T1 có thể cũ hơn D2; không có D2 thì dùng cột của T1."""
+    if live is not None and not live.empty:
+        return live.groupby("venue")["spread_bps"].median(), "D2"
+    if t1 is not None and "median_spread_bps_live" in t1:
+        return t1.set_index("venue")["median_spread_bps_live"], "T1"
+    return pd.Series(dtype=float), None
+
+
+def rank_table(t1: pd.DataFrame, d6, t0, live=None) -> pd.DataFrame:
+    """Bảng xếp hạng 6 thị trường: khối lượng (cao tốt), chênh lệch mua–bán live tính từ D2 (thấp tốt), phí taker (thấp tốt),
+    IS và ILS trung bình trên các cửa sổ (cao = ảnh hưởng nhiều hơn), hạng ảnh hưởng tổng hợp = hạng của trung bình hai hạng
+    IS và ILS, tỷ lệ phút thiếu. Hạng 1 = tốt nhất theo từng tiêu chí; giá trị thiếu cho hạng NaN, không làm bảng lỗi."""
+    out = t1[["venue", "avg_daily_volume_usdt", "fee_taker_bps"]].copy()
+    spread, source = live_spread_median(live, t1)
+    out["spread_median_bps"] = out["venue"].map(spread)
     out["r_vol"] = out["avg_daily_volume_usdt"].rank(ascending=False, method="min")
-    out["r_spread"] = out["median_spread_bps_live"].rank(ascending=True, method="min")
+    out["r_spread"] = out["spread_median_bps"].rank(ascending=True, method="min")
     out["r_fee"] = out["fee_taker_bps"].rank(ascending=True, method="min")
     if d6 is not None and not d6.empty:
-        is_mean = d6.groupby("venue")["is_mid"].mean()
-        out["is_mid_mean"] = out["venue"].map(is_mean)
+        by = d6.groupby("venue")
+        out["is_mid_mean"] = out["venue"].map(by["is_mid"].mean())
+        out["ils_mean"] = out["venue"].map(by["ils"].mean())
         out["r_is"] = out["is_mid_mean"].rank(ascending=False, method="min")
+        out["r_ils"] = out["ils_mean"].rank(ascending=False, method="min")
+        out["r_influence"] = ((out["r_is"] + out["r_ils"]) / 2).rank(ascending=True, method="min")
     if t0 is not None and "missing_pct" in t0:
         out["missing_pct"] = out["venue"].map(t0.set_index("venue")["missing_pct"])
+    out.attrs["spread_source"] = source
     return out.sort_values("r_vol").reset_index(drop=True)
+
+
+SE_TEXT = {"dk": "Driscoll–Kraay (vững với tự tương quan theo thời gian và tương quan chéo giữa các thị trường)",
+           "group": "HAC trong từng thị trường",
+           "cluster": "theo cụm phiên thu thập (session)"}
+
+
+def se_text(cov: str, n_groups=None) -> str:
+    """Mô tả đúng loại sai số chuẩn của một mô hình T4 theo cột `cov`: 'cluster' (mẫu live) chỉ có vài phiên nên
+    p-value và khoảng tin cậy dùng phân phối t với G−1 bậc tự do."""
+    base = SE_TEXT.get(str(cov), str(cov))
+    if str(cov) == "cluster" and n_groups is not None and not pd.isna(n_groups) and int(n_groups) >= 2:
+        g = int(n_groups)
+        return f"{base}: chỉ có {g} phiên, p-value và khoảng tin cậy dùng phân phối t với {g - 1} bậc tự do nên kết quả kém chắc chắn"
+    return base
+
+
+def regression_se_lines(t4) -> list:
+    """Dòng mô tả sai số chuẩn cho mô hình A (lịch sử) và B (live), đọc từ T4; thiếu T4 thì chỉ trỏ tới file."""
+    if t4 is None or "cov" not in t4.columns:
+        return ["Loại sai số chuẩn ghi trong cột cov của T4_leadership_determinants.csv."]
+    lines = []
+    for model, label in (("A", "Mẫu lịch sử (mô hình A)"), ("B", "Mẫu live (mô hình B)")):
+        sub = t4[t4["model"] == model]
+        if not sub.empty:
+            groups = sub["n_groups"].iloc[0] if "n_groups" in sub else None
+            lines.append(f"{label}: sai số chuẩn {se_text(sub['cov'].iloc[0], groups)}.")
+    return lines
 
 
 def exchange_rows(ex: str, t1, live, d6, d7, t0, quotes) -> pd.DataFrame:
@@ -998,13 +1097,18 @@ def exchange_rows(ex: str, t1, live, d6, d7, t0, quotes) -> pd.DataFrame:
         add("Phí taker một chiều (bps)", *per(lambda v: fmt.num(get(v, "fee_taker_bps"), 1)))
         add("Khối lượng TB mỗi ngày (USDT)", *per(lambda v: fmt.usdt_big(get(v, "avg_daily_volume_usdt"))))
         add("Khối lượng TB mỗi ngày (BTC)", *per(lambda v: fmt.num(get(v, "avg_daily_volume_btc"))))
-        add("Chênh lệch mua–bán live, trung vị (bps)", *per(lambda v: fmt.bps(get(v, "median_spread_bps_live"))))
+        spread, _ = live_spread_median(live, t1)
+        add("Chênh lệch mua–bán live, trung vị (bps)", *per(lambda v: fmt.bps(spread.get(v, np.nan))))
         add("Funding TB mỗi kỳ (bps)", *per(lambda v: fmt.bps(get(v, "avg_funding_rate_bps")) if v.endswith("_perp") else "không áp dụng"))
         add("Open interest TB (BTC)", *per(lambda v: fmt.num(get(v, "avg_oi_base_btc")) if v.endswith("_perp") else "không áp dụng"))
     if live is not None:
-        depth = live.groupby("venue")[["depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]].median()
-        add("Độ sâu mua ±0,1% live, trung vị (USDT)", *per(lambda v: fmt.usdt_big(depth.loc[v, "depth_bid_10bps_usdt"]) if v in depth.index else "–"))
-        add("Độ sâu bán ±0,1% live, trung vị (USDT)", *per(lambda v: fmt.usdt_big(depth.loc[v, "depth_ask_10bps_usdt"]) if v in depth.index else "–"))
+        # Báo giá bị cắt chỉ cho cận dưới của độ sâu: không đưa vào trung vị.
+        full = live[~live["depth_truncated"]]
+        depth = full.groupby("venue")[DEPTH_COLS].median()
+        add("Độ sâu mua ±0,1% live, trung vị (USDT, chỉ báo giá đủ sâu)", *per(lambda v: fmt.usdt_big(depth.loc[v, "depth_bid_10bps_usdt"]) if v in depth.index else "–"))
+        add("Độ sâu bán ±0,1% live, trung vị (USDT, chỉ báo giá đủ sâu)", *per(lambda v: fmt.usdt_big(depth.loc[v, "depth_ask_10bps_usdt"]) if v in depth.index else "–"))
+        cut = live.groupby("venue")["depth_truncated"].mean()
+        add("Tỷ lệ báo giá live có độ sâu bị cắt", *per(lambda v: fmt.pct(cut.get(v, np.nan), 1)))
     if d6 is not None and not d6.empty:
         is_mean = d6.groupby("venue")["is_mid"].mean()
         add("IS điểm giữa trung bình (tham khảo)", *per(lambda v: fmt.pct(is_mean.get(v, np.nan), 1)))
@@ -1093,12 +1197,13 @@ def plot(fig, code: str, key: str):
     st.plotly_chart(fig, width="stretch", theme=None, config=charts.png_config(code), key=key)
 
 
-def method_html(cfg: dict, fees: dict, vecm: dict, manifest) -> str:
+def method_html(cfg: dict, fees: dict, vecm: dict, manifest, t4=None) -> str:
     """Trang phương pháp: các thẻ mô tả dữ liệu, mô hình, chi phí, kiểm định. Thông số đọc từ config và file kết quả."""
     g = cfg.get("gap_events", {}) or {}
     ba = cfg.get("backtest_a", {}) or {}
     bb = cfg.get("backtest_b", {}) or {}
     roll = cfg.get("rolling", {}) or {}
+    se_lines = regression_se_lines(t4)
     sample = cfg.get("sample", {}) or {}
     split = cfg.get("split_ratios", [])
     fee_txt = "; ".join(f"{EXCHANGE_NAME.get(ex, ex)} {fmt.num(v.get('spot', {}).get('taker_bps', np.nan), 1)} / "
@@ -1134,7 +1239,7 @@ def method_html(cfg: dict, fees: dict, vecm: dict, manifest) -> str:
         card("3. Yếu tố quyết định (RQ2)", [
             "Hồi quy IS điểm giữa theo thị phần khối lượng, biến động thực hiện, chênh lệch mua–bán, độ sâu và biến "
             "là Perpetual futures.",
-            "Sai số chuẩn Driscoll–Kraay (vững với tự tương quan và tương quan chéo giữa các sàn).",
+            *se_lines,
             "Đọc theo hướng và ý nghĩa thống kê, không đọc như quan hệ nhân quả."]),
         card("4. Chênh lệch giá và chi phí (RQ4–RQ5)", [
             f"Sự kiện chênh lệch: giá bán ở sàn đắt cao hơn giá mua ở sàn rẻ từ {fmt.num(g.get('gap_threshold_bps', np.nan), 1)} "
@@ -1324,13 +1429,7 @@ def choose(label: str, options: list, key: str, format_func=None, default=None):
 
 
 FIG_DIR = ROOT / "outputs/figures"
-REPORT_FIGS = {"F1": ("F1_synchronized_prices.png", "Giá đồng bộ của 6 thị trường"),
-               "F2": ("F2_price_dispersion.png", "Độ phân tán giá"),
-               "F3": ("F3_rolling_is_bounds.png", "Khoảng IS trên cửa sổ trượt"),
-               "F4": ("F4_gap_duration.png", "Thời gian tồn tại của chênh lệch"),
-               "F5": ("F5_cumulative_pnl.png", "Lãi/lỗ cộng dồn"),
-               "F6": ("F6_leadlag_xcorr.png", "Tương quan lợi suất theo độ trễ"),
-               "F7": ("F7_spot_perp_is_ils.png", "Spot và perp trong cùng sàn: IS và ILS")}
+REPORT_FIGS = {"F7": ("F7_spot_perp_is_ils.png", "Spot và perp trong cùng sàn: IS và ILS")}   # chỉ dùng khi chưa có T3c
 
 
 F7_HOW = """<div class='guide'><div class='g-title'>Cách đọc hình</div><ol>
@@ -1372,17 +1471,6 @@ def figure_html(path: Path, alt: str) -> str:
     """Ảnh hình tĩnh của nhóm trong khung bo góc; ở chế độ tối được đảo màu cho hợp nền tối (CSS .figpng)."""
     return (f"<div class='figpng'><img src='{figure_uri(str(path), _mtime(str(path)))}' alt='{escape(alt, quote=True)}'/>"
             "</div>")
-
-
-def report_fig(code: str, expanded: bool = False):
-    """Hình gốc của nhóm trong outputs/figures (bản dùng trong báo cáo); thiếu file thì không hiện."""
-    name, title = REPORT_FIGS[code]
-    path = FIG_DIR / name
-    if not path.exists():
-        return
-    with st.expander(f"Hình {code} trong báo cáo: {title}", expanded=expanded):
-        st.markdown(figure_html(path, f"Hình {code}: {title}"), unsafe_allow_html=True)
-        st.caption(f"outputs/figures/{name} · hình tĩnh do nhóm tạo, dùng trong báo cáo.")
 
 
 # --------------------------------------------------------------------------- các trang
@@ -1461,23 +1549,38 @@ def page_compare(c):
     if t1 is None:
         st.info("Chưa có dữ liệu: cần file T1_exchange_characteristics.csv trong outputs/tables.")
     else:
-        rt = rank_table(t1, c.d6, t0)
+        rt = rank_table(t1, c.d6, t0, c.live)
         shown = pd.DataFrame({
             "Thị trường": rt["venue"].map(venue_label),
-            "KL TB/ngày (USDT)": rt["avg_daily_volume_usdt"].map(fmt.usdt_big),
-            "Hạng KL": rt["r_vol"].map(lambda r: f"#{int(r)}"),
-            "Mua–bán live (bps)": rt["median_spread_bps_live"].map(fmt.bps),
-            "Hạng chi phí mua–bán": rt["r_spread"].map(lambda r: f"#{int(r)}"),
-            "Phí taker (bps)": rt["fee_taker_bps"].map(lambda v: fmt.num(v, 1)),
-            "Hạng phí": rt["r_fee"].map(lambda r: f"#{int(r)}")})
-        if "is_mid_mean" in rt:
-            shown["IS điểm giữa TB"] = rt["is_mid_mean"].map(lambda v: fmt.pct(v, 1))
-        if "missing_pct" in rt:
-            shown["Phút thiếu"] = rt["missing_pct"].map(lambda v: fmt.pct(v / 100, 2))
+            "KL/ngày (USDT)": rt["avg_daily_volume_usdt"].map(fmt.usdt_big),
+            "Hạng KL": rt["r_vol"].map(fmt.rank),
+            "Mua–bán (bps)": rt["spread_median_bps"].map(lambda v: fmt.num(v, 4)),
+            "Hạng mua–bán": rt["r_spread"].map(fmt.rank),
+            "Phí (bps)": rt["fee_taker_bps"].map(lambda v: fmt.num(v, 1)),
+            "Hạng phí": rt["r_fee"].map(fmt.rank)})
+        if "r_influence" in rt:
+            shown["Hạng IS"] = rt["r_is"].map(fmt.rank)
+            shown["Hạng ILS"] = rt["r_ils"].map(fmt.rank)
+            shown["Hạng ảnh hưởng"] = rt["r_influence"].map(fmt.rank)
         st.subheader("Xếp hạng")
         show_df(shown)
-        st.caption("Hạng 1 = tốt nhất theo từng tiêu chí: khối lượng cao nhất; chênh lệch mua–bán và phí thấp nhất. "
-                   "IS điểm giữa trung bình không dùng để xếp hạng dẫn giá vì các khoảng IS chồng nhau.")
+        src = rt.attrs.get("spread_source")
+        note = ""
+        if src == "D2" and c.live is not None:
+            note = (f" Chênh lệch mua–bán là trung vị tính trực tiếp từ báo giá live (D2) đến "
+                    f"{c.live['ts_recv_utc'].max():%d/%m/%Y %H:%M} UTC")
+            t1_end = pd.to_datetime(t1["live_last_utc"], utc=True, errors="coerce").max() if "live_last_utc" in t1 else pd.NaT
+            if pd.notna(t1_end) and t1_end < c.live["ts_recv_utc"].max():
+                note += f"; bảng T1 chỉ đến {t1_end:%d/%m/%Y}, nên hạng có thể khác bảng T1"
+            note += ". Chênh lệch giữa các thị trường rất nhỏ (dưới 0,001 bps) nên hạng mua–bán gần như hòa."
+        elif src == "T1":
+            note = " Chênh lệch mua–bán lấy từ bảng T1 vì chưa có báo giá live (D2)."
+        st.caption("Hạng 1 = tốt nhất theo từng tiêu chí: khối lượng cao nhất; chênh lệch mua–bán và phí thấp nhất; "
+                   "IS và ILS cao nhất." + note)
+        if "r_influence" in rt:
+            st.caption("Hạng ảnh hưởng (tham khảo) = hạng của trung bình hai hạng IS và ILS, tính trên mọi cửa sổ rolling của "
+                       "D6: đo mức thị trường đóng góp vào giá chung, tức ảnh hưởng lên các sàn khác. Chỉ để tham khảo: "
+                       "các khoảng IS chồng nhau nên chưa thể kết luận thị trường nào dẫn giá.")
         left, right = st.columns(2, gap="large")
         with left.container(border=True):
             st.markdown("#### Khối lượng giao dịch")
@@ -1523,7 +1626,6 @@ def page_price(c):
         plot(charts.prices_fig(px.resample("1h").last().set_axis(c.venues, axis=1), c.mode, c.t), "F1", "f1")
         st.caption("Giá đóng cửa của phút cuối mỗi giờ. Sáu đường gần như trùng nhau: chênh lệch giữa các sàn chỉ vài "
                    "bps, nhỏ hơn rất nhiều so với biến động giá.")
-        report_fig("F1")
     with st.container(border=True):
         st.markdown(badge(f"Dữ liệu {KIND_NAME.get(kind, kind)} · nến 1 phút", "hist")
                     + badge(f"Phút cuối: {asof:%d/%m/%Y %H:%M} UTC"), unsafe_allow_html=True)
@@ -1548,13 +1650,14 @@ def page_price(c):
                                 f"{live['ts_grid_utc'].max():%d/%m/%Y %H:%M} UTC")
                         + badge(f"{fmt.num(len(live))} báo giá"), unsafe_allow_html=True)
             latest = live_latest(live)
-            shown = ["venue", "bid", "ask", "spread_bps", "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
+            shown = ["venue", "ts_recv_utc", "bid", "ask", "spread_bps", "depth_bid_10bps_usdt", "depth_ask_10bps_usdt"]
             table(latest, shown)
             med = ", ".join(f"{venue_name(v)} {fmt.bps(m)}" for v, m in zip(latest["venue"], latest["spread_bps_median"]))
-            st.caption(f"Báo giá cuối của mỗi thị trường, lúc {latest['ts_grid_utc'].max():%d/%m/%Y %H:%M:%S} UTC. "
+            st.caption(f"Báo giá cuối của mỗi thị trường theo giờ nhận, đến {latest['ts_recv_utc'].max():%d/%m/%Y %H:%M:%S} UTC. "
+                       "Dấu ≥ ở độ sâu: sổ lệnh quan sát bị cắt nên chỉ là cận dưới. "
                        f"Chênh lệch mua–bán trung vị cả mẫu (bps): {med}. Mẫu live là giai đoạn KHÁC dữ liệu lịch sử "
                        "ở trên, nên giá hai bảng khác nhau là bình thường.")
-            explain(shown + ["spread_bps_median"])
+            explain(shown + ["depth_truncated", "spread_bps_median"])
 
     st.subheader("Độ phân tán giá: các sàn cùng loại lệch nhau bao nhiêu?")
     st.caption("Mỗi phút: (giá cao nhất − giá thấp nhất) / giá trung bình giữa các sàn cùng loại, tính bằng bps "
@@ -1586,7 +1689,6 @@ def page_price(c):
             plot(charts.dispersion_fig({m: charts.hourly_band(r) for m, r in raw.items()}, c.mode, c.t), "F2", "disp")
             st.caption("Đường đậm là trung vị theo giờ; dải mờ là khoảng từ phân vị 10% đến 90% trong giờ đó. "
                        "Hai khung dùng chung trục tung.")
-    report_fig("F2")
     with st.expander("Cách tính độ phân tán giá"):
         st.markdown("Tại mỗi phút, lấy giá cao nhất trừ giá thấp nhất giữa các sàn **cùng loại** (spot với "
                     "spot, perp với perp), chia cho giá trung bình rồi nhân 10.000 để ra bps. "
@@ -1649,7 +1751,12 @@ def page_lead(c):
                 st.markdown(f"#### Mức đóng góp trong cửa sổ {window['window_start'].iloc[0]:%d/%m/%Y %H:%M} → "
                             f"{window['window_end'].iloc[0]:%d/%m/%Y %H:%M} UTC")
                 plot(charts.bounds_fig(window, mode, t), "F3", "bounds")
-                report_fig("F3")
+                with st.expander("Xem khoảng IS của từng thị trường theo thời gian (kiểu hình F3 trong báo cáo)"):
+                    plot(charts.is_panels_fig(d6, mode, t, (c.manifest or {}).get("dev_end")), "F3b", "is_panels")
+                    st.caption("Mỗi ô là một thị trường (hàng trên Spot, hàng dưới Perp). Dải màu là khoảng IS từ cận dưới đến cận trên, "
+                               "đường là IS điểm giữa, đều trung bình theo ngày; đường chấm dọc là cuối tập phát triển (thời điểm "
+                               f"khóa đặc tả). Độ rộng khoảng IS trung vị là {fmt.num((d6['is_upper'] - d6['is_lower']).median(), 2)} "
+                   "(thang 0 đến 1): IS chưa xác định chính xác ở hầu hết thời điểm.")
                 table(window.sort_values("is_mid", ascending=False), RANK_COLS)
                 st.caption("Component Share (CS) có thể âm hoặc lớn hơn 1: đó là trọng số có dấu (tổng các sàn bằng 1), "
                            "không phải phần trăm. ILS ở đây là trung bình theo từng cặp sàn nên cộng lại không bằng 1.")
@@ -1679,7 +1786,11 @@ def page_lead(c):
     else:
         with st.container(border=True):
             plot(charts.leadlag_fig(xcorr, mode, t), "F6", "leadlag")
-            report_fig("F6")
+            with st.expander("Xem đủ 9 cặp thị trường (kiểu hình F6 trong báo cáo)"):
+                plot(charts.leadlag_panels_fig(xcorr, mode, t), "F6b", "leadlag_panels")
+                st.caption("Cột là tương quan lợi suất 1 phút ở độ trễ −5…+5 phút. Độ trễ dương: thị trường đứng trước đi trước "
+                           "thị trường đứng sau. Độ trễ 0 không vẽ; ρ(0) ghi trong từng ô. Mọi cặp có ρ(0) gần 1 và các cột "
+                           "còn lại gần 0, không nghiêng hẳn về phía nào.")
             same = xcorr["venue_a"].str.rsplit("_", n=1).str[0] == xcorr["venue_b"].str.rsplit("_", n=1).str[0]
             zero = xcorr[(xcorr["lag"] == 0) & xcorr["venue_a"].str.endswith("_perp")
                          & xcorr["venue_b"].str.endswith("_spot") & same]
@@ -1710,6 +1821,8 @@ def page_lead(c):
                 st.markdown(f"**{title}**")
                 show_df(regression_table(t4, model))
                 sub = t4[t4["model"] == model]
+                st.caption("Sai số chuẩn: " + se_text(sub["cov"].iloc[0], sub["n_groups"].iloc[0] if "n_groups" in sub else None)
+                           + "." if "cov" in sub else "")
                 sig = [TERM_LABELS.get(x, x) for x, p in zip(sub["term"], sub["p_value"]) if p < 0.05 and x != "const"]
                 st.caption("Biến có ý nghĩa thống kê (p < 0,05): " + (", ".join(sig) if sig else "không có") + ".")
     st.caption("Biến phụ thuộc là IS điểm giữa. Biến chuẩn hóa (z) đã trừ trung bình, chia độ lệch chuẩn. "
@@ -1749,7 +1862,6 @@ def page_gap(c):
         cols[3].metric("Chênh lệch trước phí (trung vị)", f"{fmt.bps(view['gross_bps'].median())} bps")
         with st.container(border=True):
             plot(charts.ccdf_fig(duration_ccdf(view), mode, t, step_s), "F4", "ccdf")
-            report_fig("F4")
             st.caption("Đọc: tại mỗi mức thời gian, đường cho biết bao nhiêu phần trăm sự kiện kéo dài ít nhất chừng đó. "
                        "Đường rơi nhanh nghĩa là chênh lệch đóng lại nhanh. Lịch sử và live không vẽ chung vì lưới thời "
                        "gian khác nhau.")
@@ -1844,7 +1956,6 @@ def page_gap(c):
             pnl = cumulative_pnl(ledger)
             start = pnl.groupby("market_type", as_index=False)["ts_fill"].min().assign(pnl_usdt=0.0, cum_pnl_usdt=0.0)
             plot(charts.pnl_fig(pd.concat([start, pnl], ignore_index=True), mode, t), "F5", "pnl")
-            report_fig("F5")
             st.caption("Mỗi điểm là một lệnh đã khớp (0,1 BTC). Đường đi xuống từng bậc: lệnh nào cũng lỗ.")
     t5b = res.get("t5b")
     if t5b is not None:
@@ -1878,7 +1989,7 @@ def page_method(c):
                             "cùng các giới hạn. Thông số đọc từ config/config.yaml, config/fees.yaml và file kết quả.",
                             "Thuyết minh"), unsafe_allow_html=True)
     cfg, fees, vecm = _load_project_config(_mtime(str(ROOT / "config/config.yaml")))
-    st.markdown(method_html(cfg, fees, vecm, c.manifest), unsafe_allow_html=True)
+    st.markdown(method_html(cfg, fees, vecm, c.manifest, c.res.get("t4")), unsafe_allow_html=True)
     st.subheader("Các bảng và hình dùng trên dashboard")
     files = pd.DataFrame([
         ("Bảng giá 1 phút (D3)", "data/processed/panel_1m_wide.parquet", "Giá & độ phân tán, So sánh"),
@@ -1975,6 +2086,8 @@ def main():
             live_path = st.text_input("Báo giá live (D2, tùy chọn)", live_path)
             results_dir = st.text_input("Thư mục kết quả backtest (T5, T5b)", results_dir)
     st.sidebar.caption("Mô phỏng nghiên cứu, không khuyến nghị giao dịch.")
+    built = pd.Timestamp(_mtime(__file__), unit="s", tz="UTC").tz_convert("Asia/Ho_Chi_Minh")
+    st.sidebar.caption(f"Phiên bản giao diện: {built:%d/%m/%Y %H:%M}")
 
     pal = charts.apply_palette(mode, accent)
     ART.update(c1=pal["spot"], c2=pal["perp"], c3=pal["cool"])

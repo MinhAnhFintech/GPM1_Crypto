@@ -160,3 +160,92 @@ def test_t3c_findings_and_guide_come_from_the_table():
     html = app.f7_guide(t3c)
     assert "Binance" in html and "chưa phân biệt được" in html
     assert "Kết quả" not in app.f7_guide(None)               # không có bảng thì không đưa kết luận
+
+
+def test_rank_table_spread_comes_from_d2_and_survives_missing_values():
+    t1 = pd.DataFrame({"venue": ["a_perp", "b_perp", "c_perp"], "avg_daily_volume_usdt": [3.0, 2.0, 1.0],
+                       "fee_taker_bps": [5.0, 5.0, 5.5], "median_spread_bps_live": [0.01, 0.02, np.nan]})
+    live = pd.DataFrame({"venue": ["a_perp"] * 2 + ["b_perp"] * 2, "spread_bps": [0.05, 0.05, 0.01, 0.01]})
+    rt = app.rank_table(t1, None, None, live).set_index("venue")
+    assert rt.loc["a_perp", "r_spread"] == 2 and rt.loc["b_perp", "r_spread"] == 1     # D2 đảo hạng so với T1
+    assert np.isnan(rt.loc["c_perp", "r_spread"]) and app.fmt.rank(rt.loc["c_perp", "r_spread"]) == "–"
+    assert rt.attrs["spread_source"] == "D2"
+    assert app.rank_table(t1, None, None).attrs["spread_source"] == "T1"                # không có D2 thì dùng T1
+
+
+def test_rank_table_influence_combines_is_and_ils_ranks():
+    t1 = pd.DataFrame({"venue": ["a_spot", "b_spot"], "avg_daily_volume_usdt": [1.0, 2.0], "fee_taker_bps": [10.0, 10.0],
+                       "median_spread_bps_live": [0.01, 0.02]})
+    d6 = pd.DataFrame({"venue": ["a_spot", "a_spot", "b_spot", "b_spot"], "is_mid": [0.5, 0.5, 0.3, 0.3],
+                       "ils": [0.2, 0.2, 0.9, 0.9]})
+    rt = app.rank_table(t1, d6, None).set_index("venue")
+    assert (rt.loc["a_spot", "r_is"], rt.loc["b_spot", "r_is"]) == (1, 2)
+    assert (rt.loc["a_spot", "r_ils"], rt.loc["b_spot", "r_ils"]) == (2, 1)
+    assert rt.loc["a_spot", "r_influence"] == rt.loc["b_spot", "r_influence"] == 1      # hòa: hạng trung bình bằng nhau
+
+
+def test_t5_loader_rejects_synthetic_and_mismatched_kinds():
+    ok = pd.DataFrame({"backtest": ["A_x", "B_y"], "data_kind": ["historical", "live"]})
+    assert app.kind_problem(ok, "T5", required=True) is None
+    assert "giả lập" in app.kind_problem(ok.assign(data_kind="synthetic"), "T5", required=True)
+    assert "backtest A" in app.kind_problem(ok.assign(data_kind="live"), "T5", required=True)
+    assert "thiếu cột" in app.kind_problem(ok.drop(columns="data_kind"), "T5", required=True)
+
+
+def test_load_results_rejects_a_synthetic_t5(tmp_path):
+    t5 = pd.DataFrame({c: [0] for c in app.T5_COLS})
+    t5["backtest"], t5["data_kind"] = "A_proxy", "synthetic"
+    t5.to_csv(tmp_path / "T5_arbitrage_net.csv", index=False)
+    res = app._load_results(str(tmp_path), 5.0)
+    assert res["t5"] is None and "giả lập" in res["msg"]
+
+
+def test_standard_error_text_matches_each_model():
+    t4 = pd.DataFrame({"model": ["A", "B"], "cov": ["dk", "cluster"], "n_groups": [6658, 5]})
+    lines = app.regression_se_lines(t4)
+    assert "Driscoll–Kraay" in lines[0] and "Driscoll" not in lines[1]
+    assert "cụm phiên" in lines[1] and "4 bậc tự do" in lines[1]                       # G − 1 với G = 5
+    assert "cov" in app.regression_se_lines(None)[0]
+
+
+def test_panel_charts_have_one_panel_per_series():
+    from dashboard import charts
+    th = app.palette("Tối", "#3A6FD8")
+    days = pd.date_range("2026-01-01", periods=3, freq="D", tz="UTC")
+    rows = [dict(venue=f"{e}_{m}", window_end=d, is_lower=0.0, is_upper=0.8, is_mid=0.4)
+            for e in ("binance", "bybit", "okx") for m in ("spot", "perp") for d in days]
+    fig = charts.is_panels_fig(pd.DataFrame(rows), "Tối", th, lock=days[1])
+    assert len([a for a in fig.layout.annotations]) == 6 and len(fig.data) == 18       # 6 ô × (cận trên, cận dưới, điểm giữa)
+    lags = [dict(venue_a=a, venue_b=b, lag=lag, correlation=0.99 if lag == 0 else 0.01 * lag)
+            for a, b in (("binance_perp", "binance_spot"), ("binance_spot", "okx_spot")) for lag in range(-2, 3)]
+    fig = charts.leadlag_panels_fig(pd.DataFrame(lags), "Sáng", app.palette("Sáng", "#3A6FD8"))
+    assert len(fig.data) == 2 and all(0 not in list(tr.x) for tr in fig.data)           # độ trễ 0 không vẽ
+
+
+def test_fullscreen_chart_background_follows_the_theme():
+    css = app.theme_css("Tối", "#3A6FD8", False)
+    assert 'stFullScreenFrame"]:has(.modebar-btn[data-title="Close fullscreen"])' in css
+    assert app.palette("Tối", "#3A6FD8")["bg"] in css
+    assert 'stSidebar"] *{visibility:hidden!important' in css
+    assert 'stHeader"] *' in css and 'stHeader"]' in css                   # thanh tiêu đề không chặn nút "Close fullscreen"                       # phóng to thì thanh bên không che biểu đồ
+
+
+def test_content_panels_are_nearly_opaque_so_decoration_does_not_cross_charts():
+    css = app.theme_css("Tối", "#3A6FD8", False)
+    surface = app.palette("Tối", "#3A6FD8")["surface"]
+    rgb = ",".join(str(int(surface[i:i + 2], 16)) for i in (1, 3, 5))
+    assert f"rgba({rgb},0.995)" in css                      # khung nội dung
+    assert f"rgba({rgb},0.58)" in css                      # thanh bên vẫn trong để thấy nền
+    assert ".deco{position:fixed;inset:0;pointer-events:none;z-index:-1" in css
+    assert '[data-testid="stVerticalBlock"][data-test-wrap]' in css       # khung viền của st.container(border=True) ở Streamlit 1.66
+
+
+def test_chart_holders_have_no_backdrop_filter_so_fullscreen_covers_the_screen():
+    css = app.theme_css("Sáng", "#3A6FD8", False)
+    for selector in ('[data-testid="stVerticalBlock"][data-test-wrap]', '[data-testid="stExpander"] details'):
+        rule = css[css.index(selector):]
+        rule = rule[:rule.index("}")]
+        assert "backdrop-filter" not in rule, selector       # backdrop-filter làm phần tử fixed bên trong bị kẹt trong khung
+    surface = app.palette("Sáng", "#3A6FD8")["surface"]
+    rgb = ",".join(str(int(surface[i:i + 2], 16)) for i in (1, 3, 5))
+    assert f"rgba({rgb},0.55)" in css                         # khối chữ trong

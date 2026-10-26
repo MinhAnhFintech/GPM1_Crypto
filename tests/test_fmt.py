@@ -44,3 +44,7 @@ def test_latency_is_words_and_sorted_by_value():
 
 def test_ratio_of_profitable_trades():
     assert fmt.ratio(118909, 178502) == "118.909 / 178.502"
+
+
+def test_rank_is_dash_when_missing():
+    assert fmt.rank(3.0) == "#3" and fmt.rank(np.nan) == "–" and fmt.rank(None) == "–"

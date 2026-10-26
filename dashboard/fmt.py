@@ -68,3 +68,8 @@ def ratio(a, b) -> str:
 
 def duration_s(x) -> str:
     return "–" if not _ok(x) else f"{num(x)} giây"
+
+
+def rank(x) -> str:
+    """Hạng '#3'; hạng thiếu (ví dụ thiếu spread) hiện '–' thay vì làm trang lỗi."""
+    return "–" if not _ok(x) else f"#{int(x)}"
