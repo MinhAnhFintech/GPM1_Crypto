@@ -165,7 +165,12 @@ def test_cli_refuses_a_d5_built_on_another_panel_or_source(tmp_path):
     other = tmp_path/"other"
     other.mkdir()
     tables = _write_inputs(other)
-    pd.read_parquet(tables/"gap_events_historical.parquet").assign(data_kind="historical").to_parquet(tables/"gap_events_historical.parquet")
+    events = pd.read_parquet(tables/"gap_events_historical.parquet")
+    # A valid historical file paired with a synthetic D5 must reach the
+    # cross-file source check, rather than fail on conflicting labels inside D7.
+    events["data_kind"] = "historical"
+    events.attrs["data_kind"] = "historical"
+    events.to_parquet(tables/"gap_events_historical.parquet")
     with pytest.raises(ValueError, match="share one data_kind"):               # events say historical, D5 says synthetic
         make_t6b.main(["--tables", str(tables), "--regime", str(other/"regime_flags.parquet"), "--manifest", str(other/"manifest.json"),
                        "--output-dir", str(tmp_path/"out2")])

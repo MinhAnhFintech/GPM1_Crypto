@@ -1,4 +1,4 @@
-# Hợp đồng dữ liệu v1.0 — D2 mở rộng v1.1
+# Hợp đồng dữ liệu v1.0 — D2/D9 mở rộng v1.1
 
 Chủ sở hữu: Anh (TV4). Chốt triển khai ngày 17/10/2026 theo GPM1_CRYPTO.pdf, mục 2 (trang 6–10), và sheet «Việc Code» trong GPM1_CRYPTO.xlsx. Thay đổi schema phải được TV4 review, tăng phiên bản và tái sinh fixtures. Kiểm tra tự động nằm trong `src/utils/schema.py`.
 
@@ -12,7 +12,7 @@ Chủ sở hữu: Anh (TV4). Chốt triển khai ngày 17/10/2026 theo GPM1_CRYP
 | Market type | `spot` hoặc `perp`. |
 | Symbol dữ liệu | `BTC/USDT`, kể cả perpetual. Symbol kết nối `BTC/USDT:USDT` nằm ở config. Tên file dùng `BTCUSDT`. |
 | Đơn vị | Giá USDT; size/volume_base BTC; volume_quote/depth USDT; chi phí bps một chiều. Số tiền và giá dùng float64. |
-| Data kind | Một trong synthetic, historical, live. Mỗi file chỉ có một nhãn; không trộn nguồn. |
+| Data kind | Một trong synthetic, historical, live. Mỗi file chỉ có một nhãn; không trộn nguồn. Khi có cả cột và attrs.data_kind, hai nhãn phải trùng nhau; metadata có mặt nhưng không hợp lệ hoặc mâu thuẫn bị từ chối trước khi đọc/ghi theo schema. |
 | File | Parquet cho dữ liệu, CSV cho bảng, PNG cho hình. Bảng rộng lưu provenance trong Parquet/pandas attrs. |
 | Thiếu | NaN và `missing__{venue}`; không nội suy, không backfill từ tương lai. |
 | Random | Seed đọc từ cấu hình, ghi vào truth.json của fixtures. |
@@ -39,6 +39,14 @@ Phạm vi nghiên cứu đã chốt: Binance, OKX, Bybit, mỗi sàn gồm spot 
 Giải quyết hai chỗ không thống nhất trong bản nguồn: phần quy ước chung ghi `missing__{exchange}` nhưng D3 và C4.08 yêu cầu suffix theo venue; dùng **missing__{venue}** để không nhập nhằng spot/perp. Quy ước chung bắt buộc market_type nhưng bảng D9 bỏ sót; D9 triển khai thêm **market_type=perp**. Bảng rộng giữ loại hợp đồng trong suffix và attrs. Đây là các lựa chọn TV4 chốt trong v1.0, không âm thầm đổi tên giữa các thành viên.
 
 Các cột bổ sung được phép nếu không thay nghĩa cột bắt buộc. Độ sâu bị cắt là cận dưới quan sát được; không diễn giải thành độ sâu đầy đủ. Không dùng ts_grid_utc làm thời điểm có thông tin.
+
+### D9 v1.1 — cờ thuộc giai đoạn thu live (26/10/2026)
+
+Bản mở rộng thêm `in_live_window` sau các cột D9 gốc. Đây là boolean không null, không nhận chuỗi `"true"`/`"false"` hoặc số 0/1. Bản v1.0 không có cột này vẫn đọc được; nếu cột có mặt thì luôn kiểm kiểu, kể cả khi file chưa ghi phiên bản. File tự khai báo attrs.contract_version=`1.1` phải có cột này. Không ghi lại các file bàn giao cũ chỉ để thêm phiên bản.
+
+Trong collector TV3 hiện hành, `in_live_window = ts_available >= live_start_utc`, với `live_start_utc` là đầu ngày `start_date` của `config/live_sessions.yaml` theo giờ Việt Nam (UTC+07, trùng múi giờ cấu hình hiện tại), đổi sang UTC. Mốc hiện tại là 2026-10-16 17:00 UTC. Cờ chỉ phân biệt trước/từ ngày bắt đầu thu; không khẳng định một dòng nằm trong phiên S1/S2, không đặt trần bằng end_date và không thay thế timestamp sẵn sàng.
+
+Funding/OI tải từ API lịch sử giữ `data_kind=historical` cho toàn bộ bản D9 đã bàn giao, kể cả dòng có `in_live_window=True`. Cờ này không đổi nguồn thành live và không cho phép trộn historical/live trong một file. Validator chung kiểm cấu trúc/kiểu cờ; đối chiếu giá trị cờ với lịch thu cần cấu hình nguồn. Các cột D9 gốc, đơn vị funding/OI và schema D1/D2/D3/D4 không đổi.
 
 ### D2 v1.1 — xác nhận bàn giao TV3 ngày 20/10/2026
 

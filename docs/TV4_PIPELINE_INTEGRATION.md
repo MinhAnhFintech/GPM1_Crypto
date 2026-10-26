@@ -32,14 +32,34 @@ Kết quả mong đợi: foundation_status=passed, stage price_discovery=passed;
 
 Khi chỉ cần dựng nền, thêm `--foundation-only`: CLI TV5 không được gọi, stage ghi not_run/foundation_only. Không dùng profile này với --mode historical/raw; sample=null là chặn thiếu cấu hình nghiên cứu có chủ đích.
 
-## Còn chờ để chạy nghiên cứu thật
+## Pipeline nghiên cứu thật (26/10/2026)
 
-| Stage / việc | Đầu vào còn thiếu |
-| --- | --- |
-| features — TV2 C2.04 | CLI/D3b và kiểm volume BTC đã sửa trong D1 A162; không lấy bản volume OKX cũ |
-| regime_flags — TV1 C1.04/C1.06 | CLI/D5, ngưỡng fit development, nguồn sự kiện và xác nhận khoảng mẫu |
-| price_discovery — TV5 | Review đặc tả, spec chọn trên development và nghiệm thu trên D3 thật; profile này chỉ kiểm tích hợp synthetic |
-| cost_backtest — TV6 + TV3 | CLI backtest A/B và D7/D8, D2 live cùng coverage, half-spread proxy được hiệu chỉnh từ dữ liệu |
-| evaluation — TV3/TV6 | CLI hồi quy/stress/sensitivity và đầu ra theo PCCV; D5/D9 khi mô hình cần |
+`config/config.yaml` đăng ký 19 stage bằng CLI thật đã merge của các thành viên, theo thứ tự phụ thuộc. Năm tên bắt buộc là các bước chốt của từng nhóm:
 
-D3/D4 thật A162 đã có local, không phải đầu vào đang chờ của TV4. Raw/code tái tạo D1 đã sửa và hai cờ Bybit spot vẫn cần Ny/TV3 đối chiếu riêng; không chặn tái lập nền từ D1 đã xác nhận hash. Không tự chạy mô hình trên final test hoặc thay dữ liệu thiếu bằng fixtures.
+| Nhóm | Stage (thứ tự chạy) | Đầu ra |
+| --- | --- | --- |
+| TV2 C2.04 | features | D3b `features_1m.parquet` |
+| TV1 C1.06 | regime_flags | D5 `regime_flags.parquet` + receipt, ngưỡng high-vol fit trên dev |
+| TV5 C5.05–C5.09 | price_discovery | T2 stationarity/Johansen, T3, T3c, T3d, D6 `rolling_is.parquet`, T3b; spec khóa trên dev |
+| TV3 C3.07 (đầu vào B) | price_discovery_live | `live_session_is.parquet` |
+| TV6 C6.03–C6.10 | cost_gap_events_live, cost_gap_events_historical, cost_backtest_a, cost_backtest_b, cost_backtest (T5), cost_reconcile (T5c), cost_regime (T6b), cost_figures (F4/F5) | D7 live + historical, D8, bảng chi phí, F4/F5 |
+| TV3 C3.07/C3.08 | evaluation_liquidity (T4), evaluation (T6) | T4, T6 |
+| TV1 C1.07 | exchange_characteristics | T1 (volume trên dev + val) |
+| TV2 C2.05/C2.06 | figures_f1_f2, figures_f3, figures_f6, figures_f7 | F1, F2, F3, F6, F7 |
+
+Đầu vào bàn giao mà pipeline không dựng lại giữ ở đường dẫn hợp đồng: D1 `data/interim/ohlcv_1m_long.parquet`, D2 và D9 trong `data/processed`. `stress_regime` chỉ nhận project root nên `{data_dir}` phải là `{output_dir}/../data/processed` (đúng với mặc định). Không đăng ký T5b: C6.07 đã dùng final test một lần (`test_consumed=true`); bảng T5b giữ nguyên bản đã nhập kèm hash.
+
+Lệnh tái lập cô lập (không ghi đè outputs/ đã đóng băng):
+
+```powershell
+python run_all.py --mode historical --config config/config.yaml --data-dir tmp/c412-research/data/processed --output-dir tmp/c412-research/outputs
+```
+
+Kết quả ngày 26/10 (runtime đúng requirements.txt): foundation passed, fingerprint `9420d92f…56a4`, 19/19 stage passed, `full_research_pipeline_complete=true`, final test không bị đụng; khoảng 67 phút, trong đó price_discovery 64 phút với 6 worker. Đối chiếu với bàn giao:
+
+- Trùng từng byte: D7 live/historical, ledger A/B, half-spread, T5, T5c, T6b, T4, F1–F5, F7, T2_leadlag_xcorr.
+- Trùng trong sai số dấu phẩy động: D6 (IS/ILS ≤ 2,6e-10; CS sai số tương đối ≤ 8,8e-8), T6 (≤ 6,3e-12), các bảng T2/T3 TV5 giao qua ổ chung (tương đối ≤ 1,7e-7). Spec chọn lại trên dev trùng spec đã khóa.
+- JSON params/sources chỉ khác đường dẫn máy và hash bytes Parquet.
+- Khác: T1 bàn giao 23/10 dùng D2 cũ tới 22/10 S2 (thiếu hai phiên 23/10); F6 commit có chú thích cũ «Sample:», số liệu như nhau.
+
+Bằng chứng: `outputs/tv4_research_pipeline_validation.json`. Bảng T2/T3/T3b/T3c/T3d chưa từng được commit vào `outputs/tables`; nhóm cần chốt có đưa bản tái lập (hoặc bản TV5 giao) vào outputs cho báo cáo. Raw/code tái tạo D1 đã sửa và hai cờ Bybit spot vẫn là việc riêng của Ny/TV3; không chặn pipeline từ D1 đã xác nhận hash.

@@ -91,3 +91,26 @@ def test_time_conversion_rejects_naive():
     with pytest.raises(ValueError, match="timezone-aware"):
         utc_timestamp("2026-01-01")
     assert utc_timestamp("2026-01-01T07:00+07:00") == pd.Timestamp("2026-01-01T00:00Z")
+
+
+def test_write_fixtures_keeps_unchanged_files(cfg, tmp_path):
+    """Regenerating identical fixtures must not rewrite them (bytes also carry the pandas version)."""
+    from src.utils.io_utils import file_sha256
+    from src.utils.synthetic import write_fixtures
+    write_fixtures(cfg, tmp_path)
+    files = sorted(tmp_path.rglob("*.parquet")) + sorted(tmp_path.rglob("truth.json"))
+    before = {p: (p.stat().st_mtime_ns, file_sha256(p)) for p in files}
+    write_fixtures(cfg, tmp_path)
+    assert {p: (p.stat().st_mtime_ns, file_sha256(p)) for p in files} == before
+
+    # Changed content is still replaced, and truth.json follows the new bytes.
+    panel = tmp_path/"multi"/"panel_1m_wide.parquet"
+    stale = read_parquet(panel, "D3")
+    column = next(c for c in stale if c.startswith("volume_base__"))
+    stale.loc[stale.index[0], column] *= 2
+    write_parquet(stale, panel, "D3")
+    write_fixtures(cfg, tmp_path)
+    fresh = read_parquet(panel, "D3")
+    assert fresh[column].iloc[0] != stale[column].iloc[0]
+    truth = json.loads((tmp_path/"multi"/"truth.json").read_text(encoding="utf-8"))
+    assert truth["files_sha256"]["panel_1m_wide.parquet"] == file_sha256(panel)

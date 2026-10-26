@@ -59,4 +59,137 @@ backtest_b:
 
 # Team modules registered here run after the TV4 foundation. Paths are relative
 # to repo; each command is an argv list (no shell), with {data_dir}/{output_dir}.
-pipeline_stages: []
+# C4.12 (TV4): the team CLIs as handed off, in dependency order. A failure stops the run.
+# D3/D4 and every derived file use {data_dir}; tables/figures use {output_dir}. Handoff inputs that
+# the pipeline does not rebuild stay at their contract paths: D1 data/interim, live D2 and D9 in
+# data/processed. stress_regime only takes a project root, so {data_dir} must be
+# {output_dir}/../data/processed (true for the defaults data/processed and outputs).
+# Not rerun: T5b (C6.07) used the final test once (split_manifest.json test_consumed=true);
+# T2_vecm_spec.json is locked on dev and reused, so it is not a rewritten output.
+pipeline_stages:
+  - name: features                      # TV2 C2.04: D3 -> D3b
+    command: ['{python}', '-m', scripts.build_features_1m, --panel, '{data_dir}/panel_1m_wide.parquet',
+              --out, '{data_dir}/features_1m.parquet']
+    timeout_s: 1800
+    outputs: ['{data_dir}/features_1m.parquet']
+  - name: regime_flags                  # TV1 C1.06: D3 + D3b + D4 -> D5 (high-vol threshold fit on dev)
+    command: ['{python}', '-m', src.features.regime_flags, --panel, '{data_dir}/panel_1m_wide.parquet',
+              --features, '{data_dir}/features_1m.parquet', --manifest, '{data_dir}/split_manifest.json',
+              --events, config/events.yaml, --output, '{data_dir}/regime_flags.parquet',
+              --receipt, '{data_dir}/regime_flags_receipt.json']
+    timeout_s: 1800
+    outputs: ['{data_dir}/regime_flags.parquet', '{data_dir}/regime_flags_receipt.json']
+  - name: price_discovery               # TV5 C5.05-C5.09: T2/T3/T3b/T3c/T3d and D6 (dev + val only)
+    command: ['{python}', '-m', src.price_discovery.run_price_discovery, --data-dir, '{data_dir}',
+              --output-dir, '{output_dir}', --config, config/config.yaml, --workers, '6']
+    timeout_s: 14400
+    outputs:
+      - '{output_dir}/tables/T2_stationarity_dev.csv'
+      - '{output_dir}/tables/T2_stationarity_val.csv'
+      - '{output_dir}/tables/T2_johansen_dev.csv'
+      - '{output_dir}/tables/T2_johansen_val.csv'
+      - '{output_dir}/tables/T3_static_is_cs.csv'
+      - '{output_dir}/tables/T3_vecm_diagnostics.csv'
+      - '{output_dir}/tables/T3d_ils.csv'
+      - '{output_dir}/tables/T3d_ils_summary.csv'
+      - '{output_dir}/tables/T3c_spot_perp.csv'
+      - '{output_dir}/tables/rolling_is.parquet'
+      - '{output_dir}/tables/T3b_sensitivity.csv'
+  - name: price_discovery_live          # TV3 C3.07 input: IS per live session with the locked spec
+    command: ['{python}', '-m', src.price_discovery.run_live_is, --quotes, data/processed/live_quotes_long.parquet,
+              --spec, '{output_dir}/tables/T2_vecm_spec.json', --out, '{data_dir}/live_session_is.parquet']
+    timeout_s: 3600
+    outputs: ['{data_dir}/live_session_is.parquet']
+  - name: cost_gap_events_live          # TV6 C6.03: D7 from live bid/ask (contract path)
+    command: ['{python}', '-m', src.cost_model.run_gap_events, --quotes, data/processed/live_quotes_long.parquet,
+              --config, config/config.yaml, --fees, config/fees.yaml, --output, '{output_dir}/tables/gap_events.parquet']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/gap_events.parquet']
+  - name: cost_gap_events_historical    # TV6 C6.03: close-proxy events on dev, half spread from live D2
+    command: ['{python}', '-m', src.cost_model.run_gap_events, --panel, '{data_dir}/panel_1m_wide.parquet',
+              --manifest, '{data_dir}/split_manifest.json', --split, dev,
+              --calibration-quotes, data/processed/live_quotes_long.parquet, --config, config/config.yaml,
+              --fees, config/fees.yaml, --output, '{output_dir}/tables/gap_events_historical.parquet']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/gap_events_historical.parquet']
+  - name: cost_backtest_a               # TV6 C6.04: proxy backtest on dev at backtest_a.latency_min
+    command: ['{python}', '-m', src.backtest.run_backtest_a, --panel, '{data_dir}/panel_1m_wide.parquet',
+              --manifest, '{data_dir}/split_manifest.json', --live-quotes, data/processed/live_quotes_long.parquet,
+              --split, dev, --config, config/config.yaml, --fees, config/fees.yaml, --output-dir, '{output_dir}/tables']
+    timeout_s: 3600
+    outputs:
+      - '{output_dir}/tables/backtest_a_dev_L1_ledger.parquet'
+      - '{output_dir}/tables/backtest_a_dev_L1_summary.csv'
+      - '{output_dir}/tables/backtest_a_dev_L1_params.json'
+      - '{output_dir}/tables/half_spread_calibration.csv'
+  - name: cost_backtest_b               # TV6 C6.05: live bid/ask backtest -> D8 trades_ledger
+    command: ['{python}', '-m', src.backtest.run_backtest_b, --quotes, data/processed/live_quotes_long.parquet,
+              --config, config/config.yaml, --fees, config/fees.yaml, --output-dir, '{output_dir}/tables']
+    timeout_s: 3600
+    outputs:
+      - '{output_dir}/tables/trades_ledger.parquet'
+      - '{output_dir}/tables/backtest_b_L5s_summary.csv'
+      - '{output_dir}/tables/backtest_b_L5s_by_market.csv'
+      - '{output_dir}/tables/backtest_b_L5s_params.json'
+  - name: cost_backtest                 # TV6 C6.06: T5 cost waterfall of backtests A and B
+    command: ['{python}', '-m', src.backtest.make_t5, --a-ledger, '{output_dir}/tables/backtest_a_dev_L1_ledger.parquet',
+              --b-ledger, '{output_dir}/tables/trades_ledger.parquet', --config, config/config.yaml,
+              --output-dir, '{output_dir}/tables']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/T5_arbitrage_net.csv', '{output_dir}/tables/T5_arbitrage_net_sources.json']
+  - name: cost_reconcile                # TV6 C6.10: T5c ledger reconciliation
+    command: ['{python}', '-m', src.backtest.reconcile, --a-ledger, '{output_dir}/tables/backtest_a_dev_L1_ledger.parquet',
+              --b-ledger, '{output_dir}/tables/trades_ledger.parquet', --config, config/config.yaml,
+              --fees, config/fees.yaml, --output-dir, '{output_dir}/tables']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/T5c_ledger_reconciliation.csv', '{output_dir}/tables/T5c_ledger_balances.csv']
+  - name: cost_regime                   # TV6 C6.09: T6b gap and net by regime (needs D5)
+    command: ['{python}', '-m', src.backtest.make_t6b, --tables, '{output_dir}/tables',
+              --regime, '{data_dir}/regime_flags.parquet', --manifest, '{data_dir}/split_manifest.json',
+              --live-quotes, data/processed/live_quotes_long.parquet, --config, config/config.yaml,
+              --output-dir, '{output_dir}/tables']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/T6b_gap_by_regime.csv', '{output_dir}/tables/T6b_gap_by_regime_sources.json']
+  - name: cost_figures                  # TV6 C6.08: F4 gap duration, F5 cumulative P&L
+    command: ['{python}', '-m', src.backtest.make_figures, --tables, '{output_dir}/tables', --config, config/config.yaml,
+              --output-dir, '{output_dir}/figures']
+    timeout_s: 1800
+    outputs: ['{output_dir}/figures/F4_gap_duration.png', '{output_dir}/figures/F5_cumulative_pnl.png']
+  - name: evaluation_liquidity          # TV3 C3.07: T4 (models A on D6 + D3b, B on live session IS)
+    command: ['{python}', '-m', notebooks.tv3.liquidity_regression, --rolling-is, '{output_dir}/tables/rolling_is.parquet',
+              --features, '{data_dir}/features_1m.parquet', --live, data/processed/live_quotes_long.parquet,
+              --live-is, '{data_dir}/live_session_is.parquet', --out, '{output_dir}/tables/T4_leadership_determinants.csv']
+    timeout_s: 3600
+    outputs: ['{output_dir}/tables/T4_leadership_determinants.csv']
+  - name: evaluation                    # TV3 C3.08: T6 rolling IS by regime (D6 + D5)
+    command: ['{python}', '-m', src.evaluation.stress_regime, --project-root, '{output_dir}/..']
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/T6_stress.csv']
+  - name: exchange_characteristics      # TV1 C1.07: T1 per venue (volume on dev + val only)
+    command: ['{python}', '-m', scripts.exchange_characteristics, --ohlcv, data/interim/ohlcv_1m_long.parquet,
+              --live, data/processed/live_quotes_long.parquet, --funding, data/processed/funding_oi.parquet,
+              --manifest, '{data_dir}/split_manifest.json', --fees, config/fees.yaml,
+              --out, '{output_dir}/tables/T1_exchange_characteristics.csv', --sample, dev_val]
+    timeout_s: 1800
+    outputs: ['{output_dir}/tables/T1_exchange_characteristics.csv']
+  - name: figures_f1_f2                 # TV2 C2.05: F1 prices, F2 dispersion
+    command: ['{python}', '-m', notebooks.tv2.plot_c2_05, --panel, '{data_dir}/panel_1m_wide.parquet',
+              --out-dir, '{output_dir}/figures']
+    timeout_s: 1800
+    outputs: ['{output_dir}/figures/F1_synchronized_prices.png', '{output_dir}/figures/F2_price_dispersion.png']
+  - name: figures_f3                    # TV2 C2.06: F3 from D6, F6 from D3b dev, F7 from T3c
+    command: ['{python}', '-m', scripts.make_figure_f3, --rolling, '{output_dir}/tables/rolling_is.parquet',
+              --out, '{output_dir}/figures/F3_rolling_is_bounds.png']
+    timeout_s: 1800
+    outputs: ['{output_dir}/figures/F3_rolling_is_bounds.png']
+  - name: figures_f6
+    command: ['{python}', '-m', scripts.make_figure_f6, --features, '{data_dir}/features_1m.parquet',
+              --panel, '{data_dir}/panel_1m_wide.parquet', --split-manifest, '{data_dir}/split_manifest.json',
+              --config, config/config.yaml, --out, '{output_dir}/figures/F6_leadlag_xcorr.png']
+    timeout_s: 1800
+    outputs: ['{output_dir}/figures/F6_leadlag_xcorr.png']
+  - name: figures_f7
+    command: ['{python}', '-m', scripts.make_figure_f7, --t3c, '{output_dir}/tables/T3c_spot_perp.csv',
+              --out, '{output_dir}/figures/F7_spot_perp_is_ils.png']
+    timeout_s: 1800
+    outputs: ['{output_dir}/figures/F7_spot_perp_is_ils.png']

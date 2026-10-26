@@ -26,3 +26,6 @@ outputs/synthetic/
 # Personal TV4 skill; keep its contents local.
 /.agents/skills/gpm1-tv4/
 /.agents/skills/gpm1-project/
+
+# Personal review notes; shared contracts, handoffs and validation receipts stay tracked.
+/docs/TV2_PR32_REVIEW.md

@@ -1,6 +1,8 @@
 # TV4 bàn giao D3/D4 và lead-lag — 21/10/2026
 
-Đã thực hiện C4.08, C4.09 và C4.10 trên D1 thật của TV2, theo khoảng mẫu hiện có trong config/config.yaml. Đây là bàn giao kỹ thuật để TV5/TV6/TV2 dùng chung panel và split; nhóm vẫn cần xác nhận TODO về khoảng mẫu trước khi chốt M2. Không sửa Excel, không đóng băng đặc tả mô hình và không dùng final test.
+**Cập nhật trạng thái 26/10/2026:** khoảng mẫu đã được nhóm xác nhận; fingerprint và biên mẫu bên dưới vẫn đúng. Final test canonical hiện đã consumed và có khóa do T5b của TV6; các dòng test_consumed=false ghi lại trạng thái của lượt dựng ngày 21/10, không dùng để reset trạng thái hiện hành. Pipeline local từ D1 đã đủ 19 stage chạy đạt; các phụ thuộc từng liệt kê ở cuối tài liệu là lịch sử, xem docs/TV4_PENDING_HANDOFFS.md cho danh sách hiện tại. Chưa xác nhận tái tạo D1 mới nhất từ raw.
+
+Đã thực hiện C4.08, C4.09 và C4.10 trên D1 thật của TV2, theo khoảng mẫu trong config/config.yaml. Đây là bàn giao kỹ thuật để TV5/TV6/TV2 dùng chung panel và split. Lượt dựng ngày 21/10 không sửa Excel, không đóng băng đặc tả mô hình và không dùng final test.
 
 ## Nguồn và kết quả
 

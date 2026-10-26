@@ -1,5 +1,7 @@
 # Phần báo cáo của Anh (TV4)
 
+Trạng thái hiện tại (26/10/2026): mẫu đã được nhóm xác nhận; D3/D4 thật và strict TV5 đã nghiệm thu kỹ thuật; pipeline từ D1 đến 19 stage đã chạy đạt. Final test đã được T5b dùng một lần và đang khóa. Các mục kiểm tra có ngày dưới đây ghi lịch sử tại thời điểm chạy; dùng phần phương pháp và cập nhật mới nhất khi đưa vào báo cáo chung. Tái lập từ raw còn phụ thuộc bộ nguồn khớp D1 đã sửa; cấu hình tích hợp được đóng gói trong commit local, chưa push.
+
 ## 4.1 Đồng bộ thời gian và kiểm soát look-ahead (R4.01)
 
 Đơn vị quan sát là venue, được định nghĩa bởi sàn giao dịch và loại hợp đồng, ví dụ binance_spot và binance_perp. Dữ liệu dài lưu exchange và market_type riêng; bảng rộng dùng hậu tố venue để tránh gộp giá spot với perpetual của cùng một sàn. Mọi thời điểm lưu bằng datetime64[ns, UTC].
@@ -16,7 +18,7 @@ Panel được chia theo thứ tự thời gian thành development/validation/fi
 
 Tham số và lựa chọn đặc tả được phát triển trên development, xác nhận trên validation rồi đóng băng. Final test chỉ được dùng một lần sau khi ghi checksum của cấu hình đóng băng. API claim_final_test dùng khóa độc quyền và đánh dấu đã tiêu thụ test; chạy lại pipeline không đặt lại cờ này. Quy trình hiện mặc định chỉ tính lead–lag trên development và không tự mở final test. Việc quản lý quyền đọc dữ liệu gốc vẫn là trách nhiệm quy trình của cả nhóm.
 
-Áp dụng ngày 21/10 trên D1 thật Ny bàn giao: mẫu theo config từ 2025-10-18T00:01:00Z đến trước 2026-10-01T00:00:00Z có 501.119 mốc phút, sáu venue và không có missing trong D3. Development gồm 300.671 dòng (18/10/2025 00:01 đến 14/05/2026 19:11 UTC), validation 100.223 dòng (14/05/2026 19:12 đến 23/07/2026 09:34 UTC), final test 100.225 dòng (23/07/2026 09:35 đến 30/09/2026 23:59 UTC). Biên từng tập bao gồm hai đầu. Các bảng/hình phân tích hiện chỉ dùng development; final test chưa được claim. Khoảng mẫu vẫn giữ TODO cần nhóm xác nhận, không suy ra đã chốt chỉ từ việc pipeline chạy đạt. Bằng chứng và lệnh tái lập nằm trong docs/TV4_HISTORICAL_HANDOFF.md.
+Mẫu nghiên cứu đã xác nhận trong config từ 2025-10-18T00:01:00Z đến trước 2026-10-01T00:00:00Z có 501.119 mốc phút, sáu venue và không có missing trong D3. Development gồm 300.671 dòng (18/10/2025 00:01 đến 14/05/2026 19:11 UTC), validation 100.223 dòng (14/05/2026 19:12 đến 23/07/2026 09:34 UTC), final test 100.225 dòng (23/07/2026 09:35 đến 30/09/2026 23:59 UTC). Biên từng tập bao gồm hai đầu. Lead–lag chỉ dùng development; rolling D6 dùng dev + val với available_at không trước thời điểm khóa đặc tả. Final test đã được T5b của TV6 dùng một lần theo cấu hình đóng băng, manifest hiện có test_consumed=true và khóa .test.lock. Lượt tái lập của TV4 giữ nguyên kết quả T5b đã bàn giao, không chạy lại final test. Bằng chứng và lệnh tái lập nằm trong docs/TV4_HISTORICAL_HANDOFF.md và docs/TV4_PIPELINE_INTEGRATION.md.
 
 Nguồn D1 hiện tại là bản sửa C2.03 có SHA-256 A162AFFAEAE0AE16BD4F52DD9B1ABD68C226555C8665D3BEF3AF73757F8209F3, thay cho bản FEA…E09F. Lần sửa đổi đơn vị volume_base OKX spot về BTC làm đổi fingerprint, không đổi biên mẫu hoặc giá; các mô tả chia mẫu trên vẫn giữ nguyên. D3 và D4 hiện tại đã được cập nhật cùng phiên bản dữ liệu.
 
@@ -212,3 +214,31 @@ Bổ sung config/pipeline.synthetic.example.yaml riêng, không đổi config/co
 Bằng chứng: outputs/tv4_pipeline_integration_validation.json; lệnh tái lập và phụ thuộc: docs/TV4_PIPELINE_INTEGRATION.md. Profile và bằng chứng kỹ thuật được đưa vào repo; dữ liệu/kết quả synthetic vẫn được ignore. C4.12 nghiên cứu đầy đủ vẫn chờ features/D3b, D5, cost_backtest, evaluation và nghiệm thu đặc tả TV5 trên D3 thật; không đánh dấu hoàn thành từ synthetic.
 
 Kiểm lại trước commit: toàn repo với --require-tv5 đạt **423 passed, 1 skipped** (symlink thư mục không khả dụng trên Windows). Đã đối chiếu lại hash profile, 11 đầu ra, spec, D1/D3/D4 và config nghiên cứu; final test chưa dùng và main không đổi. Chi tiết ở precommit_double_check trong JSON bằng chứng.
+
+## C4.12/R4.02 — pipeline nghiên cứu đầy đủ (26/10/2026)
+
+`config/config.yaml` đăng ký 19 stage bằng CLI thật đã merge của TV1/TV2/TV3/TV5/TV6 theo thứ tự phụ thuộc: features (D3b) → regime_flags (D5) → price_discovery (T2/T3/T3b/T3c/T3d, D6) → IS từng phiên live → D7 live/historical, backtest A/B, T5, T5c, T6b, F4/F5 → T4, T6 → T1 → F1/F2, F3, F6, F7. Năm tên bắt buộc của orchestrator là bước chốt của từng nhóm; mọi stage đều phải thoát mã 0 và ghi mới từng file khai báo. T5b không được đăng ký vì final test đã được C6.07 dùng một lần; spec VECM khóa trên dev được dùng lại, không khai báo là đầu ra phải ghi mới.
+
+Tái lập bằng một lệnh (thư mục cô lập để không ghi đè kết quả đã đóng băng):
+
+```powershell
+python run_all.py --mode historical --config config/config.yaml --data-dir tmp/c412-research/data/processed --output-dir tmp/c412-research/outputs
+```
+
+Bỏ `--data-dir/--output-dir` để ghi vào data/processed và outputs. Lượt chạy 26/10: nền khớp fingerprint `9420d92f…56a4` và T2_leadlag trùng byte; 19/19 stage passed; `full_research_pipeline_complete=true`; final test không bị đụng; khoảng 67 phút, chủ yếu là rolling IS và sensitivity của TV5 (6 worker). Đối chiếu với bàn giao: D7, D8, T4, T5, T5c, T6b, F1–F5, F7 trùng byte; D6, T6 và các bảng T2/T3 của TV5 trùng trong sai số dấu phẩy động (Component Share sai số tương đối ≤ 8,8e-8); spec chọn lại trên dev trùng spec đã khóa. T1 bàn giao dùng D2 cũ (thiếu hai phiên 23/10); F6 commit mang chú thích cũ. Chi tiết: docs/TV4_PIPELINE_INTEGRATION.md, outputs/tv4_research_pipeline_validation.json.
+
+Cùng ngày, review TV2 PR #32 (C2.08) và vector hóa kiểm leader của validator D6: tải D6 trong dashboard giảm từ 9,8 s xuống 0,19 s, kết quả kiểm giữ nguyên (test so với vòng lặp cũ). Chi tiết: docs/TV2_PR32_REVIEW.md.
+
+Sửa thêm (C4.03): `write_fixtures` từng ghi lại fixtures vô điều kiện. Parquet lưu cả phiên bản pandas của máy ghi, nên mỗi lần chạy test/demo trên môi trường khác lại làm đổi bytes các file `data/fixtures` đã commit dù dữ liệu y hệt (PR #31 đã commit lại fixtures ghi bằng pandas 3.0.6 thay cho bản ghim 3.0.1). Nay file có fingerprint nội dung không đổi được giữ nguyên, truth.json chỉ ghi khi khác; test tái hiện fail trên code cũ. Toàn repo với --require-tv5: **639 passed, 1 skipped**; chạy test và demo synthetic không còn thay đổi `data/fixtures`.
+
+## Hoàn thiện C4.02/C4.04 và bàn giao TV4 (26/10/2026)
+
+Validator chung nay yêu cầu cột và metadata `data_kind` trùng nhau khi cùng có mặt; metadata có mặt nhưng không hợp lệ cũng bị từ chối, kể cả trên schema cho phép nguồn chỉ nằm trong attrs. I/O theo schema dùng chốt này trước khi đọc dữ liệu vào phân tích hoặc thay file đích nguyên tử. Dữ liệu nguồn chỉ có cột hoặc chỉ có metadata hợp lệ vẫn được hỗ trợ.
+
+Đã ghi D9 mở rộng v1.1 với `in_live_window` boolean không null; v1.0 chưa có cột vẫn đọc được. Cờ phân biệt trước/từ đầu ngày thu live, không đổi nhãn historical của nguồn funding/OI thành live. D9 bàn giao có cờ khớp lịch thu hiện hành; không ghi lại dữ liệu để đổi phiên bản. Xem docs/DATA_CONTRACT.md.
+
+Kiểm chứng bản cuối: **657 passed, 1 skipped** với `--require-tv5` trên runtime đúng requirements; **71 passed** cho nhóm nguồn/schema/intake/regime liên quan. Hai demo foundation multi/spot_perp đạt. D1/D2/D3/D3b/D5/D6/D7/D8/D9 thật đều qua kiểm schema. Test bổ sung xác nhận file cũ không bị thay khi nguồn mâu thuẫn; ca T6b cũ được sửa nhãn metadata của dữ liệu mẫu để tiếp tục kiểm đúng lỗi trộn nguồn giữa hai file, không nới kỳ vọng phải từ chối.
+
+Giữ nguyên checksum dữ liệu thật, fixtures đã track, collector, kết quả đã đóng băng và final-test lock; không chạy lại mô hình nghiên cứu 67 phút hoặc final test. Danh sách phụ thuộc hiện tại nằm ở đầu docs/TV4_PENDING_HANDOFFS.md. Phần TV4 có thể làm độc lập đã được xử lý; còn tái lập từ raw, nghiệm thu các PR mới và xác nhận nội dung vào báo cáo chung.
+
+Bàn giao commit local theo yêu cầu 26/10: tách bản dashboard #32 chưa nghiệm thu cùng ba file test dashboard mới khỏi commit TV4. Bản sao đúng tập file commit đạt **637 passed, 1 skipped** với `--require-tv5`; 657/1 ở trên là toàn working tree có cả dashboard local. Nhật ký review cá nhân và dữ liệu tạm được ignore; hợp đồng, test và biên nhận tái lập nghiên cứu vẫn được bàn giao. Chưa push commit local lên GitHub.

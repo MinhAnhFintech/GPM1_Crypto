@@ -161,3 +161,47 @@ def test_production_venue_checks_apply_before_publication(tmp_path, multi, cfg, 
             run_all._run_pipeline(args, args.data_dir, args.output_dir, {})
         assert not writes
     assert not args.data_dir.exists() and not args.input.exists()
+
+
+def _loop_leader_check(ok):
+    """Reference: the per-row loop the vectorised D6 leader check replaced."""
+    for _, group in ok.groupby(["window_start", "window_end"]):
+        for row in group.itertuples():
+            if pd.notna(row.leader) and row.leader != "":
+                leader = group[group.venue.eq(row.leader)]
+                others = group[~group.venue.eq(row.leader)]
+                if len(leader) != 1 or others.empty or not (leader.is_lower.iloc[0] > others.is_upper.max()):
+                    return False
+    return True
+
+
+def test_d6_leader_check_matches_reference_loop():
+    from src.utils.schema import validate_frame
+    import numpy as np
+    rng = np.random.default_rng(20261025)
+    venues = ["binance_spot", "okx_spot", "bybit_spot"]
+    for trial in range(300):
+        rows = []
+        for w in range(4):
+            start = pd.Timestamp("2026-01-01", tz="UTC") + pd.Timedelta(hours=w)
+            lows = rng.uniform(0, 0.6, len(venues))
+            highs = np.minimum(lows + rng.uniform(0, 0.5, len(venues)), 1)
+            named = rng.choice(venues + ["kraken_spot", None, None])
+            for venue, low, high in zip(venues, lows, highs):
+                rows.append(dict(window_start=start, window_end=start + pd.Timedelta(minutes=59),
+                                 available_at=start + pd.Timedelta(minutes=59), venue=venue, is_lower=low,
+                                 is_upper=high, is_mid=(low + high) / 2, component_share=1/3, ils=(low + high) / 2,
+                                 leader=named if rng.random() < 0.7 else None, status="ok", reason=""))
+        frame = pd.DataFrame(rows)
+        if trial % 50 == 0:  # duplicated venue rows inside a window
+            frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+        for column in ("window_start", "window_end", "available_at"):
+            frame[column] = frame[column].astype("datetime64[ns, UTC]")
+        expected = _loop_leader_check(frame)
+        try:
+            validate_frame(frame, "D6")
+            accepted = True
+        except ValueError as exc:
+            assert "leader has overlapping bounds" in str(exc)
+            accepted = False
+        assert accepted == expected, trial

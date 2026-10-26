@@ -1,4 +1,4 @@
-"""Executable data contracts: baseline v1.0 and additive D2 v1.1."""
+"""Executable data contracts: baseline v1.0 and additive D2/D9 v1.1."""
 from __future__ import annotations
 
 import re
@@ -9,6 +9,7 @@ from .time_utils import require_utc, utc_timestamp
 
 CONTRACT_VERSION = "1.0"
 D2_CONTRACT_VERSION = "1.1"
+D9_CONTRACT_VERSION = "1.1"
 D2_BASE_COLUMNS = "ts_recv_utc ts_event_utc exchange symbol bid ask bid_size ask_size mid spread_abs spread_bps depth_bid_10bps_usdt depth_ask_10bps_usdt data_kind".split()
 D2_EXTRA_COLUMNS = "market_type venue session_id ts_grid_utc depth_truncated depth_cover_bps depth_bid_5bps_usdt depth_ask_5bps_usdt depth_bid_2bps_usdt depth_ask_2bps_usdt book_levels_bid book_levels_ask latency_ms".split()
 D2_COLUMNS = D2_BASE_COLUMNS + D2_EXTRA_COLUMNS
@@ -50,15 +51,21 @@ def upgrade_d2_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def data_kind(df: pd.DataFrame) -> str:
-    """Return exactly one provenance label, from a long column or wide metadata."""
+    """Return one source label; a column and metadata must agree when both exist."""
+    allowed = {"synthetic", "historical", "live"}
+    metadata = df.attrs.get("data_kind")
+    if "data_kind" in df.attrs and (not isinstance(metadata, str) or metadata not in allowed):
+        raise ValueError(f"data_kind: unsupported metadata label {metadata!r}")
     if "data_kind" in df:
         kinds = df["data_kind"].dropna().unique().tolist()
         if df["data_kind"].isna().any() or len(kinds) != 1:
             raise ValueError("data_kind: mixed or missing provenance")
         kind = kinds[0]
+        if "data_kind" in df.attrs and kind != metadata:
+            raise ValueError("data_kind: column and metadata disagree")
     else:
-        kind = df.attrs.get("data_kind")
-    if kind not in {"synthetic", "historical", "live"}:
+        kind = metadata
+    if not isinstance(kind, str) or kind not in allowed:
         raise ValueError(f"data_kind: unsupported or absent label {kind!r}")
     return str(kind)
 
@@ -121,7 +128,7 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
         raise ValueError("market_type must be spot or perp")
     if "symbol" in df and not df.symbol.eq("BTC/USDT").all():
         raise ValueError("symbol must be canonical BTC/USDT; CCXT symbols belong in config")
-    if "data_kind" in df:
+    if "data_kind" in df or "data_kind" in df.attrs:
         data_kind(df)
     if schema == "D1":
         keys = ["ts_available", "exchange", "market_type", "symbol"]
@@ -182,13 +189,17 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
             raise ValueError("D6: missing successful component_share")
         if (ok.is_lower > ok.is_upper).any() or (ok.is_mid < ok.is_lower).any() or (ok.is_mid > ok.is_upper).any():
             raise ValueError("D6: inconsistent IS bounds")
-        for _, group in ok.groupby(["window_start", "window_end"]):
-            for row in group.itertuples():
-                if pd.notna(row.leader) and row.leader != "":
-                    leader = group[group.venue.eq(row.leader)]
-                    others = group[~group.venue.eq(row.leader)]
-                    if len(leader) != 1 or others.empty or not (leader.is_lower.iloc[0] > others.is_upper.max()):
-                        raise ValueError("D6: leader has overlapping bounds")
+        # Each named leader must be exactly one venue of its window whose lower bound
+        # exceeds the upper bound of every other venue there (vectorised over windows).
+        keys = ["window_start", "window_end"]
+        claims = ok.loc[ok.leader.notna() & ok.leader.ne(""), keys + ["leader"]].drop_duplicates()
+        if len(claims):
+            pairs = claims.merge(ok[keys + ["venue", "is_lower", "is_upper"]], on=keys)
+            own = pairs[pairs.venue.eq(pairs.leader)].groupby(keys + ["leader"]).is_lower.agg(["size", "first"])
+            rivals = pairs[pairs.venue.ne(pairs.leader)].groupby(keys + ["leader"]).is_upper.max()
+            checked = claims.set_index(keys + ["leader"]).join(own).join(rivals.rename("rival_upper"))
+            if not (checked["size"].eq(1) & checked["first"].gt(checked["rival_upper"])).all():
+                raise ValueError("D6: leader has overlapping bounds")
     if schema == "D7":
         if (df.ts_end < df.ts_start).any() or (df.duration_s < 0).any():
             raise ValueError("D7: invalid duration")
@@ -197,6 +208,10 @@ def validate_frame(df: pd.DataFrame, schema: str) -> pd.DataFrame:
     if schema == "D9":
         if not df.market_type.eq("perp").all() or (df.funding_interval_h <= 0).any():
             raise ValueError("D9: perpetual funding requires positive interval in hours")
+        if df.attrs.get("contract_version") == D9_CONTRACT_VERSION and "in_live_window" not in df:
+            raise ValueError("D9 v1.1: missing in_live_window")
+        if "in_live_window" in df and (not is_bool_dtype(df.in_live_window) or df.in_live_window.isna().any()):
+            raise ValueError("D9: in_live_window must be boolean and nonnullable")
     return df
 
 

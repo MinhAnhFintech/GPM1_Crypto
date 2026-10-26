@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from src.synchronization.align import align_previous_tick
 from .config import load_config
-from .io_utils import file_sha256, write_json, write_parquet
+from .io_utils import file_sha256, frame_fingerprint, read_parquet, write_json, write_parquet
 from .schema import upgrade_d2_frame, validate_frame
 from .time_utils import utc_timestamp
 
@@ -58,17 +59,35 @@ def make_fixture(cfg: dict, case="multi") -> tuple[pd.DataFrame, pd.DataFrame, p
     return d1, d2, d3, truth
 
 
+def _unchanged(frame: pd.DataFrame, path: Path, schema: str) -> bool:
+    """True when the file already holds this exact frame (values, dtypes, index, attrs)."""
+    if not path.is_file():
+        return False
+    try:
+        return frame_fingerprint(read_parquet(path, schema)) == frame_fingerprint(frame)
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
 def write_fixtures(cfg: dict, output_dir="data/fixtures") -> dict:
-    """Write small reproducible D1-D3 for multi-venue and spot/perp cases."""
+    """Write small reproducible D1-D3 for multi-venue and spot/perp cases.
+
+    A file whose content is unchanged is left as is: Parquet bytes also record the
+    writer's pandas version, so rewriting identical data would churn tracked fixtures.
+    """
     output = Path(output_dir)
     result = {}
     for case in ("multi", "spot_perp"):
         d1, d2, d3, truth = make_fixture(cfg, case)
         folder = output/case
         for frame, name, schema in [(d1, "ohlcv_1m_long", "D1"), (d2, "live_quotes_long", "D2"), (d3, "panel_1m_wide", "D3")]:
-            write_parquet(frame, folder/f"{name}.parquet", schema)
+            path = folder/f"{name}.parquet"
+            if not _unchanged(frame, path, schema):
+                write_parquet(frame, path, schema)
         truth["files_sha256"] = {p.name: file_sha256(p) for p in sorted(folder.glob("*.parquet"))}
-        write_json(truth, folder/"truth.json")
+        truth_path = folder/"truth.json"
+        if not (truth_path.is_file() and json.loads(truth_path.read_text(encoding="utf-8")) == truth):
+            write_json(truth, truth_path)
         result[case] = truth
     return result
 

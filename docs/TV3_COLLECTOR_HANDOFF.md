@@ -28,3 +28,42 @@ OHLCV lịch sử chạy `python -m src.collectors.historical.ccxt_ohlcv`; mặc
 Raw CCXT dùng ts_open_utc và volume_base; ts_available vẫn do chuẩn hóa tạo bằng giờ mở + 1 phút. Unified OHLCV của CCXT đã cho base volume BTC ở các venue đã chốt; không nhân contractSize như order-book. volume_quote không được quan sát thì giữ NaN. Bộ T0 đọc được cả raw Binance và CCXT.
 
 Resume chỉ dùng part có checksum/biên/venue/schema hợp lệ và đầy đủ. Part thiếu được thử lại. File chưa đủ giữ trong data/raw/ohlcv/_incomplete/ cùng status=incomplete trong fetch_log; CLI trả 1, không thay file final tại thư mục gốc. _parts/ và _incomplete/ không là file bàn giao D1, không được dùng để bỏ qua các cờ chất lượng. Chi tiết findings và kiểm chứng: docs/TV3_PR8_REVIEW.md.
+
+## C3.06 (D2) và C3.09 (D9): bàn giao dữ liệu 22/10/2026
+
+Ly giao qua ổ chung, code ở nhánh `feat/tv3-fixc3.06-c3.09` (chưa merge). TV4 kiểm ngày 22/10 trong runtime đúng requirements.txt; hai file khớp hash Ly gửi.
+
+| File | SHA-256 | Nội dung |
+| --- | --- | --- |
+| live_quotes_long.parquet | 9A2F9BBDEE31034B3D1DC42B7D2FC66F192D80FCD58FE2064DC94628A7F32EEA | 116.461 dòng × 27 cột; 9 phiên 17/10 S2 → 21/10 S2; 6 venue nghiên cứu (Kraken/Coinbase đã lọc) |
+| funding_oi.parquet | A06B8C07E281F965566BDCBB54B34D2163E35C7DA22DC6B863C1B88FF675D2C2 | 4.322 dòng × 14 cột; funding Binance/Bybit 1.106 kỳ, OKX 280 kỳ; OI 696 nến 1h mỗi sàn |
+
+Bản này thiếu phiên 22/10 S1/S2 và 23/10 S1/S2; Ly chạy lại sau 23/10, tên cột và cấu trúc giữ nguyên. Khi nhận bản mới, kiểm lại hash và các mục dưới đây.
+
+**Đã đạt.** D2: 14 cột gốc và phần mở rộng v1.1 đúng thứ tự; khóa (session_id, exchange, market_type, ts_grid_utc) duy nhất; bid > 0, ask ≥ bid; mid/spread đúng công thức (sai số 0); data_kind=live; venue = exchange_market_type; depth không âm, 2 ≤ 5 ≤ 10 bps. Thiếu 0,15% so với 2.160 dòng mỗi phiên × venue, không nội suy. D9: market_type=perp, không trùng (exchange, ts_available), funding_rate_bps = funding_rate × 10⁴, OI ts_available = mốc sàn + 1h, OKX OI ×0,01 khớp giá (giá ngầm định 83.492 so với Binance 83.480).
+
+**Chưa đạt validator, cần TV3 sửa trong code rồi xuất lại:**
+
+1. D2 `depth_truncated` phải là bool không null. Toàn bộ 12.954 dòng phiên 17/10 S2 (file thô đời đầu, không đo depth) đang NaN; theo quy ước collector phải là True. Sửa ở `make_live_quotes_long.py` khi bổ sung cột cho file thô cũ. Đồng thời ghi attrs `contract_version="1.1"` (có thể qua `upgrade_d2_frame`). Đã thử trong bộ nhớ: sau hai sửa này D2 qua validator.
+2. D9 trộn `data_kind` (3.938 historical, 384 live) nên validator báo `mixed or missing provenance`. Funding/OI đều lấy từ API lịch sử; đề xuất đặt `data_kind="historical"` cho cả file và thêm cột bool `in_live_window` thay cho nhãn theo dòng. Đã thử trong bộ nhớ: qua validator. Chờ nhóm chốt trước khi đưa vào DATA_CONTRACT.
+
+Chỉ đặt file vào `data/processed/live_quotes_long.parquet` và `data/processed/funding_oi.parquet` sau khi qua validator.
+
+**Bản cuối, TV4 kiểm lại 25/10.** `live_quotes_long.parquet` SHA-256 `50104EDC92BF1D46CE7EB91BBA45344F7D287978C5BF70C59B7DA3BAC59E6F64`: 168.178 dòng × 27 cột, 13 phiên 17/10 S2 → 23/10 S2 (đủ bốn phiên 22–23/10 còn thiếu), 6 venue nghiên cứu, attrs `contract_version="1.1"`, `depth_truncated` bool không null, khóa (session_id, exchange, market_type, ts_grid_utc) không trùng, ts_recv_utc/ts_grid_utc UTC ns. Qua `validate_frame(..., "D2")`; hash trùng `inputs.live_quotes_sha256` trong `config/frozen_t5b.yaml`. `funding_oi.parquet`: 4.412 dòng, một nhãn `data_kind=historical`, qua validator D9. Hai mục «chưa đạt» ở trên đã được TV3 xử lý trong bản này.
+
+**Cách dùng D2 (C3.06), đã đối chiếu với dữ liệu:**
+
+- Một dòng cho mỗi venue × mốc lưới 5 giây. Thông tin chỉ biết tại `ts_recv_utc`; không dùng `ts_grid_utc` làm mốc biết. Phiên S1 07–10h UTC, S2 13–16h UTC; không phủ 24 giờ.
+- Spread bị giới hạn bởi tick: trung vị 0,012 bps, Binance spot 0,0012 bps.
+- Độ sâu: phiên 17/10 S2 không có số đo độ sâu, không dùng cho T4/T6. Phiên 18/10 S1/S2 chỉ có cột 10 bps (dùng `depth_truncated == False`). Từ 19/10 S1 có thêm cột 5/2 bps và `depth_cover_bps` (trung vị ~15 bps); dùng cột 5 bps với `depth_cover_bps >= 5`. Bybit perp bị cắt ở 10 bps khoảng 89% số dòng.
+- Lệch đồng hồ (trung vị ts_recv − ts_event): phiên 18/10 S1 khoảng −3.000 ms, cần đánh dấu hoặc loại khi tính lead-lag; các phiên khác trong khoảng ±630 ms.
+- Binance spot không có ts_event (100% trống), dùng ts_recv_utc.
+- Size OKX perp phiên 17/10 S2 đã quy đổi ×0,01 (2.159 dòng, ghi trong `size_fixes` của manifest); dữ liệu thô không sửa.
+
+**Cách dùng D9 (C3.09), đã đối chiếu với dữ liệu:**
+
+- Một dòng mỗi quan sát: dòng funding tại giờ chốt kỳ, dòng OI tại giờ nến khép, trùng giờ thì gộp (258 dòng có cả hai). Đếm số kỳ funding bằng các dòng có `funding_rate`. Mỗi sàn có một dòng funding đầu tiên với `funding_interval_h` trống.
+- Funding và OI chỉ là biến mô tả cho RQ3 và bảng T1; không đưa funding vào `net_gap_bps`.
+- Funding OKX chỉ có từ 20/07/2026; Binance và Bybit từ 18/10/2025. So sánh ba sàn dùng khoảng chung từ 20/07/2026.
+- OI chỉ có 29 ngày (ts_available 23/09–22/10). Chỉ dùng OI làm biến mô tả cho giai đoạn live, không đưa vào hồi quy trên mẫu lịch sử dài.
+- Bybit không có OI theo USDT (100% trống); so sánh OI giữa các sàn bằng `open_interest_base` (BTC).
