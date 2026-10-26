@@ -685,6 +685,45 @@ def live_latest(live: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def live_mid_dispersion(live: pd.DataFrame, venues: tuple, max_age="5s") -> pd.DataFrame:
+    """Mid dispersion on a 5-second UTC grid, using received quotes only.
+
+    Require every research venue in the market, do not join spot/perp or sessions,
+    and leave stale/missing quotes as NaN. Grid labels never precede receive time.
+    """
+    columns = ["ts_available", "session_id", "market_type", "dispersion_bps", "n_available", "n_expected"]
+    if live.empty:
+        return pd.DataFrame(columns=columns)
+    age = pd.Timedelta(max_age)
+    if age < pd.Timedelta(0):
+        raise ValueError("max_age must be nonnegative")
+    rows = []
+    groups = live.groupby("session_id", dropna=False) if "session_id" in live else live.groupby(live.ts_recv_utc.dt.floor("D"))
+    for session, frame in groups:
+        grid = pd.date_range(frame.ts_recv_utc.min().floor("5s"), frame.ts_recv_utc.max().ceil("5s"), freq="5s").as_unit("ns")
+        left = pd.DataFrame({"ts_available": grid})
+        for market in ("spot", "perp"):
+            expected = [v for v in venues if v.endswith("_" + market)]
+            if len(expected) < 2:
+                continue
+            prices = pd.DataFrame(index=grid)
+            for venue in expected:
+                source = frame.loc[frame.venue.eq(venue), ["ts_recv_utc", "mid"]].sort_values("ts_recv_utc")
+                if source.empty:
+                    prices[venue] = np.nan
+                    continue
+                aligned = pd.merge_asof(left, source, left_on="ts_available", right_on="ts_recv_utc",
+                                        direction="backward", tolerance=age)
+                prices[venue] = aligned["mid"].to_numpy()
+            complete = prices.notna().all(axis=1)
+            value = ((prices.max(axis=1) - prices.min(axis=1)) / prices.mean(axis=1) * 1e4).where(complete)
+            rows.append(pd.DataFrame({"ts_available": grid, "session_id": str(session), "market_type": market,
+                                      "dispersion_bps": value.to_numpy(), "n_available": prices.notna().sum(axis=1).to_numpy(),
+                                      "n_expected": len(expected)}))
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=columns)
+
+
+@st.cache_data(show_spinner=False)
 def _load_live(source: str, mtime: float, venues: tuple = ()):
     """Đọc live_quotes_long (D2). Trả về (DataFrame hoặc None, thông báo). Sai nguồn hoặc sai cột thì báo, không đoán.
     Từ chối: metadata hoặc cột data_kind không phải 'live' (kể cả synthetic), giờ không có múi giờ, giá bid/ask không
@@ -704,12 +743,14 @@ def _load_live(source: str, mtime: float, venues: tuple = ()):
             raise ValueError(f"metadata data_kind={meta!r}, phải là 'live'")
         if df["data_kind"].isna().any() or set(df["data_kind"].unique()) != {"live"}:
             raise ValueError("data_kind phải là 'live'")
-        for col in ("ts_recv_utc", "ts_grid_utc"):
+        for col in ("ts_recv_utc", "ts_grid_utc", "ts_event_utc"):
+            if col not in df:
+                continue  # The contract validator below reports missing D2 columns.
             if not isinstance(df[col].dtype, pd.DatetimeTZDtype):
                 raise ValueError(f"{col} phải có múi giờ (UTC), không tự coi giờ trần là UTC")
-            if df[col].isna().any():
+            if col != "ts_event_utc" and df[col].isna().any():
                 raise ValueError(f"{col} có giá trị thiếu")
-            df[col] = df[col].dt.tz_convert("UTC")
+            df[col] = df[col].dt.tz_convert("UTC").astype("datetime64[ns, UTC]")
         for col in ("bid", "ask"):
             if not (df[col] > 0).all():
                 raise ValueError(f"{col} phải dương và đủ (có giá âm, bằng 0 hoặc thiếu)")
@@ -717,14 +758,16 @@ def _load_live(source: str, mtime: float, venues: tuple = ()):
             raise ValueError("sổ lệnh chéo: có báo giá bid > ask")
         if df["depth_truncated"].isna().any():
             raise ValueError("depth_truncated có giá trị thiếu")
-        df["depth_truncated"] = df["depth_truncated"].astype(bool)
         if venues and not df["venue"].isin(venues).all():
             raise ValueError("venue không có trong panel")
         if not df["venue"].str.rsplit("_", n=1).str[1].eq(df["market_type"]).all():
             raise ValueError("venue không khớp market_type")
+        # Validate the original D2, including optional depth flags, before selecting display columns.
+        # In particular, bool("False") is True: never coerce a malformed flag into a valid one.
+        validate_frame(df, "D2")
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         return None, f"Không dùng được {path.name}: {exc}"
-    return df[LIVE_COLS], None
+    return df[LIVE_COLS + [c for c in ("session_id", "depth_cover_bps") if c in df]], None
 
 
 T5_COLS = ["backtest", "data_kind", "market_type", "latency", "n_signals", "n_filled", "n_positive_net",
@@ -854,7 +897,7 @@ GLOSSARY = {
     "buy_exchange": "Sàn mua trong cặp (sàn rẻ hơn).",
     "sell_exchange": "Sàn bán trong cặp (sàn đắt hơn).",
     "gross_bps": "Chênh lệch giữa giá bán và giá mua lúc sự kiện bắt đầu, trước mọi chi phí, tính bằng bps.",
-    "net_bps": "Chênh lệch lúc bắt đầu sau khi trừ phí taker hai chân, nửa chênh lệch mua–bán, trượt giá và chi phí khác (theo cấu hình của TV6). Dương nghĩa là còn lãi nếu khớp NGAY, chưa tính độ trễ.",
+    "net_bps": "Chênh lệch lúc bắt đầu sau phí taker hai chân, trượt giá và chi phí khác. Proxy lịch sử tính thêm half-spread mỗi chân; live dùng bid/ask đã chứa spread nên không trừ lại. Dương nghĩa là còn lãi nếu khớp NGAY, chưa tính độ trễ.",
 }
 # Tên hiển thị và kiểu định dạng của từng cột (chỉ đổi cách hiển thị, dữ liệu và tên cột gốc giữ nguyên).
 COLUMN_SPECS = {
@@ -1033,8 +1076,9 @@ def live_spread_median(live, t1):
 
 def rank_table(t1: pd.DataFrame, d6, t0, live=None) -> pd.DataFrame:
     """Bảng xếp hạng 6 thị trường: khối lượng (cao tốt), chênh lệch mua–bán live tính từ D2 (thấp tốt), phí taker (thấp tốt),
-    IS và ILS trung bình trên các cửa sổ (cao = ảnh hưởng nhiều hơn), hạng ảnh hưởng tổng hợp = hạng của trung bình hai hạng
-    IS và ILS, tỷ lệ phút thiếu. Hạng 1 = tốt nhất theo từng tiêu chí; giá trị thiếu cho hạng NaN, không làm bảng lỗi."""
+    IS và ILS trung bình trên các cửa sổ, hạng mô tả tổng hợp = hạng của trung bình hai hạng
+    IS và ILS (50/50), tỷ lệ phút thiếu. Không ước lượng ảnh hưởng có hướng hoặc xác định leader.
+    Hạng 1 = cao nhất/thấp nhất theo từng tiêu chí; giá trị thiếu cho hạng NaN."""
     out = t1[["venue", "avg_daily_volume_usdt", "fee_taker_bps"]].copy()
     spread, source = live_spread_median(live, t1)
     out["spread_median_bps"] = out["venue"].map(spread)
@@ -1245,7 +1289,7 @@ def method_html(cfg: dict, fees: dict, vecm: dict, manifest, t4=None) -> str:
             f"Sự kiện chênh lệch: giá bán ở sàn đắt cao hơn giá mua ở sàn rẻ từ {fmt.num(g.get('gap_threshold_bps', np.nan), 1)} "
             "bps trở lên, chỉ ghép các sàn cùng loại hợp đồng.",
             f"Phí taker một chiều (spot / perp, bậc thấp nhất): {fee_txt}.",
-            "Sau phí = trước phí − phí hai chân − nửa chênh lệch mua–bán − trượt giá − chi phí khác. Funding không tính.",
+            "Sau phí = trước phí − phí hai chân − trượt giá − chi phí khác; proxy lịch sử tính thêm half-spread mỗi chân, live bid/ask không trừ spread lần nữa. Funding không tính.",
             f"Backtest A: giá đóng cửa 1 phút, khớp sau {ba.get('latency_min', '?')} phút, {fmt.num(ba.get('qty_btc', 0), 1)} BTC "
             "mỗi lệnh, vốn đặt sẵn ở mọi sàn.",
             f"Backtest B: giá mua/bán live, khớp sau {bb.get('latency_s', '?')} giây, yêu cầu đủ khối lượng ở mức giá tốt nhất.",
@@ -1561,7 +1605,7 @@ def page_compare(c):
         if "r_influence" in rt:
             shown["Hạng IS"] = rt["r_is"].map(fmt.rank)
             shown["Hạng ILS"] = rt["r_ils"].map(fmt.rank)
-            shown["Hạng ảnh hưởng"] = rt["r_influence"].map(fmt.rank)
+            shown["Hạng tổng hợp (mô tả)"] = rt["r_influence"].map(fmt.rank)
         st.subheader("Xếp hạng")
         show_df(shown)
         src = rt.attrs.get("spread_source")
@@ -1575,12 +1619,13 @@ def page_compare(c):
             note += ". Chênh lệch giữa các thị trường rất nhỏ (dưới 0,001 bps) nên hạng mua–bán gần như hòa."
         elif src == "T1":
             note = " Chênh lệch mua–bán lấy từ bảng T1 vì chưa có báo giá live (D2)."
-        st.caption("Hạng 1 = tốt nhất theo từng tiêu chí: khối lượng cao nhất; chênh lệch mua–bán và phí thấp nhất; "
+        st.caption("Hạng 1 tương ứng với: khối lượng cao nhất; chênh lệch mua–bán và phí thấp nhất; "
                    "IS và ILS cao nhất." + note)
         if "r_influence" in rt:
-            st.caption("Hạng ảnh hưởng (tham khảo) = hạng của trung bình hai hạng IS và ILS, tính trên mọi cửa sổ rolling của "
-                       "D6: đo mức thị trường đóng góp vào giá chung, tức ảnh hưởng lên các sàn khác. Chỉ để tham khảo: "
-                       "các khoảng IS chồng nhau nên chưa thể kết luận thị trường nào dẫn giá.")
+            st.caption("Hạng tổng hợp (mô tả) = hạng của trung bình hạng IS điểm giữa và hạng ILS, trọng số 50/50, "
+                       "trên các cửa sổ D6 đang nạp. Đây là quy ước trình bày; thứ tự phụ thuộc trọng số, "
+                       "không đo ảnh hưởng có hướng hay nhân quả giữa các sàn. Các khoảng IS chồng nhau nên "
+                       "chưa thể kết luận thị trường nào dẫn giá; bảng này không thay kết luận RQ1/RQ3.")
         left, right = st.columns(2, gap="large")
         with left.container(border=True):
             st.markdown("#### Khối lượng giao dịch")
@@ -1658,9 +1703,26 @@ def page_price(c):
                        f"Chênh lệch mua–bán trung vị cả mẫu (bps): {med}. Mẫu live là giai đoạn KHÁC dữ liệu lịch sử "
                        "ở trên, nên giá hai bảng khác nhau là bình thường.")
             explain(shown + ["depth_truncated", "spread_bps_median"])
+            st.markdown("#### Độ phân tán mid-price live · cùng mốc thời gian")
+            dispersions = live_mid_dispersion(live, tuple(c.venues))
+            if dispersions.empty:
+                st.info("Cần ít nhất hai thị trường cùng loại để tính độ phân tán mid-price live.")
+            else:
+                columns = st.columns(2)
+                for column, market in zip(columns, ("spot", "perp")):
+                    values = dispersions[dispersions.market_type.eq(market)].sort_values("ts_available")
+                    if values.empty:
+                        continue
+                    last = values.iloc[-1]
+                    column.metric(f"{MARKET_NAME[market]} · mid live", f"{fmt.bps(last.dispersion_bps)} bps")
+                    column.caption(f"{last.ts_available:%d/%m/%Y %H:%M:%S} UTC · "
+                                   f"{last.n_available}/{last.n_expected} thị trường có báo giá còn hạn.")
+                st.caption("Nguồn D2: mid = (bid + ask)/2; (mid cao nhất − thấp nhất)/mid trung bình × 10.000. "
+                           "Đồng bộ theo giờ nhận trên lưới 5 giây, chỉ giữ quote tuổi ≤ 5 giây trong cùng phiên. "
+                           "Thiếu một thị trường thì để trống; không lấy quote tương lai, không nối qua phiên thu.")
 
-    st.subheader("Độ phân tán giá: các sàn cùng loại lệch nhau bao nhiêu?")
-    st.caption("Mỗi phút: (giá cao nhất − giá thấp nhất) / giá trung bình giữa các sàn cùng loại, tính bằng bps "
+    st.subheader("Độ phân tán giá đóng cửa lịch sử")
+    st.caption("Nguồn D3, giá close của nến 1 phút. Mỗi phút: (giá cao nhất − giá thấp nhất) / giá trung bình giữa các sàn cùng loại, tính bằng bps "
                "(1 bps = 0,01%). Số càng lớn thì các sàn càng lệch giá nhau.")
     choice = choose("Khoảng thời gian", list(RANGES) + ["Tùy chọn"], key="range", default="7 ngày")
     custom = None
@@ -1815,12 +1877,17 @@ def page_lead(c):
     if t4 is None:
         st.info(f"Chưa có dữ liệu: cần file {REGRESSION_FILE} (hồi quy của IS theo các yếu tố) trong outputs/tables.")
         return
-    for model, title in (("A", "Mẫu lịch sử (1 phút)"), ("B", "Mẫu live (5 giây)")):
+    for model, title in (("A", "Mẫu lịch sử (1 phút)"), ("B", "Mẫu live (quan sát thị trường × phiên thu)")):
         if (t4["model"] == model).any():
             with st.container(border=True):
                 st.markdown(f"**{title}**")
                 show_df(regression_table(t4, model))
                 sub = t4[t4["model"] == model]
+                if model == "B":
+                    obs = pd.to_numeric(sub["n_obs"], errors="coerce").dropna().unique() if "n_obs" in sub else []
+                    count = f" Mẫu hồi quy có {fmt.num(obs[0])} quan sát." if len(obs) == 1 else ""
+                    st.caption("D2 được thu mỗi 5 giây; hồi quy B tổng hợp theo thị trường × phiên thu, "
+                               "không coi mỗi báo giá 5 giây là một quan sát hồi quy." + count)
                 st.caption("Sai số chuẩn: " + se_text(sub["cov"].iloc[0], sub["n_groups"].iloc[0] if "n_groups" in sub else None)
                            + "." if "cov" in sub else "")
                 sig = [TERM_LABELS.get(x, x) for x, p in zip(sub["term"], sub["p_value"]) if p < 0.05 and x != "const"]
@@ -1850,6 +1917,9 @@ def page_gap(c):
         sources["Live (lưới 5 giây)"] = (c.d7_live, 5)
     src_name = choose("Nguồn sự kiện", list(sources), key="gapsrc") if len(sources) > 1 else None
     view, step_s = sources[src_name] if src_name else sources["Lịch sử (lưới 60 giây)"]
+    selected_source = src_name or "Lịch sử (lưới 60 giây)"
+    st.caption(f"Nguồn sự kiện cho RQ4 và RQ5 trước độ trễ: {selected_source}. "
+               "Kết quả backtest A/B bên dưới dùng các mẫu riêng, được ghi nhãn tại từng bảng.")
     if view is None:
         st.write(d7_msg)
     elif view.empty:
@@ -1880,32 +1950,35 @@ def page_gap(c):
                        "1.000 phút ở chế độ đó chia cho mức tham chiếu (vạch tại 1,0).")
 
     st.subheader("RQ5 · Chênh lệch giá sau phí")
-    if d7 is None:
+    st.caption(f"Nguồn: {selected_source}; cùng tập sự kiện với RQ4 ở trên.")
+    if view is None:
         st.write(d7_msg)
-    elif d7.empty:
+    elif view.empty:
         st.write("Không có sự kiện chênh lệch nào trong dữ liệu này.")
     else:
-        cost = (d7["gross_bps"] - d7["net_bps"]).median()
+        cost = (view["gross_bps"] - view["net_bps"]).median()
         cols = st.columns(3)
-        cols[0].metric("Trước phí (trung vị)", f"{fmt.bps(d7['gross_bps'].median())} bps")
+        cols[0].metric("Trước phí (trung vị)", f"{fmt.bps(view['gross_bps'].median())} bps")
         cols[1].metric("Chi phí hai chân (trung vị)", f"{fmt.bps(cost)} bps")
-        cols[2].metric("Sau phí (trung vị)", f"{fmt.bps(d7['net_bps'].median())} bps")
-        table(gap_summary(d7, "net_bps"), GAP_SUMMARY_COLS)
-        st.caption("Sau phí = trước phí − phí taker hai chân − nửa chênh lệch mua–bán − trượt giá − chi phí khác "
-                   "(theo cấu hình của TV6). Funding rate không nằm trong số này.")
+        cols[2].metric("Sau phí (trung vị)", f"{fmt.bps(view['net_bps'].median())} bps")
+        table(gap_summary(view, "net_bps"), GAP_SUMMARY_COLS)
+        st.caption("Sau phí = trước phí − phí taker hai chân − trượt giá − chi phí khác. "
+                   + ("Proxy lịch sử tính thêm half-spread mỗi chân. " if step_s == 60 else
+                      "Live dùng bid/ask đã chứa spread, không trừ spread lần nữa. ")
+                   + "Đọc kết quả đã tính của TV6; funding rate không nằm trong số này.")
         explain(["net_bps", "trung_vi_bps"])
 
     st.subheader("RQ5 · Còn lãi sau phí và độ trễ khớp lệnh không?")
-    if d7 is None:
+    if view is None:
         st.write(d7_msg)
-    elif d7.empty:
+    elif view.empty:
         st.write("Không có sự kiện chênh lệch nào trong dữ liệu này.")
     else:
         st.markdown("#### Bước 1: nếu khớp lệnh ngay lúc sự kiện bắt đầu")
-        positive = d7[d7["net_bps"] > 0]
+        positive = view[view["net_bps"] > 0]
         columns = st.columns(2)
         for column, market in zip(columns, ("spot", "perp")):
-            group = d7[d7["market_type"] == market]
+            group = view[view["market_type"] == market]
             column.metric(f"{MARKET_NAME[market]}: sự kiện còn lãi sau chi phí",
                           fmt.num(int((positive["market_type"] == market).sum())))
             if len(group):

@@ -19,9 +19,12 @@ def make_live(n=4):
     grid = pd.date_range("2026-10-20 10:00", periods=n, freq="5s", tz="UTC")
     for v in VENUES:
         for i, t in enumerate(grid):
-            rows.append(dict(ts_recv_utc=t + pd.Timedelta(seconds=2), ts_grid_utc=t, venue=v,
-                             market_type=v.rsplit("_", 1)[1], bid=100.0 + i, ask=100.1 + i,
-                             mid=100.05 + i, spread_abs=0.1, spread_bps=1.0 + i, depth_bid_10bps_usdt=np.nan,
+            bid, ask = 100.0 + i, 100.1 + i
+            mid = (bid + ask) / 2
+            rows.append(dict(ts_recv_utc=t + pd.Timedelta(seconds=2), ts_grid_utc=t, ts_event_utc=t,
+                             exchange=v.split("_")[0], symbol="BTC/USDT", venue=v,
+                             market_type=v.rsplit("_", 1)[1], bid=bid, ask=ask, bid_size=1.0, ask_size=1.0,
+                             mid=mid, spread_abs=ask - bid, spread_bps=(ask - bid) / mid * 1e4, depth_bid_10bps_usdt=np.nan,
                              depth_ask_10bps_usdt=5e6, depth_truncated=(i % 2 == 0), data_kind="live"))
     return pd.DataFrame(rows)
 
@@ -36,7 +39,7 @@ def test_live_latest_takes_last_receive_time_per_venue_and_keeps_gaps():
     live = make_live(4).sample(frac=1, random_state=3)  # thứ tự dòng bị xáo
     out = app.live_latest(live).set_index("venue")
     assert out.loc["okx_spot", "bid"] == 103.0  # dòng cuối theo ts_recv_utc, không theo thứ tự trong file
-    assert out.loc["okx_spot", "spread_bps_median"] == pytest.approx(2.5)
+    assert out.loc["okx_spot", "spread_bps_median"] == pytest.approx((0.1 / 101.05 + 0.1 / 102.05) / 2 * 1e4)
     assert out.loc["okx_spot", "n_quotes"] == 4
     assert out["depth_bid_10bps_usdt"].isna().all()  # không lấp ô thiếu
 
@@ -106,3 +109,19 @@ def test_load_live_rejects_synthetic_metadata_even_if_column_says_live(tmp_path)
     pq.write_table(table, path)
     df, msg = app._load_live(str(path), 4.0, VENUES)
     assert df is None and "synthetic" in msg
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"spread_bps": -10.0}, "spread_bps"),
+    ({"spread_bps": 1.0}, "spread_bps"),
+    ({"spread_abs": -0.1}, "spread_abs"),
+    ({"mid": 900.0}, "mid"),
+    ({"depth_truncated": "False"}, "boolean"),
+    ({"depth_truncated": 0}, "boolean"),
+    ({"bid_size": -1.0}, "negative size/depth"),
+    ({"depth_ask_10bps_usdt": -1.0}, "negative size/depth"),
+])
+def test_live_contract_rejects_values_that_would_corrupt_ranking(tmp_path, change, expected):
+    frame = make_live().assign(**change)
+    out, message = app._load_live(write(tmp_path, frame), 11.0, VENUES)
+    assert out is None and expected in message
