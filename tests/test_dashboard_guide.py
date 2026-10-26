@@ -10,7 +10,7 @@ spec.loader.exec_module(app)
 
 def test_guide_lists_every_tab_once_in_tab_order():
     assert [name for name, _ in app.GUIDE_STEPS] == app.TAB_LABELS
-    assert len(set(app.TAB_LABELS)) == len(app.TAB_LABELS) == 6
+    assert len(set(app.TAB_LABELS)) == len(app.TAB_LABELS) == 8
 
 
 def test_every_guide_step_is_a_short_sentence():
