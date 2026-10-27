@@ -102,6 +102,40 @@ def test_leader_counts_needs_exactly_one_leader_per_window():
     assert counts == {"a_spot": 1} and total == 2
 
 
+def _d6(rows):
+    """D6 tối giản: mỗi dòng (ngày, venue, is_mid, cs, ils, status)."""
+    df = pd.DataFrame(rows, columns=["day", "venue", "is_mid", "component_share", "ils", "status"])
+    df["window_start"] = pd.to_datetime(df.pop("day"), utc=True)
+    df["window_end"] = df["window_start"] + pd.Timedelta(days=1)
+    df["leader"] = None
+    return df
+
+
+def test_overall_ranking_counts_top_windows_and_skips_failed_rows():
+    d6 = _d6([("2026-01-01", "a_spot", .5, .2, .4, "ok"), ("2026-01-01", "a_perp", .3, .8, .6, "ok"),
+              ("2026-01-02", "a_spot", .2, .1, .5, "ok"), ("2026-01-02", "a_perp", .4, .9, .5, "ok"),
+              ("2026-01-03", "a_spot", .9, .0, .9, "failed"), ("2026-01-03", "a_perp", .1, .0, .1, "failed")])
+    rank = app.overall_ranking(d6).set_index("venue")
+    assert rank.loc["a_spot", "is_mid_mean"] == pytest.approx(.35)       # cửa sổ lỗi không tính
+    assert rank.loc["a_spot", "top_share"] == .5 and rank.loc["a_perp", "top_share"] == .5
+    assert rank.loc["a_perp", "cs_median"] == pytest.approx(.85)
+
+
+def test_ranking_notes_report_tendency_and_disagreement_without_naming_a_leader():
+    d6 = _d6([("2026-01-01", "a_spot", .2, .9, .4, "ok"), ("2026-01-01", "b_perp", .4, .1, .6, "ok"),
+              ("2026-01-02", "a_spot", .3, .9, .4, "ok"), ("2026-01-02", "b_perp", .5, .1, .6, "ok")])
+    notes = app.ranking_notes(app.overall_ranking(d6))
+    assert notes[0] == "Theo IS điểm giữa, Perp đứng đầu ở 100% số cửa sổ, Spot ở 0%."
+    assert "không cùng chọn" in notes[-1]                                  # CS chọn a_spot, IS và ILS chọn b_perp
+
+
+def test_home_card_leads_with_finding_when_no_window_has_a_leader():
+    idx = pd.date_range("2026-01-01", periods=3, freq="1min", tz="UTC")
+    d6 = _d6([("2026-01-01", "a_spot", .2, .5, .5, "ok"), ("2026-01-01", "b_perp", .4, .5, .5, "ok")])
+    card = app.home_cards(pd.DataFrame(index=idx), ["a_spot", "b_perp"], d6, None, {"t5": None})[1]
+    assert card["big"] == "Chưa xác định" and "Perp đứng đầu ở 100%" in card["note"]
+
+
 def test_regime_rates_skips_reference_rows_and_live():
     t6b = pd.DataFrame({
         "source": ["historical_dev", "historical_dev", "live_calendar"], "dimension": ["weekend", "weekend", "weekend"],

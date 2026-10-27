@@ -247,6 +247,35 @@ def leader_counts(d6: pd.DataFrame):
     return one.value_counts().to_dict(), total
 
 
+def overall_ranking(d6: pd.DataFrame) -> pd.DataFrame:
+    """Xếp hạng MÔ TẢ trên mọi cửa sổ đã ước lượng (status ok): IS điểm giữa trung bình, tỷ lệ cửa sổ thị trường có
+    IS điểm giữa cao nhất (hòa thì tính cho mọi thị trường hòa), CS trung vị, ILS trung bình. Không thay quy tắc khoảng IS."""
+    ok = d6[d6["status"].astype(str).str.lower().eq("ok")]
+    top = ok["is_mid"].eq(ok.groupby(["window_start", "window_end"])["is_mid"].transform("max"))
+    out = ok.assign(top=top).groupby("venue").agg(is_mid_mean=("is_mid", "mean"), top_share=("top", "mean"),
+                                                  cs_median=("component_share", "median"), ils_mean=("ils", "mean"))
+    return out.sort_values("is_mid_mean", ascending=False).reset_index()
+
+
+def ranking_notes(rank: pd.DataFrame) -> list:
+    """Nhận xét tính từ overall_ranking: khuynh hướng spot/perp, độ chênh IS điểm giữa, thị trường đứng đầu theo
+    từng chỉ số. Chỉ mô tả, không kết luận sàn dẫn giá."""
+    notes = []
+    market = rank["venue"].str.rsplit("_", n=1).str[1]
+    if market.eq("perp").any() and market.eq("spot").any():
+        perp, spot = (rank.loc[market.eq(m), "top_share"].sum() for m in ("perp", "spot"))
+        notes.append(f"Theo IS điểm giữa, Perp đứng đầu ở {fmt.pct(perp, 0)} số cửa sổ, Spot ở {fmt.pct(spot, 0)}.")
+    notes.append(f"IS điểm giữa trung bình của {len(rank)} thị trường chỉ từ {fmt.pct(rank['is_mid_mean'].min(), 1)} "
+                 f"đến {fmt.pct(rank['is_mid_mean'].max(), 1)}: mức đóng góp gần như ngang nhau.")
+    tops = {label: rank.loc[rank[col].idxmax(), "venue"] for col, label in
+            (("is_mid_mean", "IS điểm giữa"), ("cs_median", "CS"), ("ils_mean", "ILS")) if rank[col].notna().any()}
+    if tops:
+        agree = ("các chỉ số cùng chọn một thị trường." if len(set(tops.values())) == 1
+                 else "các chỉ số không cùng chọn một thị trường.")
+        notes.append("Đứng đầu theo " + "; ".join(f"{k}: **{venue_name(v)}**" for k, v in tops.items()) + " — " + agree)
+    return notes
+
+
 TERM_LABELS = {"const": "Hằng số", "vol_share_w (z)": "Thị phần khối lượng (chuẩn hóa)",
                "rv_60m (z)": "Biến động thực hiện 60 phút (chuẩn hóa)", "is_perp": "Là Perpetual futures (perp)",
                "rv_live (z)": "Biến động thực hiện live (chuẩn hóa)", "depth_share (z)": "Thị phần độ sâu (chuẩn hóa)",
@@ -888,6 +917,10 @@ GLOSSARY = {
     "ils": "Information Leadership Share (ILS): kết hợp Information Share và Component Share để tách sàn phản ứng nhanh khỏi sàn ít nhiễu. Ở đây là trung bình theo từng cặp sàn nên cộng các dòng lại không bằng 1.",
     "status": "Ước lượng được nghĩa là mô hình chạy được cho cửa sổ này. Giá trị khác là cửa sổ lỗi; xem cột Kết luận.",
     "reason": "Kết luận của cửa sổ. Các khoảng IS chồng nhau nghĩa là chưa đủ bằng chứng để nói sàn nào dẫn giá.",
+    "is_mid_mean": "Trung bình IS điểm giữa của thị trường trên mọi cửa sổ đã ước lượng. Chỉ để xếp thứ tự tham khảo.",
+    "top_share": "Tỷ lệ cửa sổ mà thị trường này có IS điểm giữa cao nhất trong 6 thị trường. Đứng đầu theo điểm giữa chưa phải là dẫn giá, vì khoảng IS vẫn chồng nhau.",
+    "cs_median": "Trung vị Component Share qua các cửa sổ. CS là trọng số có dấu, có thể âm hoặc lớn hơn 1, không đọc như phần trăm.",
+    "ils_mean": "Trung bình ILS qua các cửa sổ (ILS mỗi cửa sổ là trung bình theo từng cặp sàn).",
     "su_kien": "Số sự kiện chênh lệch giá giữa hai sàn trong nhóm. Một sự kiện gom các quan sát liên tiếp mà chênh lệch vượt ngưỡng.",
     "trung_vi_bps": "Trung vị của chênh lệch trong nhóm, tính bằng bps (một nửa số sự kiện lớn hơn số này).",
     "thieu": "Số sự kiện chưa có giá trị (không tính vào trung vị).",
@@ -912,6 +945,8 @@ COLUMN_SPECS = {
     "is_lower": ("IS cận dưới", "share"), "is_upper": ("IS cận trên", "share"),
     "is_mid": ("IS điểm giữa", "share"), "component_share": ("CS (có dấu)", "num"),
     "ils": ("ILS", "num"), "status": ("Trạng thái", "text"), "reason": ("Kết luận", "text"),
+    "is_mid_mean": ("IS điểm giữa TB", "share"), "top_share": ("Đứng đầu theo IS điểm giữa", "share"),
+    "cs_median": ("CS trung vị (có dấu)", "num"), "ils_mean": ("ILS TB", "num"),
     "su_kien": ("Số sự kiện", "int"), "trung_vi_bps": ("Trung vị (bps)", "bps"), "thieu": ("Thiếu giá trị", "int"),
     "ts_start": ("Bắt đầu (UTC)", "time"), "ts_end": ("Kết thúc (UTC)", "time"),
     "duration_s": ("Kéo dài (giây)", "int"), "buy_exchange": ("Mua ở", "text"), "sell_exchange": ("Bán ở", "text"),
@@ -921,6 +956,7 @@ QUOTE_COLS = ["venue", "market_type", "close_usdt", "missing"]
 LIVE_SHOWN_COLS = ["venue", "market_type", "ts_recv_utc", "bid", "ask", "spread_bps",
                    "depth_bid_10bps_usdt", "depth_ask_10bps_usdt", "depth_truncated", "spread_bps_median", "n_quotes"]
 RANK_COLS = ["venue", "is_lower", "is_upper", "is_mid", "component_share", "ils", "status", "reason"]
+OVERALL_RANK_COLS = ["venue", "is_mid_mean", "top_share", "cs_median", "ils_mean"]
 GAP_SUMMARY_COLS = ["market_type", "su_kien", "trung_vi_bps", "thieu"]
 GAP_EVENT_COLS = ["ts_start", "duration_s", "market_type", "buy_exchange", "sell_exchange", "gross_bps", "net_bps"]
 
@@ -1205,10 +1241,17 @@ def home_cards(panel, venues, d6, d7, res) -> list:
     if d6 is not None and not d6.empty:
         counts, total = leader_counts(d6)
         decided = sum(counts.values())
-        cards.append(dict(rq="RQ1 · RQ3", q=RQS[0], big=f"{fmt.num(decided)} / {fmt.num(total)}",
-                          lbl="cửa sổ 1 ngày xác định được sàn dẫn giá",
-                          note="Các khoảng IS chồng nhau: dữ liệu 1 phút chưa đủ để nói sàn nào, hay spot "
-                               "hay perp, dẫn giá."))
+        if decided == 0:
+            # Lead with the finding, not an empty count; the tendency comes from the same descriptive ranking as RQ1.
+            spot_perp = [n for n in ranking_notes(overall_ranking(d6)) if n.startswith("Theo IS điểm giữa, Perp")]
+            tendency = (" " + spot_perp[0]) if spot_perp else ""
+            cards.append(dict(rq="RQ1 · RQ3", q=RQS[0], big="Chưa xác định", lbl="sàn dẫn giá ở tần suất 1 phút",
+                              note=f"Khoảng IS chồng nhau ở cả {fmt.num(total)} cửa sổ 1 ngày, nên chưa nói chắc được "
+                                   f"sàn nào, hay spot hay perp, dẫn giá.{tendency} Chỉ là khuynh hướng."))
+        else:
+            cards.append(dict(rq="RQ1 · RQ3", q=RQS[0], big=f"{fmt.num(decided)} / {fmt.num(total)}",
+                              lbl="cửa sổ 1 ngày xác định được sàn dẫn giá",
+                              note="Các cửa sổ còn lại có khoảng IS chồng nhau: chưa đủ bằng chứng để nói sàn nào dẫn giá."))
     if d7 is not None and not d7.empty:
         single = (d7["n_obs"].eq(1).mean() if "n_obs" in d7 else np.nan)
         note = (f"{fmt.num(single * 100, 1)}% sự kiện chỉ có một quan sát. " if pd.notna(single) else "")
@@ -1614,7 +1657,8 @@ def page_compare(c):
             note = (f" Chênh lệch mua–bán là trung vị tính trực tiếp từ báo giá live (D2) đến "
                     f"{c.live['ts_recv_utc'].max():%d/%m/%Y %H:%M} UTC")
             t1_end = pd.to_datetime(t1["live_last_utc"], utc=True, errors="coerce").max() if "live_last_utc" in t1 else pd.NaT
-            if pd.notna(t1_end) and t1_end < c.live["ts_recv_utc"].max():
+            # T1 CSV stores whole seconds, while D2 retains subsecond receive times.
+            if pd.notna(t1_end) and t1_end.floor("s") < c.live["ts_recv_utc"].max().floor("s"):
                 note += f"; bảng T1 chỉ đến {t1_end:%d/%m/%Y}, nên hạng có thể khác bảng T1"
             note += ". Chênh lệch giữa các thị trường rất nhỏ (dưới 0,001 bps) nên hạng mua–bán gần như hòa."
         elif src == "T1":
@@ -1769,12 +1813,21 @@ def page_lead(c):
     else:
         counts, total = leader_counts(d6)
         decided = sum(counts.values())
-        with st.container(border=True):
-            st.markdown("#### " + ("Không cửa sổ nào xác định được sàn dẫn giá" if decided == 0 else
-                                   f"{fmt.num(decided)} / {fmt.num(total)} cửa sổ xác định được sàn dẫn giá"))
-            plot(charts.leader_share_fig(counts, total, mode, t), "RQ1", "leader_share")
-            st.caption("Dẫn đầu xét theo quy tắc khoảng IS: cận dưới của sàn đó phải lớn hơn cận trên của mọi sàn "
-                       "khác (không chồng nhau); không xét theo ILS > 0,5.")
+        rank = overall_ranking(d6)
+        if not rank.empty:
+            with st.container(border=True):
+                st.markdown(f"#### Xếp hạng tham khảo trên toàn bộ {fmt.num(total)} cửa sổ")
+                st.caption(f"Cửa sổ 1 ngày, bước 1 giờ, {d6['window_start'].min():%d/%m/%Y} → "
+                           f"{d6['window_end'].max():%d/%m/%Y} (tập phát triển và xác thực). Sắp theo IS điểm giữa trung bình.")
+                table(rank, OVERALL_RANK_COLS)
+                st.markdown("\n".join(f"- {n}" for n in ranking_notes(rank)))
+                if decided == 0:
+                    st.info("Kết luận: các khoảng IS chồng nhau ở mọi cửa sổ, nên với dữ liệu 1 phút chưa xác định chắc "
+                            "chắn được sàn nào dẫn dắt giá. Thứ hạng trên chỉ cho thấy khuynh hướng.")
+                else:
+                    st.info(f"Kết luận: {fmt.num(decided)} / {fmt.num(total)} cửa sổ xác định được sàn dẫn giá theo quy tắc "
+                            "khoảng IS; các cửa sổ còn lại chưa đủ bằng chứng. Thứ hạng trên chỉ cho thấy khuynh hướng.")
+                explain(OVERALL_RANK_COLS)
         dates = sorted(d6["window_end"].dt.date.unique())
         day = (st.slider("Xem cửa sổ kết thúc ngày", min_value=dates[0], max_value=dates[-1], value=dates[-1],
                          format="DD/MM/YYYY", key="wdate") if len(dates) > 1 else dates[0])
@@ -1784,11 +1837,38 @@ def page_lead(c):
             st.write("Chưa có cửa sổ rolling nào sẵn sàng tại thời điểm này.")
         else:
             leader, reason = leader_of(window)
-            if leader:
-                st.success(f"Sàn dẫn giá: {venue_name(leader)}")
-            else:
-                code = reason.split(":")[0].strip()
-                st.warning(REASON_TEXT.get(code, reason) + f" ({code}).")
+            with st.container(border=True):
+                st.markdown("#### Xếp hạng trong một cửa sổ")
+                st.caption(f"Cửa sổ {window['window_start'].iloc[0]:%d/%m/%Y %H:%M} → "
+                           f"{window['window_end'].iloc[0]:%d/%m/%Y %H:%M} UTC (chọn ngày ở thanh trượt phía trên). "
+                           "Chọn chỉ số để sắp thứ tự các thị trường.")
+                order_by = choose("Sắp xếp theo", ["IS điểm giữa", "ILS"], key="rq1_rank_metric")
+                metric = "ils" if order_by == "ILS" else "is_mid"
+                # Status/reason only add information when some row failed; the info box below states the conclusion.
+                all_ok = window["status"].astype(str).str.lower().eq("ok").all()
+                shown_cols = [col for col in RANK_COLS if not (all_ok and col in ("status", "reason"))]
+                table(window.sort_values(metric, ascending=False, na_position="last"), shown_cols)
+                summaries = []
+                estimated = window[window["status"].str.lower().eq("ok")]
+                for column, label in (("is_mid", "IS điểm giữa"), ("ils", "ILS")):
+                    values = estimated.dropna(subset=[column])
+                    if not values.empty:
+                        highest = values[column].max()
+                        names = ", ".join(values.loc[np.isclose(values[column], highest), "venue"].map(venue_name))
+                        summaries.append(f"{label} cao nhất: **{names}** ({fmt.num(highest, 4)})")
+                if summaries:
+                    st.markdown("Trong cửa sổ đang xem, theo từng chỉ số (thang 0–1): " + "; ".join(summaries) + ".")
+                if leader:
+                    st.success(f"Sàn dẫn giá theo quy tắc khoảng IS: {venue_name(leader)}")
+                else:
+                    code = reason.split(":")[0].strip()
+                    st.info(REASON_TEXT.get(code, reason) + ". Thứ hạng trong bảng chỉ mang tính mô tả; "
+                            "hiện chưa đủ bằng chứng để kết luận sàn dẫn giá rõ ràng.")
+                st.caption("IS điểm giữa và ILS cao hơn cho thứ hạng cao hơn theo từng chỉ số; thứ tự có thể khác nhau. "
+                           "Bảng không đo tác động có hướng hay quan hệ nhân quả giữa các sàn. "
+                           "Component Share là trọng số có dấu, có thể âm hoặc lớn hơn 1. "
+                           "ILS ở đây là trung bình theo cặp, tổng các dòng không bắt buộc bằng 1.")
+                explain(shown_cols)
             c1, c2, c3 = st.columns(3)
             c1.metric("Số cửa sổ rolling (1 ngày, bước 1 giờ)", fmt.num(total))
             c2.metric("Cửa sổ xác định được sàn dẫn", fmt.num(decided))
@@ -1800,6 +1880,12 @@ def page_lead(c):
                 st.info(f"Kết quả sàn dẫn giá có đến {d6['window_end'].max():%d/%m/%Y}, tức {stale.days} ngày "
                         "trước phút cuối của dữ liệu: chỉ tính trên tập phát triển và xác thực, tập kiểm tra cuối "
                         "không dùng ở bước này.")
+        with st.expander("Tổng hợp khả năng xác định sàn dẫn giá trên toàn bộ mẫu rolling"):
+            st.markdown("#### " + ("Chưa phân biệt được sàn dẫn giá trong các cửa sổ đã ước lượng" if decided == 0 else
+                                   f"{fmt.num(decided)} / {fmt.num(total)} cửa sổ xác định được sàn dẫn giá"))
+            plot(charts.leader_share_fig(counts, total, mode, t), "RQ1", "leader_share")
+            st.caption("Chỉ xác định leader khi cận dưới IS của sàn đó lớn hơn cận trên IS của mọi sàn khác. "
+                       "Xếp thứ tự theo IS điểm giữa hoặc ILS không thay thế điều kiện này.")
         with st.container(border=True):
             st.markdown("#### IS điểm giữa của 6 thị trường theo thời gian")
             pick = st.selectbox("Vẽ dải cận dưới–cận trên cho", sorted(d6["venue"].unique()), format_func=venue_label,
@@ -1819,10 +1905,6 @@ def page_lead(c):
                                "đường là IS điểm giữa, đều trung bình theo ngày; đường chấm dọc là cuối tập phát triển (thời điểm "
                                f"khóa đặc tả). Độ rộng khoảng IS trung vị là {fmt.num((d6['is_upper'] - d6['is_lower']).median(), 2)} "
                    "(thang 0 đến 1): IS chưa xác định chính xác ở hầu hết thời điểm.")
-                table(window.sort_values("is_mid", ascending=False), RANK_COLS)
-                st.caption("Component Share (CS) có thể âm hoặc lớn hơn 1: đó là trọng số có dấu (tổng các sàn bằng 1), "
-                           "không phải phần trăm. ILS ở đây là trung bình theo từng cặp sàn nên cộng lại không bằng 1.")
-                explain(RANK_COLS)
 
     st.subheader("RQ3 · Spot hay perp dẫn giá?")
     xcorr, t3c = res.get("xcorr"), res.get("t3c")

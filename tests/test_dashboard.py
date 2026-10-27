@@ -142,7 +142,8 @@ def test_app_with_rolling_and_gap_tables(panel_file, tmp_path):
     visit(at, "Sàn dẫn giá")
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
-    assert any("overlapping_bounds" in w.value for w in at.warning)      # leader trống hiển thị đúng lý do
+    assert any("chưa đủ bằng chứng" in w.value for w in at.info)  # có ước lượng nhưng chưa nhận diện được leader
+    assert not any("Sàn dẫn giá theo quy tắc" in s.value for s in at.success)
     visit(at, "Chênh lệch giá & lợi nhuận")
     assert not at.exception
     spot, perp = [m.value for m in at.metric if "còn lãi" in m.label]

@@ -81,3 +81,24 @@ def test_gap_without_live_retains_historical_source():
     at = AppTest.from_string(gap_page_source(False), default_timeout=30).run()
     assert not at.exception
     assert {m.label: m.value for m in at.metric}["Sau phí (trung vị)"] == "−80,00 bps"
+
+
+@pytest.mark.parametrize("t1_end, outdated", [("2026-10-23T15:59:55Z", False), ("2026-10-22T15:59:55Z", True)])
+def test_compare_t1_csv_second_precision_does_not_report_a_current_sample_as_old(t1_end, outdated):
+    # T1's CSV writer uses whole seconds; D2 retains the actual microsecond receive time.
+    source = f'''
+import pandas as pd
+from types import SimpleNamespace
+from dashboard import app
+t1 = pd.DataFrame(dict(venue=["binance_spot"], avg_daily_volume_usdt=[1000.], avg_daily_volume_btc=[.01],
+                      fee_taker_bps=[10.], live_last_utc=[{t1_end!r}]))
+live = pd.DataFrame(dict(venue=["binance_spot"], spread_bps=[.01],
+                        ts_recv_utc=[pd.Timestamp("2026-10-23T15:59:55.845024Z")]))
+panel = pd.DataFrame(index=pd.date_range("2026-09-30", periods=2, freq="min", tz="UTC"))
+c = SimpleNamespace(res=dict(t1=t1,t0=None), live=live, d6=None, panel=panel,
+                    venues=["binance_spot"], mode="Sáng", t=app.palette("Sáng", "#3A6FD8"))
+app.page_compare(c)
+'''
+    at = AppTest.from_string(source, default_timeout=30).run()
+    assert not at.exception
+    assert any("bảng T1 chỉ đến" in c.value for c in at.caption) == outdated

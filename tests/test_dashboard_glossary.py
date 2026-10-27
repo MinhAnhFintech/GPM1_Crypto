@@ -13,6 +13,7 @@ SHOWN = {
     "quotes": app.QUOTE_COLS,
     "live": app.LIVE_SHOWN_COLS,
     "rank": app.RANK_COLS,
+    "overall_rank": app.OVERALL_RANK_COLS,
     "gap_summary": app.GAP_SUMMARY_COLS,
     "gap_events": app.GAP_EVENT_COLS,
 }
