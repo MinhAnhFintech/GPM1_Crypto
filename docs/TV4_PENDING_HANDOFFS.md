@@ -1,4 +1,4 @@
-# TV4 — trạng thái và phụ thuộc hiện tại, 26/10/2026
+# TV4 — trạng thái và phụ thuộc hiện tại, 27/10/2026
 
 Các bảng trong phần «Nhật ký 21/10» bên dưới ghi lịch sử, không dùng để xác định đầu vào còn chờ hiện tại. Không cập nhật trạng thái Excel hoặc xuất bản báo cáo chung từ tài liệu này.
 
@@ -8,7 +8,7 @@ Các bảng trong phần «Nhật ký 21/10» bên dưới ghi lịch sử, khô
 | --- | --- |
 | C4.01–C4.07 | Repo, hợp đồng D1–D9, D2/D9 mở rộng v1.1, hai bộ fixtures, UTC/I/O/schema, templates, previous-tick và kiểm thử thời gian. Validator chung chặn nhãn cột/metadata mâu thuẫn. |
 | C4.08–C4.10 | D3 thật 501.119 × 24, sáu venue, không missing; D4 300.671/100.223/100.225, fingerprint 9420d92f…56a4; đủ 165 xcorr đã kiểm NumPy. Khoảng mẫu đã xác nhận trong config, không còn chờ chốt sample. |
-| C4.11 | Đã merge Ly #33 (09b9aff) và Thanh #35 (4e5b138, dashboard C2.08 kèm sửa kiểm D2; RQ4 có nguồn D7 live 3.209 sự kiện, trung vị 5 giây). Ny #32 đã đóng không merge: #35 dựng trên cùng nhánh, các sửa ở commit 9632246 của Ny (validator D2, chọn quote theo ts_recv_utc, cờ depth_truncated) đã có trên dev. Huỳnh #34 head 07caa1a còn một lệnh lỗi. |
+| C4.11 | Đã merge Ly #33 (09b9aff) và Thanh #35 (4e5b138, dashboard C2.08 kèm sửa kiểm D2; RQ4 có nguồn D7 live 3.209 sự kiện, trung vị 5 giây). Ny #32 đã đóng không merge: các sửa ở commit 9632246 của Ny đã có trên dev. Huỳnh #34 đã merge (b461047, head 76b1ec4): README dùng lệnh một bước `run_all.py`, T0b chỉ liệt kê là bảng có sẵn, không còn lệnh cần raw live. |
 | C4.12 | config.yaml đăng ký 19 stage CLI thật; một lệnh từ D1 đến bảng/hình đã đạt 19/19. Đã đối chiếu hash 41 output và toàn bộ nguồn/config. Bộ TV5 của Châu (T2/T3/T3b/T3d, 12/12 hash khớp SHA256SUMS) đã đưa vào outputs/tables; bản TV4 tái lập từ D1 cho cùng số dòng/cột, cùng leader/status/kết luận, sai khác số tối đa 4e-4 trên thống kê kiểm định. Đã nghiệm thu raw → D1 (26/10): sáu file raw Ny đưa lên Drive crypto/raw_ohlcv_D1_A162, chạy `src/features/ohlcv_long.py` trên dev 26e60b9 cho D1 3.006.714 dòng trùng byte A162…09F3; hàm đọc raw của `run_all --mode raw` cho cùng giá trị. Hash từng file raw trong outputs/tv4_raw_d1_rebuild.json. |
 | C4.13 | Strict TV5 đạt multi/spot_perp, original/identified_cs; không còn chờ hàm TV5. |
 | R4.01/R4.02 | Nội dung phương pháp và phụ lục đã có trong docs/TV4_REPORT.md; còn xác nhận đã vào báo cáo chung. |
@@ -23,12 +23,11 @@ Phần TV4 và cấu hình 19 stage được rebase lên dev sau PR #35 (không 
 
 | Người / mã việc | Cần nhận cụ thể | Phần bị chặn |
 | --- | --- | --- |
-| Huỳnh — #34, C1.08 | Head 07caa1a đã sửa ba lệnh cũ (stress_regime, plot_c2_05, run_live_is); 28 lệnh import được, cờ đều tồn tại. Còn chặn: `python -m scripts.exchange_characteristics` không truyền tham số bắt buộc (--ohlcv, --live, --funding, --manifest, --out). Góp ý: thêm lệnh một bước `python run_all.py --mode historical --config config/config.yaml`; mục 9 thiếu T3d_ils_summary.csv. | README/hướng dẫn máy sạch. |
-| Huỳnh — C1.07 | Cập nhật T1 bằng D2 cuối 13 phiên tới 23/10; T1 hiện trong outputs dùng D2 cũ tới 22/10. Bản tái lập ở thư mục pipeline cô lập đã có để đối chiếu. | Đồng bộ bảng báo cáo. |
-| Huỳnh — C1.05 | Đối chiếu/bổ sung D9 `in_live_window` trong data dictionary theo phần D9 v1.1 của DATA_CONTRACT; boolean không null, không phải nhãn nguồn live. | Tài liệu mô tả khớp dữ liệu cuối và hợp đồng mới. |
+| Huỳnh — C1.07 | Đã đồng bộ T1 bằng D2 cuối 168.178 báo giá/13 phiên tới 23/10; số dòng từng venue và dev+val đã kiểm. | Không còn chờ T1. |
+| Huỳnh — C1.05 | Đã tích hợp bản dictionary từ nhánh 4b84343, cập nhật D2 đủ 13 phiên, D4 test_consumed=true và đầy đủ ý nghĩa D9 in_live_window v1.1. | Không còn chờ dictionary. |
 | Huỳnh — biên tập R4.01/R4.02 | Xác nhận đã đưa mục 4.1, 4.10 và phụ lục TV4 vào báo cáo chung, dùng trạng thái test đã khóa và mẫu đã xác nhận. | Đóng bàn giao báo cáo TV4. |
 
-D1 mới, D2 cuối 168.178 dòng/13 phiên, D9 historical, D3/D4, D5/D6 và các CLI đã có bằng chứng nhận/chạy; không cần xin lại dữ liệu live. D5 được dựng ở thư mục pipeline cô lập. Giữ phạm vi nghiên cứu sáu venue Binance/OKX/Bybit spot + perp, collector năm sàn/tám venue gồm Kraken/Coinbase không đổi.
+D1 mới, D2 cuối 168.178 dòng/13 phiên, D9 historical, D3/D4, D5/D6 và các CLI đã có bằng chứng nhận/chạy; không cần xin lại dữ liệu live. D3b và D5 bàn giao đã được kiểm hash/giá trị rồi đặt tại data/processed; live_session_is được khôi phục từ lượt pipeline đã kiểm. outputs/pipeline_report.json hiện là snapshot xác minh 19 stage với test_consumed=true; không phải lần chạy lại mô hình. Giữ phạm vi nghiên cứu sáu venue Binance/OKX/Bybit spot + perp, collector năm sàn/tám venue gồm Kraken/Coinbase không đổi.
 
 Nguồn bằng chứng: docs/TV4_PIPELINE_INTEGRATION.md, docs/TV4_HISTORICAL_HANDOFF.md và outputs/tv4_research_pipeline_validation.json.
 
@@ -59,7 +58,7 @@ M2 và lead-lag từ D3 không phụ thuộc mô hình IS/ILS. D2 live và fundi
 | Tích hợp/kiểm đồng bộ D2 thật, hỗ trợ C4.11/C4.12 | Đã nhận bản cuối của TV3 (25/10) | D2 13 phiên, 168.178 dòng, SHA-256 50104EDC…6F64 qua validator D2 v1.1 (UTC ns, depth_truncated bool, khóa không trùng); trùng hash đã khóa trong frozen_t5b.yaml. D9 qua validator, một nhãn historical. Chi tiết trong docs/TV3_COLLECTOR_HANDOFF.md |
 | C4.13 kiểm chứng IS/CS/ILS trên fixtures | Đã hoàn thành kiểm chứng và merge PR TV5 #7 vào dev d318a36 ngày 20/10 | Strict 4/4 trên original/identified_cs × multi/spot_perp; không còn chờ hàm TV5. Xem docs/TV5_PR7_REVIEW.md. Kết quả synthetic không thay nghiệm thu mẫu thật |
 | C4.12 pipeline nghiên cứu đầy đủ | Không còn chờ CLI | 26/10: config.yaml đăng ký 19 stage CLI thật; một lệnh chạy D1 → D3/D4 → mọi bảng/hình, 19/19 passed, full_research_pipeline_complete=true, final test không đụng. Kết quả khớp bàn giao (phần lớn trùng byte). Chạy ở thư mục cô lập, outputs/ không đổi. Xem docs/TV4_PIPELINE_INTEGRATION.md |
-| C4.11 review hằng ngày | PR/commit tiếp theo của các thành viên | Đã xử lý tới PR #35. Dashboard C2.08 vào dev qua #35 (4e5b138) với kiểm D2 và nguồn nhất quán; #32 đóng không merge vì #35 đã bao phần sửa. Còn #34 (README C1.08) |
+| C4.11 review hằng ngày | PR/commit tiếp theo của các thành viên | Đã xử lý tới PR #35 và #34. Dashboard C2.08 vào dev qua #35 (4e5b138) với kiểm D2 và nguồn nhất quán; #32 đóng không merge vì #35 đã bao phần sửa; README C1.08 vào dev qua #34 (b461047). Trang Sàn dẫn giá mở đầu RQ1 bằng xếp hạng mô tả gộp 6.658 cửa sổ (IS điểm giữa, tỷ lệ đứng đầu, CS, ILS) kèm kết luận chưa xác định sàn dẫn giá ở tần suất 1 phút |
 | R4.01 phương pháp 4.1/4.10 | Nhóm xác nhận khoảng mẫu; TV1 đưa nội dung vào báo cáo chung | Đã viết và bổ sung số dòng/biên/missing thật; không còn chờ dữ liệu để viết phần này |
 | R4.02 kiến trúc và tái lập | TV1 đưa vào báo cáo chung | Đã bổ sung phụ lục toàn pipeline nghiên cứu trong docs/TV4_REPORT.md: bảng stage, lệnh tái lập một lệnh, thời gian chạy và kết quả đối chiếu |
 

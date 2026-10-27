@@ -1,23 +1,197 @@
 {
-  "run_id": "0cff10c4e51445b693011ec26e710a0d",
+  "report_type": "existing_artifact_validation",
+  "run_id": "validation-5c684b4b0bd7478087a651dfb69cfcbd",
+  "validated_at_utc": "2026-10-27T07:19:32.018690+00:00",
   "mode": "historical",
-  "pipeline_status": "foundation_only",
+  "pipeline_status": "validated_existing_outputs",
   "foundation_status": "passed",
-  "team_stages": [],
-  "pending_team_stages": [
-    "cost_backtest",
-    "evaluation",
-    "features",
-    "price_discovery",
-    "regime_flags"
+  "team_stages": [
+    {
+      "name": "features",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "data/processed/features_1m.parquet": "e94dc152cf303cf237f100b7eeb052d0e08955fbf86303502cdabad4f8652b8d"
+      }
+    },
+    {
+      "name": "regime_flags",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "data/processed/regime_flags.parquet": "7ca7212464493077c83dad07cde20bd9e9be71e2f087234ed75640348b678d2f",
+        "data/processed/regime_flags_receipt.json": "db763be1e332ba0d7acefe3b380934bc82a16bd6478d5fd1e945c2d714bbbf92"
+      }
+    },
+    {
+      "name": "price_discovery",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T2_stationarity_dev.csv": "2e3eb500b29934d54561ab9b5dc450ac8f6f8800f577640cf15edc831dc1bf0b",
+        "outputs/tables/T2_stationarity_val.csv": "a44b2d70059ae9f06a70a17b4199a1e7ca256e8230f397b4994cb8e71f9da33e",
+        "outputs/tables/T2_johansen_dev.csv": "5614a94f92f763c03b012371fa7686498adde67264deeadb9bd302b0ab46e827",
+        "outputs/tables/T2_johansen_val.csv": "92dfc2c26b435e964fd9ee13de1c9d3bbb8415f509f5404d793e4243a752c1ae",
+        "outputs/tables/T3_static_is_cs.csv": "4c2f839a690310de5a1826ea8fc3860e83b07948e0971d1e11afaea73a80b495",
+        "outputs/tables/T3_vecm_diagnostics.csv": "f406c45fdaf41a1520f212b95de79fd9db37dd4d604cd2c1003634b05cd63437",
+        "outputs/tables/T3d_ils.csv": "76f05f1bce5d67d5d04c86786c6fa1e96f282a9197b748340c9d5157502be9ef",
+        "outputs/tables/T3d_ils_summary.csv": "0a8caad5679aab911610deb038dadb1c3439517a755c733837db1f5ebb93d4e6",
+        "outputs/tables/T3c_spot_perp.csv": "4694ee2e2cd62c05bcc365bdcd336a31aecae52a225ea166981b529517964b01",
+        "outputs/tables/rolling_is.parquet": "5cbfbf93d260a63e6b8d525d2cd8b0ec6a02b98058f3a6ae3fb642054635cb92",
+        "outputs/tables/T3b_sensitivity.csv": "97baa1ca70a164a4e141ae717225e38f0169a9ac9e5277f87bd7ce9a71264d65"
+      }
+    },
+    {
+      "name": "price_discovery_live",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "data/processed/live_session_is.parquet": "06e6ce4fea8dfd182fb6d8b347e1c9d2339be1cef5f9cb0af6481b941ccd624c"
+      }
+    },
+    {
+      "name": "cost_gap_events_live",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/gap_events.parquet": "17600e69ba5fb2c6536c0d40e41426c42b678ce923d64c620abfc77563de6d7a"
+      }
+    },
+    {
+      "name": "cost_gap_events_historical",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/gap_events_historical.parquet": "440dd295b1d8c26dae399e0265aa408d5f3558caf1e10ebd5b8e147959d6b159"
+      }
+    },
+    {
+      "name": "cost_backtest_a",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/backtest_a_dev_L1_ledger.parquet": "69a69b88234809be61e33e9390f1d7a0d69ed38baaa39ef8cf6ce1640f28cc02",
+        "outputs/tables/backtest_a_dev_L1_summary.csv": "eefcc5e96d8f56efc809ac82608156010b510febaa24b5f9be8feba4c7fcc409",
+        "outputs/tables/backtest_a_dev_L1_params.json": "dd8eaa291e1a23520cf5505eef6ed6e321a5ed8d54b3bae955bace8773399bda",
+        "outputs/tables/half_spread_calibration.csv": "31b4f301672d29ab540e4ab43b11f5a030a4db5333fef763e5b4313fcd96a63e"
+      }
+    },
+    {
+      "name": "cost_backtest_b",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/trades_ledger.parquet": "0147a4fae6ff0399a3b3644b3299b30b9745892f826b898e80aa462b8f2df2e0",
+        "outputs/tables/backtest_b_L5s_summary.csv": "2c7b51ba137930cb0340a393560315f296bf328874b424c33556c6a04ce93ea8",
+        "outputs/tables/backtest_b_L5s_by_market.csv": "eb748215c2541015df3d8858e0fcd3ce43d0b79c8fb7d80292dc4a42b32cb419",
+        "outputs/tables/backtest_b_L5s_params.json": "1f1af29705c883d71db33936973b567b97c69497e61ce47e8c63a254e2328e62"
+      }
+    },
+    {
+      "name": "cost_backtest",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T5_arbitrage_net.csv": "02a001deb7a25650e00c7aa139445619bbeb864d9f6c8570bf872bc48d262ac3",
+        "outputs/tables/T5_arbitrage_net_sources.json": "158b882e5548d428306962af5876f4fda3e27052fc6e24329732eb6169d1d3dc"
+      }
+    },
+    {
+      "name": "cost_reconcile",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T5c_ledger_reconciliation.csv": "4a61f2f374f3faca867811cd6f538d55b445e47c230650e10f2f732f9c8ed831",
+        "outputs/tables/T5c_ledger_balances.csv": "b83acb3c5fd1b5a7df44263d7fcb948cf286a5bf32cd51c0de9ae96108c8b7a3"
+      }
+    },
+    {
+      "name": "cost_regime",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T6b_gap_by_regime.csv": "8e3e613cbd3e4f70a7a80e6a8838414e79b79f40ad042a4c8d589bbadfda3312",
+        "outputs/tables/T6b_gap_by_regime_sources.json": "58fa9224617a2f652837264d868a0e736c02eff974333e12dcd5020095fd507d"
+      }
+    },
+    {
+      "name": "cost_figures",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/figures/F4_gap_duration.png": "24e211b2fabae7c4587eea38aceac98d62f2241ef29d5f1df54581f593447005",
+        "outputs/figures/F5_cumulative_pnl.png": "49e3ba1903a44b64576bf283424255da922a88bb785fca549ac2da4205e199ce"
+      }
+    },
+    {
+      "name": "evaluation_liquidity",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T4_leadership_determinants.csv": "11532e7d7847267a1180f0a59eec79ac383b4677cd980614681911648f63a476"
+      }
+    },
+    {
+      "name": "evaluation",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T6_stress.csv": "017529f484e11211b5c6b367cc6cd5fc273d8cd27c7e36f4d37d562f8c7fb26f"
+      }
+    },
+    {
+      "name": "exchange_characteristics",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/tables/T1_exchange_characteristics.csv": "432efd9ad1f8b723aae053c981201e660881d90ec881e7fb6d7b0941cb791810"
+      }
+    },
+    {
+      "name": "figures_f1_f2",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/figures/F1_synchronized_prices.png": "65c75fadbb550bfa9eabfbf7625dcbf384af82dd2fab8e0a63bc1518c3491fac",
+        "outputs/figures/F2_price_dispersion.png": "fa8db38eeece3e611bed53cd9bd978c2798e4773d5677a085f5c866a5f364c09"
+      }
+    },
+    {
+      "name": "figures_f3",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/figures/F3_rolling_is_bounds.png": "ce8451665caf3c27336c69652788129ac8a1b4af4bb2e7da6c66597c7a95e97c"
+      }
+    },
+    {
+      "name": "figures_f6",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/figures/F6_leadlag_xcorr.png": "b8bea0552e85eb6ed92e651a6cfe1093aa0f8293a90876cd6367801a650109f9"
+      }
+    },
+    {
+      "name": "figures_f7",
+      "status": "passed",
+      "validation_only": true,
+      "outputs_sha256": {
+        "outputs/figures/F7_spot_perp_is_ils.png": "251464c7f3a8c5e8ab2164db7f351b7e81838ab2fb2bbf97d19dff2916f8a798"
+      }
+    }
   ],
-  "full_research_pipeline_complete": false,
+  "pending_team_stages": [],
+  "full_research_pipeline_complete": true,
   "analysis_split": "dev",
-  "test_consumed": false,
-  "data_kind": "historical",
-  "source": "tmp\\review\\c203-a162-ohlcv_1m_long.parquet",
+  "test_consumed": true,
+  "final_test_lock_present": true,
+  "final_test_rerun": false,
+  "stages_executed_in_this_validation": 0,
+  "note": "Validates the current canonical artifacts against the accepted handoffs and the earlier successful 19-stage execution. No research models or final test were rerun.",
+  "source": "data/interim/ohlcv_1m_long.parquet",
   "source_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
-  "config_sha256": "885c5d4b59a9078685d07c6ba8ebac24d8ea56249f8ee0896f90dc5343c571ad",
+  "config_sha256": "dd05cf3f8210d934204612ffa1993aa0433177d06b31eaba507bf41712d29f8a",
   "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
   "rows": 501119,
   "venues": [
@@ -28,20 +202,48 @@
     "okx_perp",
     "okx_spot"
   ],
-  "canonical_source": "data\\interim\\ohlcv_1m_long.parquet",
-  "data_revision": {
-    "previous_d1_sha256": "fea20184f835471ebdd48d43f7d697d36195bab74f1b7df3b790d20f9b23e09f",
-    "source_d1_sha256": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
-    "previous_panel_fingerprint": "e3fa598191fdcf0632bf07cb12967ff9cdf282e844c96eada90ef0bf36bb88be",
-    "panel_fingerprint": "9420d92ff9d5d0a334d8289b16bc56cb9b86720150d86316b03ff768325356a4",
-    "changed_d3_columns": {
-      "volume_base__okx_spot": 501119
+  "inputs": {
+    "data/interim/ohlcv_1m_long.parquet": "a162affaeae0ae16bd4f52dd9b1abd68c226555c8665d3bef3af73757f8209f3",
+    "data/processed/live_quotes_long.parquet": "50104edc92bf1d46ce7eb91bba45344f7d287978c5bf70c59b7da3bac59e6f64",
+    "data/processed/funding_oi.parquet": "dae72d54ab4c7923abc58313f422019893c568997d2f96b52adeb87763815c04",
+    "config/config.yaml": "dd05cf3f8210d934204612ffa1993aa0433177d06b31eaba507bf41712d29f8a",
+    "config/events.yaml": "50623fda1699a0b65fa12c129ac855f78f62c95ad0dfe1cbb79526e79404d385",
+    "config/fees.yaml": "0610f61021572b7eae0f915172ddc6031910f687d3f79b5a230af11ce22aaa5e"
+  },
+  "previous_research_execution": {
+    "run_id": "009726d84a464afd8eb68e43bf22ee65",
+    "pipeline_status": "passed",
+    "full_research_pipeline_complete": true,
+    "stage_count": 19,
+    "test_consumed_in_that_isolated_run": false,
+    "report": "tmp/c412-research/outputs/pipeline_report.json",
+    "report_sha256": "b028e7b3d2447f60ee3017c015a35fd72ddeba24bc7a079886a88096cc9a5aa3",
+    "tracked_evidence": "outputs/tv4_research_pipeline_validation.json"
+  },
+  "restored_handoffs": [
+    {
+      "file": "data/processed/features_1m.parquet",
+      "source": "C:\\Users\\ADMIN\\Downloads\\crypto-20261026T154422Z-1-001\\crypto\\features_1m.parquet",
+      "sha256": "e94dc152cf303cf237f100b7eeb052d0e08955fbf86303502cdabad4f8652b8d"
     },
-    "split_boundaries_unchanged": true,
-    "test_consumed": false,
-    "previous_release_archive": "data\\processed\\_revisions\\d1-fea20184f835471e",
-    "price_and_leadlag_results_unchanged": true,
-    "raw_rebuild_verified": false,
-    "raw_note": "Corrected D1 received directly; prior raw release is historical and does not reproduce corrected OKX spot BTC volume."
+    {
+      "file": "data/processed/regime_flags.parquet",
+      "source": "C:\\Users\\ADMIN\\Downloads\\regime_flags-20261026T155751Z-1-001\\regime_flags\\regime_flags.parquet",
+      "sha256": "7ca7212464493077c83dad07cde20bd9e9be71e2f087234ed75640348b678d2f"
+    },
+    {
+      "file": "data/processed/regime_flags_receipt.json",
+      "source": "C:\\Users\\ADMIN\\Downloads\\regime_flags-20261026T155751Z-1-001\\regime_flags\\regime_flags_receipt.json",
+      "sha256": "db763be1e332ba0d7acefe3b380934bc82a16bd6478d5fd1e945c2d714bbbf92"
+    },
+    {
+      "file": "data/processed/live_session_is.parquet",
+      "source": "C:\\Users\\ADMIN\\Downloads\\GPM!\\GPM1_Crypto\\tmp\\c412-research\\data\\processed\\live_session_is.parquet",
+      "sha256": "06e6ce4fea8dfd182fb6d8b347e1c9d2339be1cef5f9cb0af6481b941ccd624c"
+    }
+  ],
+  "dictionary_source": {
+    "branch": "feat/tv1-c1-05-data-dictionary",
+    "commit": "4b843436c5322fd7d0ca79647134610685ebe7bc"
   }
 }
